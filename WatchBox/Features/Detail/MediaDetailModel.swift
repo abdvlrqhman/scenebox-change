@@ -171,6 +171,12 @@ final class MediaDetailModel {
             season: episode?.season, episode: episode?.episode)) ?? []
         var remaining = found
         var ranked: [TorrentStream] = []
+        // The source that played last time for this episode goes first.
+        if let last = SourceMemory.last(mediaID: mediaID, season: episode?.season, episode: episode?.episode),
+           let match = found.first(where: { SourceKey.make($0) == last.sourceKey }) {
+            ranked.append(match)
+            remaining.removeAll { $0.id == match.id }
+        }
         while ranked.count < limit,
               let best = StreamPicker.best(from: remaining,
                                            preferredResolution: settings.preferredResolution,

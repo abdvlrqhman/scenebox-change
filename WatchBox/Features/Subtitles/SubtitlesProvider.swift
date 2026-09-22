@@ -151,8 +151,8 @@ actor SubtitlesProvider {
     }
 
     /// Warms the list and the preferred-language file while a stream buffers.
-    func prefetch(context: SubtitleContext, preferredLanguage: String) async {
-        _ = await bestFile(for: context, language: preferredLanguage)
+    func prefetch(context: SubtitleContext, preferredLanguage: String, preferredID: String? = nil) async {
+        _ = await bestFile(for: context, language: preferredLanguage, preferredID: preferredID)
     }
 
     // MARK: Files

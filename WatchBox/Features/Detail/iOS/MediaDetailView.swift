@@ -410,6 +410,8 @@ struct MediaDetailView: View {
                 imdbID: mediaID, type: type,
                 season: episode?.season, episode: episode?.episode)
                 .withRelease(download.record.localRelativePath ?? download.record.releaseName)
+                .withSource(SourceKey.make(streamID: download.record.torrentKey,
+                                           fileIndex: download.record.fileIndex))
             let progressContext = WatchProgressContext(
                 mediaID: mediaID, mediaType: type, title: name, posterURL: detail?.posterURL,
                 season: episode?.season, episode: episode?.episode, episodeID: episode?.id)
@@ -528,6 +530,7 @@ struct MediaDetailView: View {
             imdbID: mediaID, type: type,
             season: episode?.season, episode: episode?.episode)
             .withRelease(stream.title)
+            .withSource(SourceKey.make(stream))
 
         let playlist: EpisodePlaylist? = {
             guard let episode, let detail, !detail.episodes.isEmpty else { return nil }
@@ -542,6 +545,7 @@ struct MediaDetailView: View {
             season: episode?.season, episode: episode?.episode, episodeID: episode?.id)
 
         if stream.isDebrid, let url = stream.url {
+            SourceMemory.remember(stream, mediaID: mediaID, season: episode?.season, episode: episode?.episode)
             streamer.playDebrid(url: url, title: label, backdropURL: backdrop, logoURL: logo,
                                 subtitleContext: subtitleContext, episodes: playlist,
                                 startAt: startAt, progress: progressContext,

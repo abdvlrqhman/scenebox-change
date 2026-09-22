@@ -80,6 +80,9 @@ final class SubtitlesController {
             rememberedID = String(key.dropFirst(4))
             self.preferred = SubtitleLanguage.canonical(language)
             fpsChecked = true                 // keep the version the saved offset belongs to
+        } else if let language = SubtitleMemory.episodeLanguage(for: context), !language.isEmpty {
+            // New source for this episode: same language, best version for this release.
+            self.preferred = SubtitleLanguage.canonical(language)
         } else {
             self.preferred = SubtitleLanguage.canonical(preferred)
         }
@@ -445,9 +448,10 @@ final class SubtitlesController {
     }
 }
 
-/// What each episode (or movie) last showed: which subtitle file or embedded
-/// track, and the sync offset set for it. The offset belongs to that file:
-/// a different file is timed differently, so it starts from zero.
+/// What each episode (or movie) showed on each source: which subtitle version
+/// or embedded track, and the sync offset set for it. Every source is its own
+/// release with its own timing, so each keeps its own choice; a source played
+/// for the first time starts from the language last chosen for the episode.
 enum SubtitleMemory {
     struct Entry: Codable {
         var trackKey: String?          // "ext:<OpenSubtitles id>" or "emb:<VLC track id>"
@@ -463,6 +467,12 @@ enum SubtitleMemory {
         load()[id(context)]
     }
 
+    /// The language last chosen for this episode on any source.
+    static func episodeLanguage(for context: SubtitleContext) -> String? {
+        guard context.sourceKey != nil else { return nil }
+        return load()[episodeID(context)]?.language
+    }
+
     /// Records the track now showing. Keeps the offset only if it's the same track.
     static func remember(trackKey: String, language: String?, for context: SubtitleContext) {
         var all = load()
@@ -472,12 +482,28 @@ enum SubtitleMemory {
         entry.language = language
         entry.lastUsed = Date().timeIntervalSince1970
         all[id(context)] = entry
+        if context.sourceKey != nil, let language {
+            all[episodeID(context)] = Entry(trackKey: nil, language: language, lastUsed: entry.lastUsed)
+        }
         save(all)
+    }
+
+    static func hasChoice(for context: SubtitleContext) -> Bool {
+        load()[id(context)]?.trackKey != nil
+    }
+
+    /// Sources of this episode that have a saved subtitle choice.
+    static func sourcesWithChoice(for context: SubtitleContext) -> Set<String> {
+        let prefix = episodeID(context) + "|"
+        return Set(load().compactMap { key, entry in
+            key.hasPrefix(prefix) && entry.trackKey != nil ? String(key.dropFirst(prefix.count)) : nil
+        })
     }
 
     static func forgetTrack(for context: SubtitleContext) {
         var all = load()
         all[id(context)] = nil
+        all[episodeID(context)] = nil
         save(all)
     }
 
@@ -510,6 +536,11 @@ enum SubtitleMemory {
     }
 
     private static func id(_ context: SubtitleContext) -> String {
+        guard let source = context.sourceKey else { return episodeID(context) }
+        return "\(episodeID(context))|\(source)"
+    }
+
+    private static func episodeID(_ context: SubtitleContext) -> String {
         guard let season = context.season, let episode = context.episode else { return context.imdbID }
         return "\(context.imdbID):\(season):\(episode)"
     }

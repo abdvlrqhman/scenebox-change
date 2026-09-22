@@ -87,7 +87,7 @@ final class StreamCoordinator {
               progress: WatchProgressContext? = nil,
               originalAudioLanguage: String? = nil,
               fallbacks: [TorrentStream] = []) {
-        let subtitleContext = subtitleContext?.withRelease(stream.title)
+        let subtitleContext = subtitleContext?.withRelease(stream.title).withSource(SourceKey.make(stream))
         prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         prepareTask?.cancel()
@@ -219,6 +219,11 @@ final class StreamCoordinator {
                 }
                 await session.endPrebuffer()
 
+                // This source works: remember it for the episode's source list.
+                if let progress {
+                    SourceMemory.remember(stream, mediaID: progress.mediaID,
+                                          season: progress.season, episode: progress.episode)
+                }
                 target = Target(url: url, title: title, showsTorrentStats: true,
                                 subtitleContext: subtitleContext,
                                 startPosition: startAt, progress: progress,
@@ -287,10 +292,16 @@ final class StreamCoordinator {
     /// so it is ready the moment the video starts.
     private func prefetchSubtitles(_ context: SubtitleContext?) {
         guard let context else { return }
-        let language = settings.preferredSubtitleLanguage
+        // What this source used last time, else this episode's language, else the default.
+        let memory = SubtitleMemory.entry(for: context)
+        var preferredID: String?
+        if let key = memory?.trackKey, key.hasPrefix("ext:") { preferredID = String(key.dropFirst(4)) }
+        let language = memory?.language ?? SubtitleMemory.episodeLanguage(for: context)
+            ?? settings.preferredSubtitleLanguage
         guard !language.isEmpty else { return }
         Task.detached(priority: .userInitiated) {
-            await SubtitlesProvider.shared.prefetch(context: context, preferredLanguage: language)
+            await SubtitlesProvider.shared.prefetch(context: context, preferredLanguage: language,
+                                                    preferredID: preferredID)
         }
     }
 

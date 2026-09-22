@@ -10,13 +10,10 @@ import SwiftUI
 struct ProfileView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(DownloadStore.self) private var downloads
-    @Environment(AuthStore.self) private var auth
     @Environment(ProfileStore.self) private var profiles
     @State private var editing: ProfileEditorView.Mode?
     @State private var confirmClearDownloads = false
     @State private var confirmClearStreamCache = false
-    @State private var confirmSignOut = false
-    @State private var showLogin = false
     @State private var streamCacheBytes: Int64 = 0
 
     var body: some View {
@@ -33,14 +30,9 @@ struct ProfileView: View {
                     .listRowInsets(EdgeInsets())
                     #if os(tvOS)
                     Section {
-                        if profiles.isGuest {
-                            Button("Sign in or create account") { showLogin = true }
-                        } else {
-                            Button("Switch profile") { profiles.deselect() }
-                            if profiles.profiles.count < Profile.maxPerAccount {
-                                Button("Add profile") { editing = .create(first: false) }
-                            }
-                            Button("Sign out", role: .destructive) { confirmSignOut = true }
+                        Button("Switch profile") { profiles.deselect() }
+                        if profiles.profiles.count < Profile.maxPerAccount {
+                            Button("Add profile") { editing = .create(first: false) }
                         }
                     }
                     #endif
@@ -190,7 +182,7 @@ struct ProfileView: View {
                     Text("Playback")
                 } footer: {
                     Text("""
-                    Default audio is used when a title was made in that language (or its language is unknown); a foreign title keeps its original audio instead of a dub. Subtitles come from OpenSubtitles while you watch. Both defaults sync with your account.
+                    Default audio is used when a title was made in that language (or its language is unknown); a foreign title keeps its original audio instead of a dub. Subtitles in your default language are fetched from OpenSubtitles as soon as you press play.
 
                     Player buffer is how many seconds the player holds ahead. Larger smooths slow downloads but starts slower; 3 seconds suits most connections.
                     """)
@@ -224,6 +216,33 @@ struct ProfileView: View {
                     Text("Storage")
                 } footer: {
                     Text("New downloads won't start past the download limit. The stream cache keeps recently streamed titles on disk so re-opening them starts instantly; the oldest are evicted past its limit.")
+                }
+
+                Section {
+                    Picker("Simultaneous downloads", selection: $settings.maxSimultaneousDownloads) {
+                        ForEach(AppSettings.simultaneousDownloadOptions, id: \.self) { count in
+                            Text("\(count)").tag(count)
+                        }
+                    }
+                    #if os(iOS)
+                    Picker("Keep downloading in background", selection: $settings.backgroundDownloadMode) {
+                        ForEach(BackgroundDownloadMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    if #available(iOS 26, *) {
+                        Toggle("Show progress in Live Activity", isOn: $settings.downloadLiveActivity)
+                            .tint(toggleTint)
+                    }
+                    #endif
+                } header: {
+                    Text("Downloads")
+                } footer: {
+                    #if os(iOS)
+                    Text("Extra downloads wait in a queue and start automatically. iOS normally freezes an app a few seconds after you leave it, which drops every peer; background mode keeps SceneBox running while downloads are active by playing silent audio that mixes with your music. Smart uses short pulses to save battery; switch to Always-on audio if downloads still stop. Closing SceneBox from the app switcher always stops downloads.")
+                    #else
+                    Text("Extra downloads wait in a queue and start automatically.")
+                    #endif
                 }
 
                 Section {
@@ -264,22 +283,12 @@ struct ProfileView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        if profiles.isGuest {
-                            Button { showLogin = true } label: {
-                                Label("Sign in or create account", systemImage: "person.crop.circle.badge.plus")
-                            }
-                        } else {
-                            Button { profiles.deselect() } label: {
-                                Label("Switch profile", systemImage: "person.2")
-                            }
-                            if profiles.profiles.count < Profile.maxPerAccount {
-                                Button { editing = .create(first: false) } label: {
-                                    Label("Add profile", systemImage: "plus.circle")
-                                }
-                            }
-                            Divider()
-                            Button(role: .destructive) { confirmSignOut = true } label: {
-                                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                        Button { profiles.deselect() } label: {
+                            Label("Switch profile", systemImage: "person.2")
+                        }
+                        if profiles.profiles.count < Profile.maxPerAccount {
+                            Button { editing = .create(first: false) } label: {
+                                Label("Add profile", systemImage: "plus.circle")
                             }
                         }
                     } label: {
@@ -317,16 +326,6 @@ struct ProfileView: View {
             ProfileEditorView(mode: mode)
                 .environment(profiles)
         }
-        .sheet(isPresented: $showLogin) {
-            LoginView(isSheet: true)
-                .environment(auth)
-        }
-        .alert("Sign out?", isPresented: $confirmSignOut) {
-            Button("Sign out", role: .destructive) { auth.signOut() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You'll need to sign in again to use SceneBox.")
-        }
     }
 
     private func profileHeader(_ profile: Profile) -> some View {
@@ -340,15 +339,9 @@ struct ProfileView: View {
                 Text(profile.name)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
-                if profiles.isGuest {
-                    Text("Guest · progress is saved on this device")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else if let email = auth.email {
-                    Text(email)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Progress is saved on this device")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
                 Button {
@@ -361,19 +354,6 @@ struct ProfileView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white)
-                if profiles.isGuest {
-                    Button {
-                        showLogin = true
-                    } label: {
-                        Label("Sign in", systemImage: "person.crop.circle")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-                    .foregroundStyle(Theme.onAccent)
-                }
             }
             .padding(.top, 4)
         }

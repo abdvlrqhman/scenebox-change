@@ -1,0 +1,99 @@
+# Builds an unsigned SceneBox.ipa on a GitHub-hosted Mac, so no local Mac or
+# Xcode is needed. Sideloadly / AltStore / SideStore / TrollStore sign it on
+# install, exactly like the IPA from the original project.
+#
+# - Every push and pull request: the IPA is attached to the run as an artifact.
+# - Pushes to main: the IPA is also published as the "latest" GitHub release,
+#   so there is one stable download link.
+name: Build IPA
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["website/**", "**.md"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      XCODE_APP: /Applications/Xcode_26.6.app
+      DERIVED: build/DerivedData
+      PACKAGES: build/SourcePackages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PACKAGES }}
+          key: spm-${{ runner.os }}-${{ hashFiles('WatchBox.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build (Release, unsigned)
+        run: |
+          set -o pipefail
+          VERSION=$(grep -m1 'MARKETING_VERSION' WatchBox.xcodeproj/project.pbxproj | sed -E 's/.*= (.*);/\1/')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          xcodebuild \
+            -project WatchBox.xcodeproj \
+            -scheme WatchBox \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED" \
+            -clonedSourcePackagesDirPath "$PACKAGES" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build.log | xcbeautify --renderer github-actions
+
+      - name: Package IPA
+        run: |
+          APP=$(find "$DERIVED/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -1)
+          test -n "$APP" || { echo "::error::No .app produced"; exit 1; }
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          find out/Payload -name "_CodeSignature" -type d -prune -exec rm -rf {} +
+          find out/Payload -name "embedded.mobileprovision" -delete
+          IPA="SceneBox-${VERSION}-build${{ github.run_number }}.ipa"
+          (cd out && zip -qry "../$IPA" Payload)
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          ls -lh "$IPA"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA }}
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Publish "latest" release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Unsigned IPA built from ${GITHUB_SHA::7} (run #${{ github.run_number }}). Install with Sideloadly, AltStore, SideStore or TrollStore."
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest "$IPA" --title "SceneBox ${VERSION} (build ${{ github.run_number }})" --notes "$NOTES" --target "$GITHUB_SHA" --latest

@@ -35,10 +35,9 @@ protocol WatchlistBackend: Sendable {
 actor LocalWatchlistBackend: WatchlistBackend {
     private let url: URL
 
-    init() {
-        let base = AppDirectories.support
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        url = base.appendingPathComponent("watchlist.json")
+    /// `nil` (or the old guest profile) uses the original single-profile file.
+    init(profileID: String? = nil) {
+        url = ProfileFiles.dataURL("watchlist", profileID: profileID)
     }
 
     func load() async -> [WatchlistItem] {

@@ -10,18 +10,11 @@
 		D71B70E0D71B70E0D71B7002 /* LibTorrentEngine.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = D71B70E0D71B70E0D71B7001 /* LibTorrentEngine.xcframework */; };
 		F6AB252C301961100062F7C8 /* SwiftVLC in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB252B301961100062F7C8 /* SwiftVLC */; };
 		F6AB257A30197C7F0062F7C8 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB257930197C7F0062F7C8 /* Kingfisher */; };
-		F6AB3B92301E679A0062F7C8 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB3B91301E679A0062F7C8 /* FirebaseAnalytics */; };
-		F6AB3B94301E679A0062F7C8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB3B93301E679A0062F7C8 /* FirebaseAuth */; };
-		F6AB3B96301E679A0062F7C8 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB3B95301E679A0062F7C8 /* FirebaseCore */; };
-		F6AB3B98301E679A0062F7C8 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB3B97301E679A0062F7C8 /* FirebaseFirestore */; };
-		F6AB3B9A301E679A0062F7C8 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = F6AB3B99301E679A0062F7C8 /* FirebaseStorage */; };
-		F6AB3B9F301E69840062F7C8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = F6AB3B9E301E69840062F7C8 /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		D71B70E0D71B70E0D71B7001 /* LibTorrentEngine.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = LibTorrentEngine.xcframework; path = LibTorrent/LibTorrentEngine.xcframework; sourceTree = "<group>"; };
 		F6AB251C301960180062F7C8 /* SceneBox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SceneBox.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F6AB3B9E301E69840062F7C8 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -51,12 +44,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F6AB257A30197C7F0062F7C8 /* Kingfisher in Frameworks */,
-				F6AB3B96301E679A0062F7C8 /* FirebaseCore in Frameworks */,
 				F6AB252C301961100062F7C8 /* SwiftVLC in Frameworks */,
-				F6AB3B92301E679A0062F7C8 /* FirebaseAnalytics in Frameworks */,
-				F6AB3B94301E679A0062F7C8 /* FirebaseAuth in Frameworks */,
-				F6AB3B98301E679A0062F7C8 /* FirebaseFirestore in Frameworks */,
-				F6AB3B9A301E679A0062F7C8 /* FirebaseStorage in Frameworks */,
 				D71B70E0D71B70E0D71B7002 /* LibTorrentEngine.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -70,7 +58,6 @@
 				F6AB251E301960180062F7C8 /* WatchBox */,
 				F6AB251D301960180062F7C8 /* Products */,
 				D71B70E0D71B70E0D71B7001 /* LibTorrentEngine.xcframework */,
-				F6AB3B9E301E69840062F7C8 /* GoogleService-Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -104,11 +91,6 @@
 			packageProductDependencies = (
 				F6AB252B301961100062F7C8 /* SwiftVLC */,
 				F6AB257930197C7F0062F7C8 /* Kingfisher */,
-				F6AB3B91301E679A0062F7C8 /* FirebaseAnalytics */,
-				F6AB3B93301E679A0062F7C8 /* FirebaseAuth */,
-				F6AB3B95301E679A0062F7C8 /* FirebaseCore */,
-				F6AB3B97301E679A0062F7C8 /* FirebaseFirestore */,
-				F6AB3B99301E679A0062F7C8 /* FirebaseStorage */,
 			);
 			productName = WatchBox;
 			productReference = F6AB251C301960180062F7C8 /* SceneBox.app */;
@@ -141,7 +123,6 @@
 			packageReferences = (
 				F6AB252A301961100062F7C8 /* XCRemoteSwiftPackageReference "SwiftVLC" */,
 				F6AB257830197C7F0062F7C8 /* XCRemoteSwiftPackageReference "Kingfisher" */,
-				F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F6AB251D301960180062F7C8 /* Products */;
@@ -158,7 +139,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F6AB3B9F301E69840062F7C8 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,14 +446,6 @@
 				minimumVersion = 8.11.0;
 			};
 		};
-		F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 12.17.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -486,31 +458,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F6AB257830197C7F0062F7C8 /* XCRemoteSwiftPackageReference "Kingfisher" */;
 			productName = Kingfisher;
-		};
-		F6AB3B91301E679A0062F7C8 /* FirebaseAnalytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalytics;
-		};
-		F6AB3B93301E679A0062F7C8 /* FirebaseAuth */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAuth;
-		};
-		F6AB3B95301E679A0062F7C8 /* FirebaseCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseCore;
-		};
-		F6AB3B97301E679A0062F7C8 /* FirebaseFirestore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseFirestore;
-		};
-		F6AB3B99301E679A0062F7C8 /* FirebaseStorage */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F6AB3B90301E679A0062F7C8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

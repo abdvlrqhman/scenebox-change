@@ -32,6 +32,7 @@ final class Download: Identifiable {
     }
 
     enum Phase: Equatable {
+        case queued
         case resolving
         case downloading
         case paused
@@ -39,10 +40,15 @@ final class Download: Identifiable {
         case failed
 
         var isActive: Bool { self == .resolving || self == .downloading }
+        /// Queued or transferring: work the user expects to finish.
+        var isPending: Bool { isActive || self == .queued }
     }
 
     var statusText: String {
         switch phase {
+        case .queued:
+            if let failureMessage { failureMessage }   // e.g. "Waits for S1E2 (same torrent)"
+            else { progress > 0 ? "Queued · \(ByteFormat.percentDetailed(progress))" : "Queued" }
         case .resolving: "Fetching metadata…"
         case .downloading:
             if record.isDebrid {

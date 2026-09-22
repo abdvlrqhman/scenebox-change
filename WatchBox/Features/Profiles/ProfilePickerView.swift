@@ -9,9 +9,7 @@ import SwiftUI
 
 struct ProfilePickerView: View {
     @Environment(ProfileStore.self) private var profiles
-    @Environment(AuthStore.self) private var auth
     @State private var editing: ProfileEditorView.Mode?
-    @State private var confirmSignOut = false
 
     #if os(tvOS)
     private let tile: CGFloat = 200
@@ -37,10 +35,6 @@ struct ProfilePickerView: View {
             ProfileEditorView(mode: mode)
                 .environment(profiles)
         }
-        .alert("Sign out?", isPresented: $confirmSignOut) {
-            Button("Sign out", role: .destructive) { auth.signOut() }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 
     private var picker: some View {
@@ -64,11 +58,6 @@ struct ProfilePickerView: View {
             .frame(maxWidth: CGFloat(min(profiles.profiles.count + 1, 3)) * (tile + spacing) + spacing)
 
             Spacer()
-            Button("Sign out") { confirmSignOut = true }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .buttonStyle(.plain)
-                .padding(.bottom, 24)
         }
         .padding(.horizontal, 24)
     }

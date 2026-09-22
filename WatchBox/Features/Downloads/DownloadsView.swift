@@ -37,6 +37,10 @@ struct DownloadsView: View {
                 .focusSection()
                 #else
                 List {
+                    if hasBulkActions {
+                        bulkActions
+                            .listRowBackground(Theme.background)
+                    }
                     ForEach(store.downloads) { download in
                         DownloadRow(
                             download: download,
@@ -87,11 +91,43 @@ struct DownloadsView: View {
                                        startAt: resumePosition(for: context),
                                        progress: context)
             }
-        case .downloading, .resolving:
+        case .downloading, .resolving, .queued:
             store.pause(download)
         case .paused, .failed:
             store.resume(download)
         }
+    }
+
+    private var canResumeAny: Bool {
+        store.downloads.contains { $0.phase == .paused || $0.phase == .failed }
+    }
+
+    private var canPauseAny: Bool { store.downloads.contains { $0.phase.isPending } }
+
+    private var hasBulkActions: Bool {
+        store.downloads.filter { $0.phase != .completed }.count > 1
+    }
+
+    private var bulkActions: some View {
+        HStack(spacing: 12) {
+            Button {
+                store.resumeAll()
+            } label: {
+                Label("Resume all", systemImage: "arrow.down.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(!canResumeAny)
+            Button {
+                store.pauseAll()
+            } label: {
+                Label("Pause all", systemImage: "pause.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(!canPauseAny)
+        }
+        .buttonStyle(.bordered)
+        .tint(.white)
+        .font(.subheadline.weight(.semibold))
     }
 
     private func resumePosition(for context: WatchProgressContext?) -> Duration {
@@ -199,7 +235,7 @@ private struct DownloadRow: View {
     private var primaryIcon: String {
         switch download.phase {
         case .completed: "play.circle.fill"
-        case .downloading, .resolving: "pause.circle.fill"
+        case .downloading, .resolving, .queued: "pause.circle.fill"
         case .paused, .failed: "arrow.down.circle.fill"
         }
     }

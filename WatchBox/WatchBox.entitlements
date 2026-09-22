@@ -10,8 +10,8 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
-	<!-- Firebase Auth persists the signed-in user in the Keychain; on macOS it
-	     needs an explicit access group or every sign-in fails (errSecMissingEntitlement). -->
+	<!-- Debrid and TMDB keys live in the Keychain; on macOS it needs an explicit
+	     access group (errSecMissingEntitlement otherwise). -->
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>

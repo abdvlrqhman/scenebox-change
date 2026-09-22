@@ -8,7 +8,7 @@
 import Foundation
 
 struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
-    let id: String              // info-hash hex — also the folder name
+    let id: String              // folder name: info-hash, plus "-s1e3" for episodes
     var title: String           // "Inception"
     var releaseName: String     // "YTS 1080p BluRay"
     var mediaID: String         // IMDb id, for navigating back to the detail screen
@@ -23,11 +23,25 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
     var debridURLString: String?
     var debridFileName: String?
     var localRelativePath: String?
+    var infoHash: String?       // nil on records made before episode ids existed (id == hash)
+    var wantsRunning: Bool?     // queued or downloading when last saved; resumes on launch
 
     var posterURL: URL? { posterURLString.flatMap(URL.init(string:)) }
     var magnet: MagnetLink? { MagnetLink(string: magnetURI) }
     var debridURL: URL? { debridURLString.flatMap(URL.init(string:)) }
     var isDebrid: Bool { debridURLString != nil }
+
+    /// libtorrent keeps one torrent per info-hash, so downloads sharing a key
+    /// (episodes of one season pack) must take turns.
+    var torrentKey: String { (infoHash ?? id).lowercased() }
+
+    /// Episodes from the same season pack share an info-hash, so each one gets
+    /// its own id and folder.
+    static func makeID(infoHash: String, episodeLabel: String?) -> String {
+        let hash = infoHash.lowercased()
+        guard let episodeLabel, !episodeLabel.isEmpty else { return hash }
+        return "\(hash)-\(episodeLabel.lowercased())"
+    }
 
     var subtitleLine: String {
         [episodeLabel, releaseName].compactMap { $0 }.joined(separator: " · ")

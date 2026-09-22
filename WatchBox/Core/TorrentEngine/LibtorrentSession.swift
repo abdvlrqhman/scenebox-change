@@ -160,6 +160,13 @@ actor LibtorrentSession {
         return stats
     }
 
+    /// Writes resume data without stopping, so a relaunch after iOS kills the
+    /// app picks up where it left off instead of re-checking every piece.
+    func checkpoint() async {
+        guard teardown == nil, let data = await engine.resumeData() else { return }
+        try? data.write(to: resumeURL)
+    }
+
     func stop() async {
         #if DEBUG
         await TorrentDiagnostics.shared.end()

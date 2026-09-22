@@ -48,7 +48,8 @@ struct ReleasePickerView: View {
                                 Button { onSelect(stream) } label: {
                                     ReleaseRow(
                                         stream: stream,
-                                        isDownloaded: downloads.contains(infoHash: stream.id))
+                                        isDownloaded: downloads.contains(infoHash: stream.id,
+                                                                   episodeLabel: request.episode?.label))
                                         #if os(iOS)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 4)

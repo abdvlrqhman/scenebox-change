@@ -8,7 +8,6 @@
 import SwiftUI
 import SwiftVLC
 import Kingfisher
-import FirebaseCore
 
 @main
 struct WatchBoxApp: App {
@@ -17,14 +16,16 @@ struct WatchBoxApp: App {
     #endif
 
     init() {
-        FirebaseApp.configure()
-
         Self.configureImageCache()
 
         _ = VLCInstance.prewarmShared()
 
         StreamCoordinator.pruneCacheAtLaunch()
 
+        // Resume downloads that were running when the app last closed, and keep
+        // them going when the app leaves the screen.
+        _ = DownloadStore.shared
+        BackgroundDownloads.shared.start()
     }
 
     private static func configureImageCache() {

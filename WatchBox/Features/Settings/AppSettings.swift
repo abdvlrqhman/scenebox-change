@@ -149,6 +149,25 @@ final class AppSettings {
 
     static let streamCacheOptions = [0, 2, 4, 8, 16]
 
+    // MARK: Downloads
+
+    nonisolated static let simultaneousDownloadOptions = [1, 2, 3, 4, 5]
+
+    /// How many downloads transfer at once; the rest wait in the queue.
+    var maxSimultaneousDownloads: Int = 3 {
+        didSet { persist(maxSimultaneousDownloads, .maxSimultaneousDownloads) }
+    }
+
+    var backgroundDownloadMode: BackgroundDownloadMode = .smart {
+        didSet { persist(backgroundDownloadMode.rawValue, .backgroundDownloadMode) }
+    }
+
+    /// iOS 26+: also run downloads as a system "continued processing" task,
+    /// which shows their progress in a Live Activity.
+    var downloadLiveActivity = true {
+        didSet { persist(downloadLiveActivity, .downloadLiveActivity) }
+    }
+
     // MARK: Network
 
     var maxPeers: Int = 80 {
@@ -245,6 +264,17 @@ final class AppSettings {
             streamingPort = Self.streamingPortRange.contains(stored) ? stored : Self.defaultStreamingPort
         }
         wifiOnly = defaults.bool(forKey: Key.wifiOnly.rawValue)
+        if defaults.object(forKey: Key.maxSimultaneousDownloads.rawValue) != nil {
+            let stored = defaults.integer(forKey: Key.maxSimultaneousDownloads.rawValue)
+            maxSimultaneousDownloads = Self.simultaneousDownloadOptions.contains(stored) ? stored : 3
+        }
+        if let raw = defaults.string(forKey: Key.backgroundDownloadMode.rawValue),
+           let mode = BackgroundDownloadMode(rawValue: raw) {
+            backgroundDownloadMode = mode
+        }
+        if defaults.object(forKey: Key.downloadLiveActivity.rawValue) != nil {
+            downloadLiveActivity = defaults.bool(forKey: Key.downloadLiveActivity.rawValue)
+        }
         customTrackers = defaults.string(forKey: Key.customTrackers.rawValue) ?? ""
         if let raw = defaults.string(forKey: Key.debridProvider.rawValue),
            let provider = DebridProvider(rawValue: raw) {
@@ -283,6 +313,7 @@ final class AppSettings {
         case networkCache, fillScreen
         case storageCap, streamCacheLimit
         case maxPeers, streamingPort, wifiOnly, customTrackers
+        case maxSimultaneousDownloads, backgroundDownloadMode, downloadLiveActivity
         case debridProvider, debridAPIKey, debridAPIKeys
         case tmdbAPIKey
         case extraSourceProviders
@@ -293,5 +324,26 @@ final class AppSettings {
 
     private func persist(_ value: Any?, _ key: Key) {
         defaults.set(value, forKey: key.rawValue)
+    }
+}
+
+/// How downloads stay alive once SceneBox leaves the screen. iOS suspends apps
+/// a few seconds after they are backgrounded, which drops every peer.
+nonisolated enum BackgroundDownloadMode: String, CaseIterable, Identifiable, Sendable {
+    /// Short silent audio pulses that renew a background task every few seconds.
+    case smart
+    /// A silent audio loop that plays the whole time downloads run.
+    case continuous
+    /// Downloads pause shortly after leaving the app.
+    case off
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .smart: "Smart (recommended)"
+        case .continuous: "Always-on audio"
+        case .off: "Off"
+        }
     }
 }

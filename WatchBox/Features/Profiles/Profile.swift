@@ -11,6 +11,8 @@ import SwiftUI
 nonisolated struct Profile: Identifiable, Codable, Sendable, Hashable {
     static let maxPerAccount = 5
     static let maxNameLength = 24
+    /// Id of the profile created by the old guest mode.
+    static let guestID = "guest"
 
     let id: String
     var name: String
@@ -18,7 +20,13 @@ nonisolated struct Profile: Identifiable, Codable, Sendable, Hashable {
     var avatarURLString: String?
     var createdAt: Date
 
-    var avatarURL: URL? { avatarURLString.flatMap(URL.init(string:)) }
+    /// Photos are stored as a file name inside `ProfileFiles.avatars`; the
+    /// absolute path is rebuilt each time because the app container moves.
+    var avatarURL: URL? {
+        guard let avatarURLString, !avatarURLString.isEmpty else { return nil }
+        if avatarURLString.contains("://") { return URL(string: avatarURLString) }
+        return ProfileFiles.avatars.appendingPathComponent(avatarURLString)
+    }
     var hasPhoto: Bool { avatarURLString != nil }
 
     static let colors: [Color] = [
@@ -32,9 +40,5 @@ nonisolated struct Profile: Identifiable, Codable, Sendable, Hashable {
 
     var initial: String {
         String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
-    }
-
-    func avatarStoragePath(uid: String) -> String {
-        "users/\(uid)/profiles/\(id)/avatar.jpg"
     }
 }

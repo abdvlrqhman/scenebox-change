@@ -66,10 +66,9 @@ protocol WatchProgressBackend: Sendable {
 actor LocalWatchProgressBackend: WatchProgressBackend {
     private let url: URL
 
-    init() {
-        let base = AppDirectories.support
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        url = base.appendingPathComponent("continue-watching.json")
+    /// `nil` (or the old guest profile) uses the original single-profile file.
+    init(profileID: String? = nil) {
+        url = ProfileFiles.dataURL("continue-watching", profileID: profileID)
     }
 
     func load() async -> [WatchProgress] {

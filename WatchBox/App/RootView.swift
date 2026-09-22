@@ -8,32 +8,16 @@
 import SwiftUI
 
 struct RootView: View {
-    @State private var auth = AuthStore()
     @State private var profiles = ProfileStore.shared
     @State private var externalStreamer: StreamCoordinator?
     @State private var links = DeepLinkRouter.shared
 
     var body: some View {
         Group {
-            switch auth.state {
-            case .loading:
-                ZStack {
-                    Theme.background.ignoresSafeArea()
-                    ProgressView().tint(.white).controlSize(.large)
-                }
-                .preferredColorScheme(.dark)
-            case .signedOut:
-                if auth.isGuest, profiles.selected != nil {
-                    RootTabView()
-                } else {
-                    LoginView()
-                }
-            case .signedIn:
-                if profiles.selected != nil {
-                    RootTabView()
-                } else {
-                    ProfilePickerView()
-                }
+            if profiles.selected != nil {
+                RootTabView()
+            } else {
+                ProfilePickerView()
             }
         }
         #if DEBUG
@@ -53,41 +37,11 @@ struct RootView: View {
                     .environment(AppSettings.shared)
             }
         }
-        .environment(auth)
         .environment(profiles)
-        .onChange(of: auth.state, initial: true) { _, state in
-            switch state {
-            case .signedIn(let uid, _):
-                profiles.activate(uid: uid)
-                CloudSettingsSync.shared.activate(uid: uid)
-            case .signedOut:
-                if auth.isGuest { profiles.activateGuest() } else { profiles.deactivate() }
-                CloudSettingsSync.shared.deactivate()
-            case .loading:
-                break
-            }
-        }
-        .onChange(of: auth.isGuest) { _, guest in
-            guard case .signedOut = auth.state else { return }
-            if guest { profiles.activateGuest() } else { profiles.deactivate() }
-        }
         .onChange(of: profiles.selected?.id, initial: true) { _, profileID in
-            if case .signedIn(let uid, _) = auth.state, let profileID {
-                if auth.pendingGuestMigration {
-                    auth.pendingGuestMigration = false
-                    Task {
-                        await GuestMigration.migrate(uid: uid, profileID: profileID)
-                        WatchProgressStore.shared.use(FirestoreWatchProgressBackend(uid: uid, profileID: profileID))
-                        WatchlistStore.shared.use(FirestoreWatchlistBackend(uid: uid, profileID: profileID))
-                    }
-                    return
-                }
-                WatchProgressStore.shared.use(FirestoreWatchProgressBackend(uid: uid, profileID: profileID))
-                WatchlistStore.shared.use(FirestoreWatchlistBackend(uid: uid, profileID: profileID))
-            } else {
-                WatchProgressStore.shared.use(LocalWatchProgressBackend())
-                WatchlistStore.shared.use(LocalWatchlistBackend())
-            }
+            guard let profileID else { return }
+            WatchProgressStore.shared.use(LocalWatchProgressBackend(profileID: profileID))
+            WatchlistStore.shared.use(LocalWatchlistBackend(profileID: profileID))
         }
     }
 

@@ -282,6 +282,7 @@ struct MediaDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.accent)
+            .layoutPriority(1)          // the main action keeps its label; the rest are icons
 
             if detail.type == .series {
                 Menu {
@@ -301,28 +302,24 @@ struct MediaDetailView: View {
                     }
                     .disabled(season.isEmpty)
                 } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
-                        .lineLimit(1)
-                        .fixedSize()
+                    Image(systemName: "arrow.down.circle")
                         .frame(minHeight: labelHeight)
-                        .padding(.horizontal, 4)
                         .padding(.vertical, 4)
                 }
                 .buttonStyle(.bordered)
                 .tint(.white)
+                .accessibilityLabel("Download")
             } else {
                 Button {
                     requestDownload(episode: firstEpisode(of: detail))
                 } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
-                        .lineLimit(1)
-                        .fixedSize()
+                    Image(systemName: downloads.isDownloaded(mediaID: mediaID) ? "arrow.down.circle.fill" : "arrow.down.circle")
                         .frame(minHeight: labelHeight)
-                        .padding(.horizontal, 4)
                         .padding(.vertical, 4)
                 }
                 .buttonStyle(.bordered)
-                .tint(.white)
+                .tint(downloads.isDownloaded(mediaID: mediaID) ? Theme.success : .white)
+                .accessibilityLabel("Download")
             }
 
             Button {

@@ -20,17 +20,12 @@ struct ProfileView: View {
         @Bindable var settings = settings
 
         NavigationStack {
+            VStack(spacing: 0) {
+            #if !os(tvOS)
+            RootHeader(title: "Profile") { profileMenu }
+            #endif
             Form {
                 PageTitleRow("Profile")
-                #if !os(tvOS)
-                Section {
-                    RootHeader(title: "Profile") { profileMenu }
-                        .padding(.horizontal, -16)      // Form rows already inset
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                .listSectionSpacing(0)
-                #endif
                 if let profile = profiles.selected {
                     Section {
                         profileHeader(profile)
@@ -290,11 +285,14 @@ struct ProfileView: View {
                 }
             }
             .hideScrollBackground()
+            #if !os(tvOS)
+            .contentMargins(.top, 4, for: .scrollContent)
+            #endif
+            }
             .background(Theme.background)
             #if os(tvOS)
             .pageTitle("Profile")
             #else
-            .contentMargins(.top, 0, for: .scrollContent)
             .toolbar(.hidden, for: .navigationBar)
             .statusBarScrim()
             #endif

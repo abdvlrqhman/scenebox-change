@@ -13,6 +13,7 @@ nonisolated struct SubtitleTrack: Identifiable, Sendable, Hashable {
     let url: URL
     var fileName: String? = nil    // original file / release name, used to match the release
     var encoding: String? = nil    // code page the uploader declared
+    var fps: Double? = nil         // frame rate of the release it was timed against
 
     var languageName: String { SubtitleLanguage.displayName(for: languageCode) }
 }

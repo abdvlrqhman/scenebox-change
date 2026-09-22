@@ -56,6 +56,10 @@ final class SubtitlesController {
     @ObservationIgnored private var lastAttachAttempt = Date.distantPast
     @ObservationIgnored private var enforcedGeneration = -1
     @ObservationIgnored private var delayGeneration = -1
+    /// What's on screen now, as stored in `SubtitleMemory`.
+    @ObservationIgnored private var activeTrackKey: String?
+    @ObservationIgnored private var memory: SubtitleMemory.Entry?
+    @ObservationIgnored private var fpsChecked = false
 
     // MARK: Lifecycle
 
@@ -65,7 +69,16 @@ final class SubtitlesController {
         loaded = true
         self.context = context
         self.preferred = SubtitleLanguage.canonical(preferred)
+        self.memory = SubtitleMemory.entry(for: context)
         if self.preferred.isEmpty { wanted = .off }
+
+        // Last time's file for this episode, if it was in the default language.
+        let rememberedID: String? = {
+            guard let memory, let key = memory.trackKey, key.hasPrefix("ext:"),
+                  memory.language.map(SubtitleLanguage.canonical) == self.preferred else { return nil }
+            return String(key.dropFirst(4))
+        }()
+        if rememberedID != nil { fpsChecked = true }      // keep the file the saved offset belongs to
 
         isLoading = true
         fetchTask = Task { [provider] in
@@ -73,7 +86,8 @@ final class SubtitlesController {
             guard !Task.isCancelled else { return }
             available = tracks
             if !self.preferred.isEmpty {
-                preferredFile = await provider.bestFile(for: context, language: self.preferred, tracks: tracks)
+                preferredFile = await provider.bestFile(for: context, language: self.preferred, tracks: tracks,
+                                                        preferredID: rememberedID)
                 guard !Task.isCancelled else { return }
                 preferredLookupDone = true
             }
@@ -133,6 +147,7 @@ final class SubtitlesController {
         guard let track else {
             wanted = .off
             selectedID = nil
+            activeTrackKey = nil
             player.selectedSubtitleTrack = nil
             return
         }
@@ -170,13 +185,28 @@ final class SubtitlesController {
         wanted = .embedded(track.id)
         enforcedGeneration = generation
         player.selectedSubtitleTrack = track
+        trackBecameActive("emb:\(track.id)", language: track.language, player: player)
     }
 
     /// Subtitle sync is remembered per episode (or movie) and put back the
     /// next time it plays.
     func saveDelay(milliseconds: Int) {
         guard let context else { return }
-        SubtitleDelayStore.set(milliseconds, for: context)
+        SubtitleMemory.setDelay(milliseconds, trackKey: activeTrackKey, for: context)
+        memory = SubtitleMemory.entry(for: context)
+        delayGeneration = generation
+    }
+
+    /// A new track is showing: remember it, and use the offset saved for it
+    /// (a different file starts from zero).
+    private func trackBecameActive(_ key: String, language: String?, player: Player) {
+        guard key != activeTrackKey else { return }
+        activeTrackKey = key
+        guard let context else { return }
+        let saved = memory?.trackKey == key ? (memory?.delayMilliseconds ?? 0) : 0
+        SubtitleMemory.remember(trackKey: key, language: language, for: context)
+        memory = SubtitleMemory.entry(for: context)
+        try? player.setSubtitleDelay(.milliseconds(saved))
         delayGeneration = generation
     }
 
@@ -198,11 +228,11 @@ final class SubtitlesController {
         // so a new external track can be told apart from them.
         let tracksSettled = playingSince.map { Date().timeIntervalSince($0) >= 0.8 } ?? false
 
-        if tracksSettled, delayGeneration != generation {
+        // After a reopen, put the offset back once the same track is showing again.
+        if tracksSettled, delayGeneration != generation, let activeTrackKey,
+           memory?.trackKey == activeTrackKey {
             delayGeneration = generation
-            if let context, let saved = SubtitleDelayStore.milliseconds(for: context), saved != 0 {
-                try? player.setSubtitleDelay(.milliseconds(saved))
-            }
+            try? player.setSubtitleDelay(.milliseconds(memory?.delayMilliseconds ?? 0))
         }
 
         switch wanted {
@@ -210,12 +240,40 @@ final class SubtitlesController {
             guard tracksSettled else { return }
             if !embeddedChecked {
                 embeddedChecked = true
-                if let match = preferredEmbeddedTrack(in: player) {
+                let rememberedEmbedded = memory?.trackKey.flatMap { key in
+                    key.hasPrefix("emb:") ? embeddedTracks(of: player).first { "emb:\($0.id)" == key } : nil
+                }
+                if let match = rememberedEmbedded ?? preferredEmbeddedTrack(in: player) {
                     embeddedID = match.id
                     selectedID = nil
                     wanted = .embedded(match.id)
                     enforcedGeneration = generation
                     player.selectedSubtitleTrack = match
+                    trackBecameActive("emb:\(match.id)", language: match.language, player: player)
+                    return
+                }
+            }
+            // Now the video's frame rate is known: a file timed for another
+            // frame rate drifts further off the longer it plays, so swap it for
+            // one that matches when there is one.
+            if !fpsChecked, let file = preferredFile, let context,
+               let videoFPS = player.videoTracks.first?.frameRate, videoFPS > 1 {
+                fpsChecked = true
+                if let subFPS = file.track.fps, abs(subFPS - videoFPS) > 0.3,
+                   let better = SubtitlesProvider.candidates(in: available, language: preferred,
+                                                             release: context.releaseName, videoFPS: videoFPS)
+                    .first(where: { $0.fps.map { abs($0 - videoFPS) < 0.05 } ?? false }) {
+                    preferredFile = nil
+                    preferredLookupDone = false
+                    fetchTask = Task { [provider] in
+                        if let url = try? await provider.download(better) {
+                            preferredFile = (better, url)
+                        } else {
+                            preferredFile = file
+                        }
+                        preferredLookupDone = true
+                        reconcile()
+                    }
                     return
                 }
             }
@@ -264,6 +322,9 @@ final class SubtitlesController {
                 enforcedGeneration = generation
                 player.selectedSubtitleTrack = track
             }
+            if case .external(let chosen, _) = wanted {
+                trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
+            }
             return
         }
         guard settled || player.state == .paused else { return }
@@ -294,6 +355,9 @@ final class SubtitlesController {
                     self.enforcedGeneration = self.generation
                     if !track.isSelected { player.selectedSubtitleTrack = track }
                     self.attaching = false
+                    if case .external(let chosen, let wantedURL) = self.wanted, wantedURL == url {
+                        self.trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
+                    }
                     return
                 }
             }
@@ -330,30 +394,62 @@ final class SubtitlesController {
     }
 }
 
-/// Per-episode subtitle offsets, in milliseconds, kept in user defaults.
-enum SubtitleDelayStore {
-    private static let key = "subtitleDelays"
-    private static let limit = 400
-
-    static func milliseconds(for context: SubtitleContext) -> Int? {
-        (UserDefaults.standard.dictionary(forKey: key)?[id(context)] as? [Any])?.first as? Int
+/// What each episode (or movie) last showed: which subtitle file or embedded
+/// track, and the sync offset set for it. The offset belongs to that file:
+/// a different file is timed differently, so it starts from zero.
+enum SubtitleMemory {
+    struct Entry: Codable {
+        var trackKey: String?          // "ext:<OpenSubtitles id>" or "emb:<VLC track id>"
+        var language: String?
+        var delayMilliseconds: Int = 0
+        var lastUsed: Double = 0
     }
 
-    static func set(_ milliseconds: Int, for context: SubtitleContext) {
-        var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
-        if milliseconds == 0 {
-            all[id(context)] = nil
-        } else {
-            // [offset, last used] so the oldest entries can be dropped.
-            all[id(context)] = [milliseconds, Date().timeIntervalSince1970]
-        }
-        if all.count > limit {
-            let oldest = all.sorted {
-                (($0.value as? [Any])?.last as? Double ?? 0) < (($1.value as? [Any])?.last as? Double ?? 0)
+    private static let key = "subtitleMemory"
+    private static let limit = 400
+
+    static func entry(for context: SubtitleContext) -> Entry? {
+        load()[id(context)]
+    }
+
+    /// Records the track now showing. Keeps the offset only if it's the same track.
+    static func remember(trackKey: String, language: String?, for context: SubtitleContext) {
+        var all = load()
+        var entry = all[id(context)] ?? Entry()
+        if entry.trackKey != trackKey { entry.delayMilliseconds = 0 }
+        entry.trackKey = trackKey
+        entry.language = language
+        entry.lastUsed = Date().timeIntervalSince1970
+        all[id(context)] = entry
+        save(all)
+    }
+
+    static func setDelay(_ milliseconds: Int, trackKey: String?, for context: SubtitleContext) {
+        var all = load()
+        var entry = all[id(context)] ?? Entry()
+        if let trackKey { entry.trackKey = trackKey }
+        entry.delayMilliseconds = milliseconds
+        entry.lastUsed = Date().timeIntervalSince1970
+        all[id(context)] = entry
+        save(all)
+    }
+
+    private static func load() -> [String: Entry] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let all = try? JSONDecoder().decode([String: Entry].self, from: data) else { return [:] }
+        return all
+    }
+
+    private static func save(_ all: [String: Entry]) {
+        var trimmed = all
+        if trimmed.count > limit {
+            for (key, _) in trimmed.sorted(by: { $0.value.lastUsed < $1.value.lastUsed }).prefix(trimmed.count - limit) {
+                trimmed[key] = nil
             }
-            for (key, _) in oldest.prefix(all.count - limit) { all[key] = nil }
         }
-        UserDefaults.standard.set(all, forKey: key)
+        if let data = try? JSONEncoder().encode(trimmed) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
     }
 
     private static func id(_ context: SubtitleContext) -> String {

@@ -88,7 +88,8 @@ actor SubtitlesProvider {
                 languageCode: SubtitleLanguage.canonical(lang),
                 url: url,
                 fileName: (item["subtitleFileName"] as? String) ?? (item["movieReleaseName"] as? String),
-                encoding: item["SubEncoding"] as? String))
+                encoding: item["SubEncoding"] as? String,
+                fps: frameRate(item)))
         }
         // Stable sort: common languages first, the addon's own order within one.
         return out.enumerated()
@@ -96,18 +97,34 @@ actor SubtitlesProvider {
             .map(\.element)
     }
 
+    /// "fpsMilli": 23976 → 23.976. Zero or missing means unknown.
+    private static func frameRate(_ item: [String: Any]) -> Double? {
+        let milli = (item["fpsMilli"] as? Int) ?? (item["fpsMilli"] as? String).flatMap(Int.init)
+        if let milli, milli > 1000 { return Double(milli) / 1000 }
+        if let fps = (item["fps"] as? Double) ?? (item["fps"] as? String).flatMap(Double.init), fps > 1 { return fps }
+        return nil
+    }
+
     // MARK: Picking a file
 
-    /// Tracks in `language`, best match for the release first.
-    static func candidates(in tracks: [SubtitleTrack], language: String, release: String?) -> [SubtitleTrack] {
+    /// Tracks in `language`, best match first: timed for the same frame rate
+    /// (a 25 fps subtitle on a 23.976 fps video drifts further off every
+    /// minute), then the closest release name, then the addon's own order.
+    static func candidates(in tracks: [SubtitleTrack], language: String, release: String?,
+                           videoFPS: Double? = nil) -> [SubtitleTrack] {
         let wanted = SubtitleLanguage.canonical(language)
         let matching = tracks.enumerated().filter { $0.element.languageCode == wanted }
         let releaseTokens = ReleaseName.tokens(release)
-        guard !releaseTokens.isEmpty else { return matching.map(\.element) }
+        let group = ReleaseName.group(release)
         return matching
-            .map { (track: $0.element, offset: $0.offset,
-                    score: ReleaseName.score(ReleaseName.tokens($0.element.fileName), against: releaseTokens,
-                                             group: ReleaseName.group(release))) }
+            .map { entry -> (track: SubtitleTrack, offset: Int, score: Int) in
+                var score = releaseTokens.isEmpty ? 0
+                    : ReleaseName.score(ReleaseName.tokens(entry.element.fileName), against: releaseTokens, group: group)
+                if let video = videoFPS, let sub = entry.element.fps {
+                    score += abs(video - sub) < 0.05 ? 8 : (abs(video - sub) > 0.3 ? -8 : 0)
+                }
+                return (entry.element, entry.offset, score)
+            }
             .sorted { ($0.score, -$0.offset) > ($1.score, -$1.offset) }
             .map(\.track)
     }
@@ -115,11 +132,18 @@ actor SubtitlesProvider {
     /// Downloads the best subtitle in `language`, moving on to the next
     /// candidate when one is missing or broken.
     func bestFile(for context: SubtitleContext, language: String,
-                  tracks: [SubtitleTrack]? = nil) async -> (track: SubtitleTrack, file: URL)? {
+                  tracks: [SubtitleTrack]? = nil, videoFPS: Double? = nil,
+                  preferredID: String? = nil) async -> (track: SubtitleTrack, file: URL)? {
         guard !language.isEmpty else { return nil }
         let all: [SubtitleTrack]
         if let tracks { all = tracks } else { all = await subtitles(for: context) }
-        for track in Self.candidates(in: all, language: language, release: context.releaseName).prefix(4) {
+        var ordered = Self.candidates(in: all, language: language, release: context.releaseName, videoFPS: videoFPS)
+        // The file this episode used last time comes first, so a saved sync
+        // offset keeps matching it.
+        if let preferredID, let index = ordered.firstIndex(where: { $0.id == preferredID }) {
+            ordered.insert(ordered.remove(at: index), at: 0)
+        }
+        for track in ordered.prefix(4) {
             if Task.isCancelled { return nil }
             if let file = try? await download(track) { return (track, file) }
         }

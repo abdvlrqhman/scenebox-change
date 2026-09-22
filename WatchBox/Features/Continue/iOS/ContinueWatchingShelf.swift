@@ -81,9 +81,10 @@ private struct ContinueWatchingCard: View {
         return "S\(season) E\(episode)"
     }
 
-    /// "Up next" once an episode is finished, otherwise the time left.
+    /// "Watched" once the episode is finished (the detail page names the next
+    /// one), otherwise the time left.
     private var secondaryLine: String {
-        if item.mediaType != .movie, item.isFinished { return "Up next" }
+        if item.mediaType != .movie, item.isFinished { return "Watched" }
         let left = max(0, item.durationSeconds - item.positionSeconds)
         guard item.durationSeconds > 0, left > 30 else { return item.season == nil ? " " : item.title }
         let minutes = Int((left / 60).rounded())

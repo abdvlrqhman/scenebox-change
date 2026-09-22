@@ -13,7 +13,11 @@ import Observation
 final class WatchProgressStore {
     static let shared = WatchProgressStore()
 
-    private(set) var items: [WatchProgress] = []
+    private(set) var items: [WatchProgress] = [] {
+        didSet { byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+    }
+    /// Lookup by media id; every poster asks, so it shouldn't scan the list.
+    private var byID: [String: WatchProgress] = [:]
     private(set) var hasLoaded = false
 
     @ObservationIgnored private let minRecordSeconds: Double = 15
@@ -55,7 +59,7 @@ final class WatchProgressStore {
     }
 
     func progress(for mediaID: String) -> WatchProgress? {
-        unpublished[mediaID] ?? items.first { $0.id == mediaID }
+        unpublished[mediaID] ?? byID[mediaID]
     }
 
     /// What the Continue Watching shelf shows. Finished movies stay in the

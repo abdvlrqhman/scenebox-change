@@ -190,18 +190,14 @@ final class DownloadStore {
         var running = downloads.filter { $0.phase.isActive }.count
         for download in downloads.reversed() where download.phase == .queued {
             guard running < limit else { break }
-            if !download.record.isDebrid, let blocker = torrentBlocker(for: download) {
-                download.failureMessage = blocker
-                continue
-            }
+            if !download.record.isDebrid, torrentBlocker(for: download) != nil { continue }
             download.failureMessage = nil
             start(download)
             if download.phase.isActive { running += 1 }
         }
-        for download in downloads where download.phase == .queued && download.failureMessage == nil {
-            if !download.record.isDebrid, let blocker = torrentBlocker(for: download) {
-                download.failureMessage = blocker
-            }
+        // Whatever still waits says why: its season pack is busy, or no free slot.
+        for download in downloads where download.phase == .queued {
+            download.failureMessage = download.record.isDebrid ? nil : torrentBlocker(for: download)
         }
     }
 

@@ -1,0 +1,69 @@
+# Builds the app for an iPhone simulator, seeds sample data and captures the
+# main screens (scripts/screenshots.sh). The PNGs are attached to the run, so
+# UI changes can be reviewed without a Mac.
+name: Screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["ui"]
+    paths-ignore: ["website/**", "**.md"]
+
+concurrency:
+  group: shots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shots:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      XCODE_APP: /Applications/Xcode_26.6.app
+      DERIVED: build/sim
+      PACKAGES: build/SourcePackages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "$XCODE_APP"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PACKAGES }}
+          key: spm-${{ runner.os }}-${{ hashFiles('WatchBox.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Pick an iPhone Pro Max simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          pool = [(rt, d) for rt, ds in devices.items() if "iOS" in rt for d in ds if d["name"].startswith("iPhone")]
+          best = [p for p in pool if "Pro Max" in p[1]["name"]] or pool
+          best.sort(key=lambda p: p[0])
+          print(best[-1][1]["udid"]); print(best[-1][1]["name"], best[-1][0], file=sys.stderr)')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project WatchBox.xcodeproj -scheme WatchBox -configuration Debug \
+            -destination "id=$UDID" \
+            -derivedDataPath "$DERIVED" -clonedSourcePackagesDirPath "$PACKAGES" \
+            -skipPackagePluginValidation -skipMacroValidation \
+            build 2>&1 | tee build.log | xcbeautify --renderer github-actions
+
+      - name: Capture screens
+        run: |
+          export APP=$(find "$DERIVED/Build/Products/Debug-iphonesimulator" -maxdepth 1 -name "*.app" | head -1)
+          bash scripts/screenshots.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: |
+            shots/*.png
+            build.log

@@ -11,6 +11,8 @@ nonisolated struct SubtitleTrack: Identifiable, Sendable, Hashable {
     let id: String
     let languageCode: String   // ISO 639-2, e.g. "eng"
     let url: URL
+    var fileName: String? = nil    // original file / release name, used to match the release
+    var encoding: String? = nil    // code page the uploader declared
 
     var languageName: String { SubtitleLanguage.displayName(for: languageCode) }
 }

@@ -130,6 +130,12 @@ struct PlaybackSettingsPanel: View {
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.6))
             }
+            if let message = subs.statusMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ForEach(subs.byLanguage, id: \.language) { group in
                 if let track = group.tracks.first {
                     OptionRow(title: group.language,

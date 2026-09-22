@@ -140,7 +140,7 @@ final class DownloadStore {
         if let context = record.subtitleContext {
             let language = settings.preferredSubtitleLanguage
             Task.detached(priority: .utility) {
-                await SubtitlesProvider().prefetch(context: context, preferredLanguage: language)
+                await SubtitlesProvider.shared.prefetch(context: context, preferredLanguage: language)
             }
         }
         return download

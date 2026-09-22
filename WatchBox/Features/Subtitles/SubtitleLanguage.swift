@@ -63,6 +63,24 @@ nonisolated struct SubtitleLanguage: Identifiable, Sendable, Hashable {
         "bg": "bul", "et": "est", "sq": "alb",
     ]
 
+    /// OpenSubtitles mixes ISO 639-2/B and /T codes ("dut" and "nld",
+    /// "rum" and "ron") and some players report ISO 639-1 ("ar"). Everything
+    /// is folded onto the codes used in `common`, so a preference always matches.
+    static func canonical(_ code: String) -> String {
+        let lower = code.lowercased().trimmingCharacters(in: .whitespaces)
+        if let alias = aliases[lower] { return alias }
+        if lower.count == 2, let mapped = iso639_1ToOpenSubtitles[lower] { return mapped }
+        return lower
+    }
+
+    private static let aliases: [String: String] = [
+        "nld": "dut", "ron": "rum", "fra": "fre", "deu": "ger", "zho": "chi",
+        "ces": "cze", "fas": "per", "sqi": "alb", "msa": "may", "gre": "ell",
+        "mkd": "mac", "slk": "slo", "hye": "arm", "eus": "baq", "mya": "bur",
+        "kat": "geo", "isl": "ice", "cym": "wel", "bod": "tib",
+        "pt-br": "pob", "pt_br": "pob", "zh-tw": "zht", "zh-cn": "chi",
+    ]
+
     static func displayName(for code: String) -> String {
         if let match = all[code] { return match }
         return code.uppercased()
@@ -78,7 +96,12 @@ nonisolated struct SubtitleLanguage: Identifiable, Sendable, Hashable {
         map["tha"] = "Thai"; map["ukr"] = "Ukrainian"; map["vie"] = "Vietnamese"
         map["zht"] = "Chinese (Traditional)"; map["zhe"] = "Chinese (Simplified)"
         map["may"] = "Malay"; map["bul"] = "Bulgarian"; map["est"] = "Estonian"
-        map["alb"] = "Albanian"
+        map["alb"] = "Albanian"; map["mac"] = "Macedonian"; map["slo"] = "Slovak"
+        map["lit"] = "Lithuanian"; map["lav"] = "Latvian"; map["ben"] = "Bengali"
+        map["urd"] = "Urdu"; map["tam"] = "Tamil"; map["tel"] = "Telugu"
+        map["mal"] = "Malayalam"; map["kur"] = "Kurdish"; map["cat"] = "Catalan"
+        map["glg"] = "Galician"; map["baq"] = "Basque"; map["bos"] = "Bosnian"
+        map["arm"] = "Armenian"; map["geo"] = "Georgian"; map["ice"] = "Icelandic"
         return map
     }()
 }

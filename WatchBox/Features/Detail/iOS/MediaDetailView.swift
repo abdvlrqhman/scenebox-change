@@ -17,6 +17,8 @@ struct MediaDetailView: View {
     @State private var streamer = StreamCoordinator()
     @State private var pendingPlay: (() -> Void)?
     @State private var isAutoResolving = false
+    @State private var batchStatus: String?
+    @State private var batchMessage: String?
     @State private var resumeAt: Duration = .zero
     @Environment(DownloadStore.self) private var downloads
     @Environment(AppSettings.self) private var settings
@@ -35,7 +37,13 @@ struct MediaDetailView: View {
 
     var body: some View {
         content
-            .overlay { if isAutoResolving { resolvingOverlay } }
+            .overlay { if isAutoResolving || batchStatus != nil { resolvingOverlay } }
+            .alert("Some episodes weren't added",
+                   isPresented: Binding(get: { batchMessage != nil }, set: { if !$0 { batchMessage = nil } })) {
+                Button("OK", role: .cancel) { batchMessage = nil }
+            } message: {
+                Text(batchMessage ?? "")
+            }
             .background(Theme.background)
             #if os(iOS)
             .ignoresSafeArea(edges: .top)
@@ -124,9 +132,10 @@ struct MediaDetailView: View {
             Color.black.opacity(0.45).ignoresSafeArea()
             VStack(spacing: 12) {
                 ProgressView().tint(.white)
-                Text("Finding best source…")
+                Text(batchStatus ?? "Finding best source…")
                     .font(.callout)
                     .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
             }
             .padding(24)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -221,6 +230,7 @@ struct MediaDetailView: View {
                         watchedEpisodes: progressStore.watchedEpisodes(for: mediaID),
                         onWatch: { watch(episode: $0) },
                         onDownload: { requestDownload(episode: $0) },
+                        onDownloadEpisodes: { downloadEpisodes($0) },
                         onSetWatched: { setWatched($1, episode: $0, detail: detail) }
                     )
                 }
@@ -266,18 +276,47 @@ struct MediaDetailView: View {
             .buttonStyle(.borderedProminent)
             .tint(Theme.accent)
 
-            Button {
-                requestDownload(episode: firstEpisode(of: detail))
-            } label: {
-                Label("Download", systemImage: "arrow.down.circle")
-                    .lineLimit(1)
-                    .fixedSize()
-                    .frame(minHeight: labelHeight)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 4)
+            if detail.type == .series {
+                Menu {
+                    if let episode = firstEpisode(of: detail) {
+                        Button {
+                            requestDownload(episode: episode)
+                        } label: {
+                            Label("Download \(episode.label)", systemImage: "arrow.down.circle")
+                        }
+                    }
+                    let season = detail.episodes(inSeason: model.selectedSeason)
+                    Button {
+                        downloadEpisodes(season)
+                    } label: {
+                        Label(model.selectedSeason == 0 ? "Download All Specials" : "Download Season \(model.selectedSeason)",
+                              systemImage: "square.and.arrow.down.on.square")
+                    }
+                    .disabled(season.isEmpty)
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(minHeight: labelHeight)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
+                .tint(.white)
+            } else {
+                Button {
+                    requestDownload(episode: firstEpisode(of: detail))
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(minHeight: labelHeight)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
+                .tint(.white)
             }
-            .buttonStyle(.bordered)
-            .tint(.white)
 
             Button {
                 watchlist.toggle(id: mediaID, mediaType: type,
@@ -294,7 +333,7 @@ struct MediaDetailView: View {
         .controlSize(.large)
         .frame(maxWidth: Platform.isMac ? 480 : .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .disabled(streamer.isPreparing || isAutoResolving)
+        .disabled(streamer.isPreparing || isAutoResolving || batchStatus != nil)
     }
 
     private var isInWatchlist: Bool { watchlist.contains(mediaID) }
@@ -345,6 +384,7 @@ struct MediaDetailView: View {
             let subtitleContext = SubtitleContext(
                 imdbID: mediaID, type: type,
                 season: episode?.season, episode: episode?.episode)
+                .withRelease(download.record.localRelativePath ?? download.record.releaseName)
             let progressContext = WatchProgressContext(
                 mediaID: mediaID, mediaType: type, title: name, posterURL: detail?.posterURL,
                 season: episode?.season, episode: episode?.episode, episodeID: episode?.id)
@@ -373,6 +413,66 @@ struct MediaDetailView: View {
         }
     }
 
+    /// Finds the best source for each episode (using the quality settings, a
+    /// few lookups at a time) and queues them in episode order. Episodes that
+    /// already have a download, or haven't aired yet, are skipped.
+    private func downloadEpisodes(_ episodes: [Episode]) {
+        let now = Date()
+        let wanted = episodes
+            .filter { episode in
+                if let released = episode.released, released > now { return false }
+                guard let existing = downloads.download(mediaID: mediaID, episodeLabel: episode.label) else { return true }
+                return existing.phase == .failed || existing.phase == .paused
+            }
+            .sorted { ($0.season, $0.episode) < ($1.season, $1.episode) }
+        guard !wanted.isEmpty, batchStatus == nil else { return }
+
+        // Paused or failed ones just resume with the source they already have.
+        var toResolve: [Episode] = []
+        for episode in wanted {
+            if let existing = downloads.download(mediaID: mediaID, episodeLabel: episode.label) {
+                downloads.resume(existing)
+            } else {
+                toResolve.append(episode)
+            }
+        }
+        guard !toResolve.isEmpty else { return }
+
+        batchStatus = "Finding sources… 0 of \(toResolve.count)"
+        Task {
+            var found: [Int: TorrentStream] = [:]
+            var finished = 0
+            await withTaskGroup(of: (Int, TorrentStream?).self) { group in
+                var next = 0
+                func enqueue() {
+                    guard next < toResolve.count else { return }
+                    let index = next, episode = toResolve[index]
+                    next += 1
+                    group.addTask { (index, await model.bestStream(for: episode)) }
+                }
+                for _ in 0..<min(3, toResolve.count) { enqueue() }
+                for await (index, stream) in group {
+                    if let stream { found[index] = stream }
+                    finished += 1
+                    batchStatus = "Finding sources… \(finished) of \(toResolve.count)"
+                    enqueue()
+                }
+            }
+            var missing: [String] = []
+            for (index, episode) in toResolve.enumerated() {
+                if let stream = found[index] {
+                    download(stream: stream, episode: episode)
+                } else {
+                    missing.append(episode.label)
+                }
+            }
+            batchStatus = nil
+            if !missing.isEmpty {
+                batchMessage = "No sources found for \(missing.joined(separator: ", ")). Try them one by one or check your source settings."
+            }
+        }
+    }
+
     private func handle(request: MediaDetailModel.ReleaseRequest, stream: TorrentStream) {
         let fallbacks = Array(model.releases
             .filter { $0.id != stream.id && !$0.isDebrid }
@@ -396,6 +496,7 @@ struct MediaDetailView: View {
         let subtitleContext = SubtitleContext(
             imdbID: mediaID, type: type,
             season: episode?.season, episode: episode?.episode)
+            .withRelease(stream.title)
 
         let playlist: EpisodePlaylist? = {
             guard let episode, let detail, !detail.episodes.isEmpty else { return nil }

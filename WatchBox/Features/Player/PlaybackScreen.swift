@@ -243,6 +243,7 @@ struct PlaybackScreen: View {
             if wasBuffering, !buffering { chrome.playbackStarted() }
         }
         .onChange(of: player.state) { _, state in
+            subs.playerStateChanged(state)
             guard state == .error, failure == nil else { return }
             if url.host == "127.0.0.1", player.currentTime == .zero, openRetries < 5 {
                 player.stop()
@@ -522,6 +523,7 @@ struct PlaybackScreen: View {
     }
 
     private func teardown() {
+        subs.stop()
         #if os(iOS)
         nowPlaying?.end()
         nowPlaying = nil

@@ -66,6 +66,7 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
         guard let type = MediaType(rawValue: mediaType) else { return nil }
         guard type == .series else {
             return SubtitleContext(imdbID: mediaID, type: type, season: nil, episode: nil)
+                .withRelease(localRelativePath ?? releaseName)
         }
         guard let label = episodeLabel else { return nil }
         let numbers = label.dropFirst()               // strip leading "S"
@@ -73,5 +74,6 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
             .compactMap { Int($0) }
         guard numbers.count == 2 else { return nil }
         return SubtitleContext(imdbID: mediaID, type: type, season: numbers[0], episode: numbers[1])
+            .withRelease(localRelativePath ?? releaseName)
     }
 }

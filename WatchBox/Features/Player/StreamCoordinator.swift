@@ -80,6 +80,8 @@ final class StreamCoordinator {
               progress: WatchProgressContext? = nil,
               originalAudioLanguage: String? = nil,
               fallbacks: [TorrentStream] = []) {
+        let subtitleContext = subtitleContext?.withRelease(stream.title)
+        prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         prepareTask?.cancel()
         let previousSession = session
@@ -211,6 +213,7 @@ final class StreamCoordinator {
                     subtitleContext: SubtitleContext? = nil, episodes: EpisodePlaylist? = nil,
                     startAt: Duration = .zero, progress: WatchProgressContext? = nil,
                     originalAudioLanguage: String? = nil) {
+        prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         prepareTask?.cancel()
         self.title = title
@@ -229,6 +232,7 @@ final class StreamCoordinator {
     func playLocalFile(at url: URL, title: String, subtitleContext: SubtitleContext? = nil,
                        startAt: Duration = .zero, progress: WatchProgressContext? = nil,
                        originalAudioLanguage: String? = nil) {
+        prefetchSubtitles(subtitleContext)
         episodePlaylist = nil
         self.title = title
         self.backdropURL = nil
@@ -240,6 +244,17 @@ final class StreamCoordinator {
                              subtitleContext: subtitleContext,
                              startPosition: startAt, progress: progress,
                              originalAudioLanguage: originalAudioLanguage)
+    }
+
+    /// Starts fetching the default-language subtitle while the stream buffers,
+    /// so it is ready the moment the video starts.
+    private func prefetchSubtitles(_ context: SubtitleContext?) {
+        guard let context else { return }
+        let language = settings.preferredSubtitleLanguage
+        guard !language.isEmpty else { return }
+        Task.detached(priority: .userInitiated) {
+            await SubtitlesProvider.shared.prefetch(context: context, preferredLanguage: language)
+        }
     }
 
     func stop() {

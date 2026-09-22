@@ -514,14 +514,14 @@ struct PlaybackScreen: View {
         }
     }
 
-    private func recordProgress() {
+    private func recordProgress(publish: Bool = false) {
         guard let progress, failure == nil else { return }
         guard player.currentTime > .zero else { return }
         WatchProgressStore.shared.record(
             id: progress.mediaID, mediaType: progress.mediaType, title: progress.title,
             posterURL: progress.posterURL, season: progress.season,
             episode: progress.episode, episodeID: progress.episodeID,
-            position: player.currentTime, duration: player.duration)
+            position: player.currentTime, duration: player.duration, publish: publish)
     }
 
     private func teardown() {
@@ -530,7 +530,7 @@ struct PlaybackScreen: View {
         nowPlaying?.end()
         nowPlaying = nil
         #endif
-        recordProgress()
+        recordProgress(publish: true)
         chrome.viewDisappeared()
         ScreenIdle.keepAwake(false)
         #if os(iOS)

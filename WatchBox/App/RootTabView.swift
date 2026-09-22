@@ -17,7 +17,7 @@ enum AppTab: String, Hashable {
 }
 
 struct RootTabView: View {
-    @State private var tab = AppTab.initial
+    @State private var router = TabRouter.shared
     @State private var settings = AppSettings.shared
     @State private var downloads = DownloadStore.shared
     @State private var watchProgress = WatchProgressStore.shared
@@ -31,7 +31,7 @@ struct RootTabView: View {
     #endif
 
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: $router.tab) {
             #if os(tvOS)
             Tab("Home", systemImage: "house.fill", value: AppTab.home) {
                 TVHomeView()
@@ -85,7 +85,7 @@ struct RootTabView: View {
         .environment(watchProgress)
         .environment(watchlist)
         .preferredColorScheme(.dark)
-        .sensoryFeedback(.selection, trigger: tab)
+        .sensoryFeedback(.selection, trigger: router.tab)
         #if os(iOS)
         .environment(\.openMediaDetail, sizeClass == .regular && !Platform.isMac ? { detailItem = $0 } : nil)
         .onChange(of: links.pendingDetail) { _, item in

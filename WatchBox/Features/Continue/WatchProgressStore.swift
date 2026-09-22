@@ -17,6 +17,10 @@ final class WatchProgressStore {
     private(set) var hasLoaded = false
 
     @ObservationIgnored private let minRecordSeconds: Double = 15
+    /// Positions saved during playback but not yet shown to the rest of the UI.
+    /// Publishing every 5 s re-rendered every poster and row under the video.
+    @ObservationIgnored private var unpublished: [String: WatchProgress] = [:]
+    @ObservationIgnored private var lastPublished: [String: Date] = [:]
     @ObservationIgnored private var backend: WatchProgressBackend
 
     init(backend: WatchProgressBackend = LocalWatchProgressBackend()) {
@@ -26,6 +30,7 @@ final class WatchProgressStore {
 
     func use(_ backend: WatchProgressBackend) {
         self.backend = backend
+        unpublished.removeAll()
         items = []
         hasLoaded = false
         Task { await reload() }
@@ -50,7 +55,7 @@ final class WatchProgressStore {
     }
 
     func progress(for mediaID: String) -> WatchProgress? {
-        items.first { $0.id == mediaID }
+        unpublished[mediaID] ?? items.first { $0.id == mediaID }
     }
 
     /// What the Continue Watching shelf shows. Finished movies stay in the
@@ -73,6 +78,7 @@ final class WatchProgressStore {
 
     func setMovieWatched(_ watched: Bool, id: String, title: String, posterURL: URL?) {
         guard watched else { remove(id: id); return }
+        unpublished[id] = nil
         let item = WatchProgress(
             id: id, mediaType: .movie, title: title,
             posterURLString: posterURL?.absoluteString,
@@ -86,7 +92,7 @@ final class WatchProgressStore {
 
     func record(id: String, mediaType: MediaType, title: String, posterURL: URL?,
                 season: Int?, episode: Int?, episodeID: String?,
-                position: Duration, duration: Duration?) {
+                position: Duration, duration: Duration?, publish: Bool = false) {
         let pos = position.asSeconds
         guard pos >= minRecordSeconds else { return }
 
@@ -106,9 +112,22 @@ final class WatchProgressStore {
             item.watchedEpisodes = [label]
         }
 
-        items.removeAll { $0.id == id }
-        items.insert(item, at: 0)
         Task { [backend] in await backend.upsert(item) }
+
+        // Saved every time; shown to the rest of the app when something visible
+        // changes, every 30 s, or when playback ends.
+        let shown = items.first { $0.id == id }
+        let visibleChange = shown == nil || shown?.isFinished != item.isFinished
+            || shown?.episodeID != item.episodeID
+        let due = Date().timeIntervalSince(lastPublished[id] ?? .distantPast) >= 30
+        if publish || visibleChange || due {
+            unpublished[id] = nil
+            lastPublished[id] = Date()
+            items.removeAll { $0.id == id }
+            items.insert(item, at: 0)
+        } else {
+            unpublished[id] = item
+        }
     }
 
     func watchedEpisodes(for mediaID: String) -> Set<String> {
@@ -148,6 +167,7 @@ final class WatchProgressStore {
         }
         item.watchedEpisodes = set.sorted()
         item.updatedAt = Date()
+        unpublished[mediaID] = nil
 
         if set.isEmpty, item.positionSeconds <= 0 {
             remove(id: mediaID)
@@ -159,11 +179,13 @@ final class WatchProgressStore {
     }
 
     func remove(id: String) {
+        unpublished[id] = nil
         items.removeAll { $0.id == id }
         Task { [backend] in await backend.remove(id: id) }
     }
 
     func clear() {
+        unpublished.removeAll()
         items.removeAll()
         Task { [backend] in await backend.clear() }
     }

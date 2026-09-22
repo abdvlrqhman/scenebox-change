@@ -22,30 +22,23 @@ struct SearchView: View {
 
 struct SearchScreen: View {
     @State private var model = SearchModel()
+    @State private var router = TabRouter.shared
     @Environment(AppSettings.self) private var settings
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             if Platform.isMac {
-                VStack(spacing: 0) {
-                    macSearchHeader
-                    SearchResults(model: model)
-                }
-                .toolbar(.hidden, for: .navigationBar)
+                macSearchHeader
             } else {
-                SearchResults(model: model)
-                    .navigationTitle("Search")
-                    .navigationBarTitleDisplayMode(.large)
-                    .toolbar {
-                        if !model.isSearching {
-                            ToolbarItem(placement: .topBarTrailing) { filterMenu }
-                        }
-                    }
-                    .searchable(text: $model.query,
-                                prompt: "Search movies, shows & anime")
+                phoneHeader
             }
+            SearchResults(model: model)
         }
+            .toolbar(.hidden, for: .navigationBar)
             .background(Theme.background)
+            .statusBarScrim()
+            .onAppear { focusIfAsked() }
+            .onChange(of: router.focusSearch) { _, _ in focusIfAsked() }
             .onChange(of: model.query) { _, _ in model.run() }
             .onSubmit(of: .search) { model.run(immediate: true) }
             .task { if model.results.isEmpty { model.run() } }
@@ -53,6 +46,63 @@ struct SearchScreen: View {
                 model.applySettings(settings)
                 model.run()
             }
+    }
+
+    // MARK: - Phone header
+
+    private var phoneHeader: some View {
+        VStack(spacing: 10) {
+            RootHeader(title: "Search") {
+                if !model.isSearching {
+                    filterMenu
+                        .labelStyle(.iconOnly)
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 40, height: 40)
+                        .background(Theme.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(Theme.hairline))
+                }
+            }
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Theme.textSecondary)
+                TextField("Movies, shows and anime", text: $model.query)
+                    .textFieldStyle(.plain)
+                    .focused($macFieldFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .onSubmit { model.run(immediate: true) }
+                if model.isLoading {
+                    ProgressView().controlSize(.small)
+                }
+                if !model.query.isEmpty {
+                    Button {
+                        model.query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(Theme.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(macFieldFocused ? Theme.accent.opacity(0.6) : Theme.hairline))
+            .animation(Theme.snappy, value: macFieldFocused)
+            .padding(.horizontal, 16)
+        }
+        .padding(.bottom, 12)
+    }
+
+    /// Home's search button lands here with the keyboard up.
+    private func focusIfAsked() {
+        guard router.focusSearch else { return }
+        router.focusSearch = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))   // after the tab switch settles
+            macFieldFocused = true
+        }
     }
 
     // MARK: - Mac header
@@ -193,6 +243,7 @@ struct SearchResults: View {
                     .padding(.bottom, 24)
             }
         }
+        .scrollDismissesKeyboard(.immediately)
         .overlay {
             if model.isLoading {
                 ProgressView()

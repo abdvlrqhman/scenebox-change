@@ -33,17 +33,23 @@ struct LibraryView: View {
                 }
                 #else
                 VStack(spacing: 0) {
+                    RootHeader("Library")
                     sectionPicker
                         .padding(.horizontal, controlInset)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
                     content
                 }
                 #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.background)
+            #if os(tvOS)
             .pageTitle("Library")
+            #else
+            .toolbar(.hidden, for: .navigationBar)
+            .statusBarScrim()
+            #endif
             .mediaNavigationDestinations()
         }
     }

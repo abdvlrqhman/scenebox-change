@@ -11,7 +11,6 @@ import Kingfisher
 
 struct HomeView: View {
     @State private var model = HomeModel()
-    @State private var search = SearchModel()
     @Environment(AppSettings.self) private var settings
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
@@ -19,30 +18,20 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if search.isSearching {
-                    SearchResults(model: search)
-                } else if let message = model.errorMessage, model.shelves.isEmpty, !model.isLoading {
-                    EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load titles",
-                                   message: message, actionTitle: "Try again") { model.reload() }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let message = model.errorMessage, model.shelves.isEmpty, !model.isLoading {
+                    VStack(spacing: 0) {
+                        header
+                        EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load titles",
+                                       message: message, actionTitle: "Try again") { model.reload() }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 } else {
                     feed
                 }
             }
             .background(Theme.background)
-            .navigationTitle(Platform.isMac ? "" : "Home")
-            .toolbar {
-                if search.isSearching, search.isLoading {
-                    ToolbarItem(placement: .topBarTrailing) { ProgressView() }
-                }
-            }
-            .toolbar(Platform.isMac ? .hidden : .automatic, for: .navigationBar)
-            .modifier(HomeSearchField(query: $search.query))
-            .onChange(of: search.query) { _, query in
-                if query.trimmingCharacters(in: .whitespaces).isEmpty { return }
-                search.run()
-            }
-            .onSubmit(of: .search) { search.run(immediate: true) }
+            .statusBarScrim()
+            .toolbar(.hidden, for: .navigationBar)
             .mediaNavigationDestinations()
             .navigationDestination(for: CatalogDestination.self) { dest in
                 CatalogListView(type: dest.type, feed: dest.feed)
@@ -52,13 +41,22 @@ struct HomeView: View {
         .onAppear { progress.refresh() }
         .onChange(of: settings.streamSourceBases) { _, _ in
             model.applySettings(settings)
-            search.applySettings(settings)
+        }
+    }
+
+    private var header: some View {
+        RootHeader(title: "SceneBox") {
+            HeaderIconButton(systemImage: "magnifyingglass", label: "Search") {
+                TabRouter.shared.openSearch()
+            }
         }
     }
 
     private var feed: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Platform.isMac ? 34 : 28) {
+                header
+                    .padding(.bottom, -12)          // the marquee sits close under the title
                 if !featured.isEmpty {
                     FeaturedMarquee(items: featured)
                 }
@@ -78,7 +76,6 @@ struct HomeView: View {
                     }
                 }
             }
-            .padding(.top, 8)
             .padding(.bottom, 28)
         }
         .refreshable {
@@ -328,15 +325,4 @@ private struct PlaceholderShelf: View {
     }
 }
 
-private struct HomeSearchField: ViewModifier {
-    @Binding var query: String
-
-    func body(content: Content) -> some View {
-        if Platform.isMac {
-            content
-        } else {
-            content.searchable(text: $query, prompt: "Movies, shows and anime")
-        }
-    }
-}
 #endif

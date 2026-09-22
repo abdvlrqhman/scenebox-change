@@ -48,7 +48,9 @@ struct EpisodeSection: View {
                             let watched = watchedEpisodes.contains(episode.label)
                             let state = downloadState(for: episode)
                             EpisodeCard(episode: episode, width: cardWidth,
-                                        downloadState: state, isWatched: watched,
+                                        downloadState: state,
+                                        download: downloads.download(mediaID: detail.id, episodeLabel: episode.label),
+                                        isWatched: watched,
                                         watchFraction: episodeFraction(episode),
                                         selection: selectionState(for: episode, state: state),
                                         onWatch: { isSelecting ? toggle(episode, state: state) : onWatch(episode) },
@@ -76,6 +78,7 @@ struct EpisodeSection: View {
                         let state = downloadState(for: episode)
                         EpisodeRow(episode: episode,
                                    downloadState: state,
+                                   download: downloads.download(mediaID: detail.id, episodeLabel: episode.label),
                                    isWatched: watched,
                                    watchFraction: episodeFraction(episode),
                                    selection: selectionState(for: episode, state: state),
@@ -190,7 +193,7 @@ struct EpisodeSection: View {
             return .idle
         }
         if download.phase == .completed || download.record.isComplete { return .completed }
-        if download.phase.isPending { return .pending(download.progress) }
+        if download.phase.isPending { return .pending }
         return .idle                                  // paused / failed: can be re-requested
     }
 
@@ -217,7 +220,7 @@ struct EpisodeSection: View {
 
 enum EpisodeDownloadState: Equatable {
     case idle
-    case pending(Double)
+    case pending        // progress is read by the ring itself, so only it redraws
     case completed
 
     var isDownloaded: Bool { self == .completed }
@@ -228,6 +231,7 @@ private struct EpisodeDownloadGlyph: View {
     let state: EpisodeDownloadState
     let size: CGFloat
     var idleColor: Color = .white.opacity(0.6)
+    var download: Download? = nil
 
     var body: some View {
         switch state {
@@ -239,7 +243,19 @@ private struct EpisodeDownloadGlyph: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: size))
                 .foregroundStyle(.green)
-        case .pending(let progress):
+        case .pending:
+            PendingRing(progress: download?.progress ?? 0, size: size)
+        }
+    }
+}
+
+/// Download progress ring. Its own view, so twice-a-second progress updates
+/// redraw the ring and not the whole episode list.
+private struct PendingRing: View {
+    let progress: Double
+    let size: CGFloat
+
+    var body: some View {
             ZStack {
                 Circle().stroke(.white.opacity(0.25), lineWidth: 3)
                 Circle()
@@ -252,7 +268,6 @@ private struct EpisodeDownloadGlyph: View {
             }
             .frame(width: size * 0.85, height: size * 0.85)
             .accessibilityLabel("Downloading \(Int(progress * 100)) percent")
-        }
     }
 }
 
@@ -272,6 +287,7 @@ private struct SelectionMark: View {
 private struct EpisodeRow: View {
     let episode: Episode
     var downloadState: EpisodeDownloadState = .idle
+    var download: Download? = nil
     var isWatched = false
     var watchFraction: Double? = nil
     /// nil when not selecting; otherwise whether this row is ticked.
@@ -311,7 +327,7 @@ private struct EpisodeRow: View {
                     if downloadState == .idle {
                         SelectionMark(isSelected: selected)
                     } else {
-                        EpisodeDownloadGlyph(state: downloadState, size: 28)
+                        EpisodeDownloadGlyph(state: downloadState, size: 28, download: download)
                     }
                 }
                 .frame(width: 44, height: 44)
@@ -325,7 +341,7 @@ private struct EpisodeRow: View {
                             .contentShape(Rectangle())
                     }
                     Button(action: onDownload) {
-                        EpisodeDownloadGlyph(state: downloadState, size: 30)
+                        EpisodeDownloadGlyph(state: downloadState, size: 30, download: download)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -377,6 +393,7 @@ private struct EpisodeCard: View {
     let episode: Episode
     let width: CGFloat
     var downloadState: EpisodeDownloadState = .idle
+    var download: Download? = nil
     var isWatched = false
     var watchFraction: Double? = nil
     var selection: Bool? = nil
@@ -460,7 +477,7 @@ private struct EpisodeCard: View {
                         .padding(8)
                 } else {
                     Button(action: onDownload) {
-                        EpisodeDownloadGlyph(state: downloadState, size: 22, idleColor: .white)
+                        EpisodeDownloadGlyph(state: downloadState, size: 22, idleColor: .white, download: download)
                             .frame(width: 26, height: 26)
                             .padding(6)
                             .background(.black.opacity(0.45), in: Circle())

@@ -22,6 +22,15 @@ struct ProfileView: View {
         NavigationStack {
             Form {
                 PageTitleRow("Profile")
+                #if !os(tvOS)
+                Section {
+                    RootHeader(title: "Profile") { profileMenu }
+                        .padding(.horizontal, -16)      // Form rows already inset
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listSectionSpacing(0)
+                #endif
                 if let profile = profiles.selected {
                     Section {
                         profileHeader(profile)
@@ -280,25 +289,15 @@ struct ProfileView: View {
                     Text("SceneBox \(appVersion) (\(buildNumber))")
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button { profiles.deselect() } label: {
-                            Label("Switch profile", systemImage: "person.2")
-                        }
-                        if profiles.profiles.count < Profile.maxPerAccount {
-                            Button { editing = .create(first: false) } label: {
-                                Label("Add profile", systemImage: "plus.circle")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
             .hideScrollBackground()
             .background(Theme.background)
+            #if os(tvOS)
             .pageTitle("Profile")
+            #else
+            .contentMargins(.top, 0, for: .scrollContent)
+            .toolbar(.hidden, for: .navigationBar)
+            .statusBarScrim()
+            #endif
             .task {
                 downloads.refreshDiskUsage()
                 await refreshStreamCacheSize()
@@ -326,6 +325,27 @@ struct ProfileView: View {
             ProfileEditorView(mode: mode)
                 .environment(profiles)
         }
+    }
+
+    private var profileMenu: some View {
+        Menu {
+            Button { profiles.deselect() } label: {
+                Label("Switch profile", systemImage: "person.2")
+            }
+            if profiles.profiles.count < Profile.maxPerAccount {
+                Button { editing = .create(first: false) } label: {
+                    Label("Add profile", systemImage: "plus.circle")
+                }
+            }
+        } label: {
+            Image(systemName: "person.2")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(Theme.surface, in: Circle())
+                .overlay(Circle().strokeBorder(Theme.hairline))
+        }
+        .accessibilityLabel("Profiles")
     }
 
     private func profileHeader(_ profile: Profile) -> some View {

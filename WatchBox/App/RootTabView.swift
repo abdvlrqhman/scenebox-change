@@ -7,7 +7,17 @@
 
 import SwiftUI
 
+enum AppTab: String, Hashable {
+    case home, search, library, profile
+
+    /// `-SBInitialTab library` (screenshots and debugging) picks the first tab.
+    static var initial: AppTab {
+        UserDefaults.standard.string(forKey: "SBInitialTab").flatMap(AppTab.init(rawValue:)) ?? .home
+    }
+}
+
 struct RootTabView: View {
+    @State private var tab = AppTab.initial
     @State private var settings = AppSettings.shared
     @State private var downloads = DownloadStore.shared
     @State private var watchProgress = WatchProgressStore.shared
@@ -21,24 +31,24 @@ struct RootTabView: View {
     #endif
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             #if os(tvOS)
-            Tab("Home", systemImage: "house.fill") {
+            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
                 TVHomeView()
             }
-            Tab("Search", systemImage: "magnifyingglass") {
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
                 TVSearchView()
             }
             #else
-            Tab("Home", systemImage: "house.fill") {
+            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
                 HomeView()
             }
-            Tab("Search", systemImage: "magnifyingglass") {
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
                 SearchView()
             }
             #endif
 
-            Tab("Library", systemImage: "books.vertical") {
+            Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
             }
             #if !os(tvOS)
@@ -46,11 +56,11 @@ struct RootTabView: View {
             #endif
 
             #if os(tvOS)
-            Tab("Profile", systemImage: "person.crop.circle") {
+            Tab("Profile", systemImage: "person.crop.circle", value: AppTab.profile) {
                 ProfileView()
             }
             #else
-            Tab {
+            Tab(value: AppTab.profile) {
                 ProfileView()
             } label: {
                 Label {
@@ -75,6 +85,7 @@ struct RootTabView: View {
         .environment(watchProgress)
         .environment(watchlist)
         .preferredColorScheme(.dark)
+        .sensoryFeedback(.selection, trigger: tab)
         #if os(iOS)
         .environment(\.openMediaDetail, sizeClass == .regular && !Platform.isMac ? { detailItem = $0 } : nil)
         .onChange(of: links.pendingDetail) { _, item in

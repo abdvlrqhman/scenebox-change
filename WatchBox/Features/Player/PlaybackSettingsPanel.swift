@@ -171,7 +171,15 @@ struct PlaybackSettingsPanel: View {
 
                 VStack(spacing: 2) {
                     Text(delayText).font(.headline.monospacedDigit())
-                    Text(delayHint).font(.caption2).foregroundStyle(.white.opacity(0.5))
+                        .contentTransition(.numericText())
+                    if abs(delaySeconds) >= 0.01 {
+                        Button("Reset · saved for this episode") { setSubtitleDelay(milliseconds: 0) }
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .buttonStyle(.plain)
+                    } else {
+                        Text(delayHint).font(.caption2).foregroundStyle(.white.opacity(0.5))
+                    }
                 }
                 .frame(maxWidth: .infinity)
 
@@ -231,8 +239,12 @@ struct PlaybackSettingsPanel: View {
     }
 
     private func adjustSubtitleDelay(by seconds: Double) {
-        let millis = Int((delaySeconds + seconds) * 1000)
-        try? player.setSubtitleDelay(.milliseconds(millis))
+        setSubtitleDelay(milliseconds: Int(((delaySeconds + seconds) * 1000).rounded()))
+    }
+
+    private func setSubtitleDelay(milliseconds: Int) {
+        try? player.setSubtitleDelay(.milliseconds(milliseconds))
+        subs.saveDelay(milliseconds: milliseconds)
     }
 
     #if os(tvOS)

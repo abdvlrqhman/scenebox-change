@@ -38,12 +38,7 @@ launch -SBInitialTab library;             shot 02-library-downloads 8
 launch -SBInitialTab library -SBExpandAll YES; shot 03-library-expanded 8
 launch -SBInitialTab search;              shot 04-search 12
 launch -SBInitialTab profile;             shot 05-profile 6
-launch
-sleep 6
-xcrun simctl openurl "$UDID" "scenebox://detail/series/tt0903747" || true
-shot 06-detail-series 12
-launch
-sleep 6
-xcrun simctl openurl "$UDID" "scenebox://detail/movie/tt1375666" || true
-shot 07-detail-movie 12
+launch -SBOpenDetail series/tt0903747;    shot 06-detail-series 16
+launch -SBOpenDetail movie/tt1375666;     shot 07-detail-movie 16
+launch -SBInitialTab library -SBExpandAll YES -SBOpenDetail series/tt0903747; shot 08-detail-over-library 16
 ls -la "$OUT"

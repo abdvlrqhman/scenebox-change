@@ -19,6 +19,7 @@ struct MediaDetailView: View {
     @State private var isAutoResolving = false
     @State private var batchStatus: String?
     @State private var batchMessage: String?
+    @State private var toast: ToastMessage?
     @State private var resumeAt: Duration = .zero
     @Environment(DownloadStore.self) private var downloads
     @Environment(AppSettings.self) private var settings
@@ -37,6 +38,8 @@ struct MediaDetailView: View {
 
     var body: some View {
         content
+            .animation(.smooth(duration: 0.35), value: model.isReady)
+            .toast($toast)
             .overlay { if isAutoResolving || batchStatus != nil { resolvingOverlay } }
             .alert("Some episodes weren't added",
                    isPresented: Binding(get: { batchMessage != nil }, set: { if !$0 { batchMessage = nil } })) {
@@ -164,15 +167,18 @@ struct MediaDetailView: View {
             )
             #else
             detailScroll(detail)
+                .transition(.opacity)
             #endif
         } else if model.detail == nil, let message = model.errorMessage {
-            EmptyStateView(systemImage: "exclamationmark.triangle",
-                           title: "Couldn’t load", message: message)
+            EmptyStateView(systemImage: "wifi.exclamationmark",
+                           title: "Couldn’t load this title", message: message,
+                           actionTitle: "Try again") { model.load() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ProgressView()
                 .tint(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
         }
     }
 
@@ -228,6 +234,7 @@ struct MediaDetailView: View {
                             get: { model.selectedSeason },
                             set: { model.selectedSeason = $0 }),
                         watchedEpisodes: progressStore.watchedEpisodes(for: mediaID),
+                        episodeFraction: { progressStore.episodeFraction(mediaID: mediaID, episodeID: $0.id) },
                         onWatch: { watch(episode: $0) },
                         onDownload: { requestDownload(episode: $0) },
                         onDownloadEpisodes: { downloadEpisodes($0) },
@@ -329,6 +336,27 @@ struct MediaDetailView: View {
             }
             .buttonStyle(.bordered)
             .tint(isInWatchlist ? Theme.accent : .white)
+            .sensoryFeedback(.selection, trigger: isInWatchlist)
+            .accessibilityLabel(isInWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
+
+            if detail.type == .movie {
+                let watched = progressStore.isMovieWatched(mediaID)
+                Button {
+                    progressStore.setMovieWatched(!watched, id: mediaID,
+                                                  title: detail.name.isEmpty ? fallbackTitle : detail.name,
+                                                  posterURL: detail.posterURL)
+                    toast = ToastMessage(text: watched ? "Marked as unwatched" : "Marked as watched",
+                                         systemImage: watched ? "eye.slash" : "checkmark.circle.fill")
+                } label: {
+                    Image(systemName: watched ? "checkmark.circle.fill" : "checkmark.circle")
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(minHeight: labelHeight)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
+                .tint(watched ? Theme.accent : .white)
+                .accessibilityLabel(watched ? "Mark as unwatched" : "Mark as watched")
+            }
         }
         .controlSize(.large)
         .frame(maxWidth: Platform.isMac ? 480 : .infinity, alignment: .leading)
@@ -461,12 +489,18 @@ struct MediaDetailView: View {
             var missing: [String] = []
             for (index, episode) in toResolve.enumerated() {
                 if let stream = found[index] {
-                    download(stream: stream, episode: episode)
+                    download(stream: stream, episode: episode, announce: false)
                 } else {
                     missing.append(episode.label)
                 }
             }
             batchStatus = nil
+            let added = toResolve.count - missing.count
+            if added > 0 {
+                toast = ToastMessage(text: added == 1 ? "Added 1 episode to Downloads"
+                                                      : "Added \(added) episodes to Downloads",
+                                     systemImage: "arrow.down.circle.fill")
+            }
             if !missing.isEmpty {
                 batchMessage = "No sources found for \(missing.joined(separator: ", ")). Try them one by one or check your source settings."
             }
@@ -585,8 +619,12 @@ struct MediaDetailView: View {
         return saved.fraction
     }
 
-    private func download(stream: TorrentStream, episode: Episode?) {
+    private func download(stream: TorrentStream, episode: Episode?, announce: Bool = true) {
         let detail = model.detail
+        if announce {
+            toast = ToastMessage(text: episode.map { "Downloading \($0.label)" } ?? "Download started",
+                                 systemImage: "arrow.down.circle.fill")
+        }
         downloads.add(
             stream: stream,
             title: detail?.name ?? fallbackTitle,
@@ -616,6 +654,9 @@ struct MediaDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    if detail.type == .movie, progressStore.isMovieWatched(mediaID) {
+                        Chip(text: "Watched", systemImage: "checkmark", tint: .white)
+                    }
                     if let rating = detail.imdbRating {
                         Chip(text: String(format: "%.1f", rating), systemImage: "star.fill", tint: .yellow)
                     }
@@ -642,9 +683,10 @@ struct MediaDetailView: View {
     private var moreLikeThis: some View {
         #if os(iOS)
         if !model.similar.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("More Like This")
-                    .font(.headline)
+                    .font(.display(22, weight: .bold))
+                    .accessibilityAddTraits(.isHeader)
                     .padding(.horizontal, 20)
                 HorizontalShelfScroller {
                     LazyHStack(alignment: .top, spacing: 12) {
@@ -685,7 +727,8 @@ struct MediaDetailView: View {
     private func Section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.headline)
+                .font(.display(22, weight: .bold))
+                .accessibilityAddTraits(.isHeader)
             content()
                 .foregroundStyle(.secondary)
         }
@@ -703,16 +746,16 @@ private struct BannerHeader: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if !Platform.isMac {
-            GeometryReader { proxy in
-                let offset = proxy.frame(in: .global).minY
-                let stretch = max(0, offset)
-
+                let height = self.height
                 KFImage(detail?.backdropURL)
+                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1400, height: 1100)))
+                    .cacheOriginalImage()
                     .resizable()
-                    .fade(duration: 0.2)
+                    .fade(duration: 0.25)
                     .placeholder { Theme.surface }
                     .scaledToFill()
-                    .frame(width: proxy.size.width, height: height + stretch)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
                     .clipped()
                     .overlay {
                         LinearGradient(
@@ -725,9 +768,14 @@ private struct BannerHeader: View {
                             startPoint: .top, endPoint: .bottom
                         )
                     }
-                    .offset(y: -stretch)
-            }
-            .frame(height: height)
+                    // Runs at render time, so scrolling doesn't re-evaluate the view:
+                    // pull down to stretch, scroll up for a gentle parallax.
+                    .visualEffect { content, proxy in
+                        let minY = proxy.frame(in: .scrollView).minY
+                        return content
+                            .scaleEffect(minY > 0 ? 1 + minY / height : 1, anchor: .bottom)
+                            .offset(y: minY > 0 ? 0 : -minY * 0.4)
+                    }
             }
 
             titleTreatment
@@ -772,9 +820,10 @@ private struct CastRow: View {
     let names: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Cast")
-                .font(.headline)
+                .font(.display(22, weight: .bold))
+                .accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, 20)
 
             HorizontalShelfScroller {

@@ -19,9 +19,7 @@ struct ContinueWatchingShelf: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Platform.isMac ? 14 : 10) {
-            Text("Continue Watching")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.white)
+            SectionHeader("Continue Watching")
                 .padding(.horizontal, 16)
 
             HorizontalShelfScroller {
@@ -53,54 +51,44 @@ private struct ContinueWatchingCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             PosterImage(url: item.posterURL)
-                .overlay(alignment: .bottom) { progressBar }
-                .overlay(alignment: .topLeading) { downloadBadge }
+                .overlay(alignment: .bottom) {
+                    if item.fraction > 0, !item.isFinished {
+                        ArtworkProgress(fraction: item.fraction).padding(6)
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if isDownloaded { DownloadedBadge().padding(6) }
+                }
 
-            if Platform.isMac {
-                Text(item.title)
-                    .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(primaryLine)
+                    .font(Platform.isMac ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
                     .lineLimit(1)
                     .foregroundStyle(.white)
-                Text(item.episodeLabel ?? " ")
-                    .font(.footnote)
+                Text(secondaryLine)
+                    .font(Platform.isMac ? .footnote : .caption2)
+                    .monospacedDigit()
                     .lineLimit(1, reservesSpace: true)
-                    .foregroundStyle(.white.opacity(0.65))
-            } else {
-                Text(item.episodeLabel ?? item.title)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel(item.title)
+        .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
-    private var progressBar: some View {
-        if item.fraction > 0 {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.black.opacity(0.5))
-                    Capsule().fill(Theme.accent)
-                        .frame(width: max(3, geo.size.width * item.fraction))
-                }
-            }
-            .frame(height: 4)
-            .padding(6)
-        }
+    private var primaryLine: String {
+        guard let season = item.season, let episode = item.episode else { return item.title }
+        return "S\(season) E\(episode)"
     }
 
-    @ViewBuilder
-    private var downloadBadge: some View {
-        if isDownloaded {
-            Image(systemName: "arrow.down.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.white)
-                .padding(4)
-                .background(.black.opacity(0.55), in: Circle())
-                .padding(6)
-        }
+    /// "Up next" once an episode is finished, otherwise the time left.
+    private var secondaryLine: String {
+        if item.mediaType != .movie, item.isFinished { return "Up next" }
+        let left = max(0, item.durationSeconds - item.positionSeconds)
+        guard item.durationSeconds > 0, left > 30 else { return item.season == nil ? " " : item.title }
+        let minutes = Int((left / 60).rounded())
+        let time = minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+        return "\(time) left"
     }
 }
 #endif

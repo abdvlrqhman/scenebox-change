@@ -29,6 +29,8 @@ final class DownloadStore {
     /// torrent asynchronously, so the next episode of the same pack waits.
     @ObservationIgnored private var retiringTorrents: [String: Int] = [:]
     @ObservationIgnored private var metadataRetries: [String: Int] = [:]
+    /// Torrents the player is streaming right now; their downloads wait.
+    @ObservationIgnored private var streamingTorrents: Set<String> = []
     @ObservationIgnored private var lastCheckpoint = Date()
 
     init(settings: AppSettings? = nil) {
@@ -203,6 +205,7 @@ final class DownloadStore {
 
     private func torrentBlocker(for download: Download) -> String? {
         let key = download.record.torrentKey
+        if streamingTorrents.contains(key) { return "Queued · resumes after you finish watching" }
         if let busy = downloads.first(where: {
             $0.id != download.id && !$0.record.isDebrid && $0.record.torrentKey == key && $0.phase.isActive
         }) {
@@ -455,6 +458,32 @@ final class DownloadStore {
         return nil
     }
 
+    // MARK: - Streaming handoff
+
+    /// libtorrent runs one engine per torrent, so streaming an episode from a
+    /// season pack that's also downloading would pull the torrent out from under
+    /// the download. The download steps aside (keeping its progress) until the
+    /// stream ends.
+    func reserveForStreaming(infoHash: String) async {
+        let key = infoHash.lowercased()
+        streamingTorrents.insert(key)
+        for download in downloads
+        where !download.record.isDebrid && download.record.torrentKey == key && download.phase.isActive {
+            stopTransfer(download, phase: .queued)
+        }
+        startQueuedDownloads()           // refresh the waiting reasons
+        let deadline = Date().addingTimeInterval(10)
+        while retiringTorrents[key] != nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
+    func endStreaming(infoHash: String) {
+        let key = infoHash.lowercased()
+        guard streamingTorrents.remove(key) != nil else { return }
+        markRetiring(key, for: .milliseconds(1500))   // then the queue picks the download back up
+    }
+
     // MARK: - Background
 
     /// Saves resume data for every running torrent. Called when the app leaves
@@ -563,11 +592,11 @@ final class DownloadStore {
                     needsSave = true
                 }
 
-                download.downloadedBytes = stats.downloadedBytes
-                download.downloadRate = stats.downloadRate
-                download.connectedPeers = stats.connectedPeers
-
-                download.progress = stats.progress
+                // Only write what changed: every write re-renders the rows that read it.
+                if download.downloadedBytes != stats.downloadedBytes { download.downloadedBytes = stats.downloadedBytes }
+                if download.downloadRate != stats.downloadRate { download.downloadRate = stats.downloadRate }
+                if download.connectedPeers != stats.connectedPeers { download.connectedPeers = stats.connectedPeers }
+                if download.progress != stats.progress { download.progress = stats.progress }
 
                 if stats.isComplete {
                     download.phase = .completed

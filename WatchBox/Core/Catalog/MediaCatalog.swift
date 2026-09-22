@@ -67,7 +67,11 @@ extension TorrentSearch {
             name: name,
             year: (meta["releaseInfo"] as? String) ?? stringValue(meta["year"]),
             posterURL: (meta["poster"] as? String).flatMap(URL.init(string:)),
-            description: meta["description"] as? String
+            description: meta["description"] as? String,
+            backdropURL: (meta["background"] as? String).flatMap(URL.init(string:)),
+            logoURL: (meta["logo"] as? String).flatMap(URL.init(string:)),
+            genres: stringList(meta["genres"] ?? meta["genre"]),
+            imdbRating: stringValue(meta["imdbRating"])
         )
     }
 

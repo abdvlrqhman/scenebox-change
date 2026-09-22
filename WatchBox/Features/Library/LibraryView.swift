@@ -15,6 +15,7 @@ struct LibraryView: View {
     }
 
     @State private var section: Section = .downloads
+    @Namespace private var switcher
 
     var body: some View {
         NavigationStack {
@@ -47,11 +48,44 @@ struct LibraryView: View {
         }
     }
 
+    @ViewBuilder
     private var sectionPicker: some View {
+        #if os(tvOS)
         Picker("Section", selection: $section) {
             ForEach(Section.allCases) { Text($0.rawValue).tag($0) }
         }
         .pickerStyle(.segmented)
+        #else
+        // A sliding pill instead of the stock segmented control.
+        HStack(spacing: 4) {
+            ForEach(Section.allCases) { option in
+                let selected = section == option
+                Button {
+                    withAnimation(Theme.snappy) { section = option }
+                } label: {
+                    Text(option.rawValue)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(selected ? Theme.onAccent : Theme.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background {
+                            if selected {
+                                Capsule()
+                                    .fill(Theme.accent)
+                                    .matchedGeometryEffect(id: "pill", in: switcher)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(Theme.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.hairline))
+        .sensoryFeedback(.selection, trigger: section)
+        #endif
     }
 
     @ViewBuilder
@@ -133,6 +167,7 @@ private struct WatchlistSection: View {
 
 private struct WatchlistRow: View {
     let item: WatchlistItem
+    @Environment(WatchProgressStore.self) private var progress
     #if os(tvOS)
     @Environment(\.isFocused) private var isFocused
     #else
@@ -141,22 +176,50 @@ private struct WatchlistRow: View {
 
     var body: some View {
         HStack(spacing: rowSpacing) {
-            PosterImage(url: item.posterURL, cornerRadius: 6)
+            PosterImage(url: item.posterURL, cornerRadius: 8)
                 .frame(width: posterWidth)
+                .overlay(alignment: .topTrailing) {
+                    if isWatchedMovie { WatchedBadge(size: 18).padding(4) }
+                }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
                     .font(titleFont)
                     .lineLimit(2)
-                Text(typeLabel)
+                Text(statusLine)
                     .font(subtitleFont)
                     .foregroundStyle(isFocused ? Color.black.opacity(0.6) : Color.secondary)
+                if let fraction = inProgressFraction {
+                    ProgressView(value: fraction)
+                        .tint(Theme.accent)
+                        .frame(maxWidth: 160)
+                }
             }
 
             Spacer(minLength: 0)
         }
         .padding(.vertical, rowSpacing / 2)
         .foregroundStyle(isFocused ? Color.black : Color.white)
+    }
+
+    private var saved: WatchProgress? { progress.progress(for: item.id) }
+
+    private var isWatchedMovie: Bool { item.mediaType == .movie && saved?.isFinished == true }
+
+    private var inProgressFraction: Double? {
+        guard let saved, !saved.isFinished, saved.fraction > 0.01 else { return nil }
+        return saved.fraction
+    }
+
+    /// Type plus where the viewer is: "Movie, watched", "TV Show, 3 episodes watched".
+    private var statusLine: String {
+        if isWatchedMovie { return "\(typeLabel), watched" }
+        let watched = progress.watchedEpisodes(for: item.id).count
+        if item.mediaType != .movie, watched > 0 {
+            return "\(typeLabel), \(watched) episode\(watched == 1 ? "" : "s") watched"
+        }
+        if let label = saved?.episodeLabel, inProgressFraction != nil { return "\(typeLabel), \(label)" }
+        return typeLabel
     }
 
     private var typeLabel: String {
@@ -173,8 +236,8 @@ private struct WatchlistRow: View {
     private var titleFont: Font { .title3.weight(.semibold) }
     private var subtitleFont: Font { .callout }
     #else
-    private var posterWidth: CGFloat { 54 }
-    private var rowSpacing: CGFloat { 12 }
+    private var posterWidth: CGFloat { 58 }
+    private var rowSpacing: CGFloat { 14 }
     private var titleFont: Font { .subheadline.weight(.semibold) }
     private var subtitleFont: Font { .caption }
     #endif

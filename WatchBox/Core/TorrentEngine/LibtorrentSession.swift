@@ -122,6 +122,26 @@ actor LibtorrentSession {
         return wanted == 0 ? 1 : Double(have) / Double(wanted)
     }
 
+    /// Bytes available without a gap from `offset` (file-relative), counted in
+    /// whole pieces and capped at `limit`. Playback can start once the start of
+    /// the file (or the resume point) is contiguous for a few megabytes.
+    func contiguousBytes(from offset: Int64, limit: Int64) async -> Int64 {
+        guard let file = streamFile else { return 0 }
+        let pieceLength = Int64(engine.pieceLength)
+        guard pieceLength > 0, file.length > 0 else { return 0 }
+        let start = file.offset + min(max(0, offset), file.length - 1)
+        let fileEnd = file.offset + file.length
+        var piece = Int(start / pieceLength)
+        var covered: Int64 = 0
+        while covered < limit {
+            let pieceStart = Int64(piece) * pieceLength
+            guard pieceStart < fileEnd, engine.hasPiece(piece) else { break }
+            covered = min(fileEnd, pieceStart + pieceLength) - start
+            piece += 1
+        }
+        return max(0, min(covered, limit))
+    }
+
     func headReadable(headBytes: Int64) async -> Bool {
         guard let server else { return false }
         return server.headReadable(headBytes: headBytes)

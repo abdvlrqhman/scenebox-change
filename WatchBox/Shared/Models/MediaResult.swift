@@ -14,6 +14,11 @@ nonisolated public struct MediaResult: Identifiable, Sendable {
     public let year: String?
     public let posterURL: URL?
     public let description: String?
+    // Catalog extras, used by the Home marquee. Absent on results built elsewhere.
+    public var backdropURL: URL? = nil
+    public var logoURL: URL? = nil
+    public var genres: [String] = []
+    public var imdbRating: String? = nil
 }
 
 extension MediaResult: Hashable {

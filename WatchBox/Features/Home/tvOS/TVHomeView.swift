@@ -47,8 +47,8 @@ struct TVHomeView: View {
                 if let featured = model.featured {
                     TVSpotlight(item: featured, detail: model.featuredDetail)
                 }
-                if !progress.items.isEmpty {
-                    TVContinueWatchingShelf(items: progress.items)
+                if !progress.continueItems.isEmpty {
+                    TVContinueWatchingShelf(items: progress.continueItems)
                 }
                 if !unwatchedWatchlist.isEmpty {
                     TVPosterShelf(title: "Your Watchlist", items: unwatchedWatchlist)

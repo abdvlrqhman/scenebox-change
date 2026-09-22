@@ -12,6 +12,7 @@ struct EpisodeSection: View {
     let detail: MediaDetail
     @Binding var selectedSeason: Int
     var watchedEpisodes: Set<String> = []
+    var episodeFraction: (Episode) -> Double? = { _ in nil }
     let onWatch: (Episode) -> Void
     let onDownload: (Episode) -> Void
     var onDownloadEpisodes: ([Episode]) -> Void = { _ in }
@@ -48,6 +49,7 @@ struct EpisodeSection: View {
                             let state = downloadState(for: episode)
                             EpisodeCard(episode: episode, width: cardWidth,
                                         downloadState: state, isWatched: watched,
+                                        watchFraction: episodeFraction(episode),
                                         selection: selectionState(for: episode, state: state),
                                         onWatch: { isSelecting ? toggle(episode, state: state) : onWatch(episode) },
                                         onDownload: { onDownload(episode) })
@@ -75,6 +77,7 @@ struct EpisodeSection: View {
                         EpisodeRow(episode: episode,
                                    downloadState: state,
                                    isWatched: watched,
+                                   watchFraction: episodeFraction(episode),
                                    selection: selectionState(for: episode, state: state),
                                    onWatch: { onWatch(episode) },
                                    onDownload: { onDownload(episode) },
@@ -270,6 +273,7 @@ private struct EpisodeRow: View {
     let episode: Episode
     var downloadState: EpisodeDownloadState = .idle
     var isWatched = false
+    var watchFraction: Double? = nil
     /// nil when not selecting; otherwise whether this row is ticked.
     var selection: Bool? = nil
     let onWatch: () -> Void
@@ -285,12 +289,7 @@ private struct EpisodeRow: View {
                     Text("\(episode.episode). \(episode.name)")
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
-                    if isWatched {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(Theme.accent)
-                            .accessibilityLabel("Watched")
-                    }
+
                 }
 
                 if let overview = episode.overview, !overview.isEmpty {
@@ -346,12 +345,13 @@ private struct EpisodeRow: View {
     }
 
     private var thumbnail: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(Theme.surface)
-            .frame(width: 104, height: 59)
-            .opacity(isWatched ? 0.55 : 1)
+            .frame(width: 112, height: 63)
             .overlay {
                 KFImage(episode.thumbnailURL)
+                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 360, height: 204)))
+                    .cancelOnDisappear(true)
                     .resizable()
                     .fade(duration: 0.2)
                     .placeholder {
@@ -359,8 +359,17 @@ private struct EpisodeRow: View {
                             .foregroundStyle(.white.opacity(0.2))
                     }
                     .scaledToFill()
+                    .opacity(isWatched ? 0.45 : 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(alignment: .bottom) {
+                if let watchFraction, !isWatched {
+                    ArtworkProgress(fraction: watchFraction).padding(4)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isWatched { WatchedBadge(size: 18).padding(4) }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -369,6 +378,7 @@ private struct EpisodeCard: View {
     let width: CGFloat
     var downloadState: EpisodeDownloadState = .idle
     var isWatched = false
+    var watchFraction: Double? = nil
     var selection: Bool? = nil
     let onWatch: () -> Void
     let onDownload: () -> Void
@@ -387,12 +397,7 @@ private struct EpisodeCard: View {
                 Text("\(episode.episode). \(episode.name)")
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                if isWatched {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Theme.accent)
-                        .accessibilityLabel("Watched")
-                }
+
             }
             if let overview = episode.overview, !overview.isEmpty {
                 Text(overview)
@@ -418,13 +423,23 @@ private struct EpisodeCard: View {
             .frame(width: width, height: stillHeight)
             .overlay {
                 KFImage(episode.thumbnailURL)
+                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 900, height: 506)))
+                    .cancelOnDisappear(true)
                     .resizable()
                     .fade(duration: 0.2)
                     .placeholder {
                         Image(systemName: "photo").font(.title2).foregroundStyle(.white.opacity(0.2))
                     }
                     .scaledToFill()
-                    .opacity(isWatched ? 0.55 : 1)
+                    .opacity(isWatched ? 0.5 : 1)
+            }
+            .overlay(alignment: .bottom) {
+                if let watchFraction, !isWatched {
+                    ArtworkProgress(fraction: watchFraction).padding(8)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if isWatched { WatchedBadge(size: 22).padding(8) }
             }
             .overlay {
                 if selection == nil {

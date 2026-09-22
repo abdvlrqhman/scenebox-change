@@ -55,6 +55,7 @@ final class SubtitlesController {
     @ObservationIgnored private var attachAttempts = 0
     @ObservationIgnored private var lastAttachAttempt = Date.distantPast
     @ObservationIgnored private var enforcedGeneration = -1
+    @ObservationIgnored private var delayGeneration = -1
 
     // MARK: Lifecycle
 
@@ -171,6 +172,14 @@ final class SubtitlesController {
         player.selectedSubtitleTrack = track
     }
 
+    /// Subtitle sync is remembered per episode (or movie) and put back the
+    /// next time it plays.
+    func saveDelay(milliseconds: Int) {
+        guard let context else { return }
+        SubtitleDelayStore.set(milliseconds, for: context)
+        delayGeneration = generation
+    }
+
     func embeddedTracks(of player: Player) -> [Track] {
         var seen = Set<String>()
         return player.subtitleTracks.filter {
@@ -188,6 +197,13 @@ final class SubtitlesController {
         // Give the video's own tracks a moment to register after playback starts,
         // so a new external track can be told apart from them.
         let tracksSettled = playingSince.map { Date().timeIntervalSince($0) >= 0.8 } ?? false
+
+        if tracksSettled, delayGeneration != generation {
+            delayGeneration = generation
+            if let context, let saved = SubtitleDelayStore.milliseconds(for: context), saved != 0 {
+                try? player.setSubtitleDelay(.milliseconds(saved))
+            }
+        }
 
         switch wanted {
         case .undecided:
@@ -311,5 +327,37 @@ final class SubtitlesController {
                 let r = available.firstIndex { $0.languageName == rhs.language } ?? 0
                 return l < r
             }
+    }
+}
+
+/// Per-episode subtitle offsets, in milliseconds, kept in user defaults.
+enum SubtitleDelayStore {
+    private static let key = "subtitleDelays"
+    private static let limit = 400
+
+    static func milliseconds(for context: SubtitleContext) -> Int? {
+        (UserDefaults.standard.dictionary(forKey: key)?[id(context)] as? [Any])?.first as? Int
+    }
+
+    static func set(_ milliseconds: Int, for context: SubtitleContext) {
+        var all = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        if milliseconds == 0 {
+            all[id(context)] = nil
+        } else {
+            // [offset, last used] so the oldest entries can be dropped.
+            all[id(context)] = [milliseconds, Date().timeIntervalSince1970]
+        }
+        if all.count > limit {
+            let oldest = all.sorted {
+                (($0.value as? [Any])?.last as? Double ?? 0) < (($1.value as? [Any])?.last as? Double ?? 0)
+            }
+            for (key, _) in oldest.prefix(all.count - limit) { all[key] = nil }
+        }
+        UserDefaults.standard.set(all, forKey: key)
+    }
+
+    private static func id(_ context: SubtitleContext) -> String {
+        guard let season = context.season, let episode = context.episode else { return context.imdbID }
+        return "\(context.imdbID):\(season):\(episode)"
     }
 }

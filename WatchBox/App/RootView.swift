@@ -21,7 +21,15 @@ struct RootView: View {
             }
         }
         #if DEBUG
-        .task { startAutoStreamIfRequested() }
+        .task {
+            startAutoStreamIfRequested()
+            // `-SBOpenDetail series/tt0903747` opens a title (screenshots, debugging).
+            if let path = UserDefaults.standard.string(forKey: "SBOpenDetail"),
+               let url = URL(string: "scenebox://detail/\(path)") {
+                try? await Task.sleep(for: .seconds(1.5))
+                links.handle(url)
+            }
+        }
         #endif
         .onChange(of: links.pendingMagnet) { _, magnet in
             guard let magnet else { return }

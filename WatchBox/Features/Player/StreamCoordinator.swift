@@ -39,11 +39,15 @@ final class StreamCoordinator {
     private(set) var episodePlaylist: EpisodePlaylist?
 
     private(set) var stats = SwarmStats()
+    /// Enough is downloaded to begin; the loading screen offers "Play now".
+    private(set) var canStartNow = false
 
     @ObservationIgnored private var session: LibtorrentSession?
     @ObservationIgnored private var prepareTask: Task<Void, Never>?
     @ObservationIgnored private var statsTask: Task<Void, Never>?
     @ObservationIgnored private var streamDirectory: URL?
+    @ObservationIgnored private var startNowRequested = false
+    @ObservationIgnored private var reservedTorrent: String?
     @ObservationIgnored private let settings: AppSettings
 
     static var streamCacheRoot: URL { StreamCache.root }
@@ -66,6 +70,9 @@ final class StreamCoordinator {
     }
 
     var isPreparing: Bool { preparing != nil }
+
+    /// Skip the rest of the cushion and start with what's downloaded.
+    func startNow() { startNowRequested = true }
 
     var preparingStatus: String? {
         if let preparing { return preparing }
@@ -112,6 +119,15 @@ final class StreamCoordinator {
             }
             guard !Task.isCancelled else { return }
             do {
+                // One engine per torrent: park any download of the same season
+                // pack while it streams, and hand it back afterwards.
+                let key = stream.id.lowercased()
+                if let previous = self.reservedTorrent, previous != key {
+                    DownloadStore.shared.endStreaming(infoHash: previous)
+                }
+                self.reservedTorrent = key
+                await DownloadStore.shared.reserveForStreaming(infoHash: key)
+                guard !Task.isCancelled else { return }
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 self.streamDirectory = directory
                 if cacheLimit > 0 { StreamCache.prune(toBytes: cacheLimit, keeping: [stream.id]) }
@@ -132,40 +148,60 @@ final class StreamCoordinator {
 
                 let started = Date()
                 preparing = nil
-                var headReady = 0.0
                 var lastBytes: Int64 = 0
                 var lastProgressAt = Date()
-                let headBytes: Int64 = 16 * 1024 * 1024
-                var headVerifiedAt: Date?
-                var steadyStateStarted = false
+                var readyToStart = false
+                var minimumReadyAt: Date?
+                startNowRequested = false
+                canStartNow = false
+
+                // Start as soon as the video can play, not after a fixed download:
+                // the container header plus a few megabytes at the start point,
+                // and either a comfortable cushion or a download fast enough to
+                // stay ahead of playback. The stream server keeps fetching ahead
+                // of the playhead, and everything fetched stays cached.
+                let fileLength = await session.streamFileLength()
+                let megabyte: Int64 = 1_048_576
+                let startOffset: Int64 = resumeFraction.map { fraction in
+                    fraction > 0 && fraction < 1 ? Int64(Double(fileLength) * fraction) : 0
+                } ?? 0
+                let headerBytes = min(fileLength, 2 * megabyte)
+                let minimumBytes = min(fileLength - startOffset, 4 * megabyte)
+                let cushionBytes = min(fileLength - startOffset,
+                                       max(8 * megabyte, min(24 * megabyte, fileLength / 80)))
+                // Bytes per second if the file were a ~45 minute episode; longer
+                // films come out lower, which only makes the estimate cautious.
+                let estimatedBitrate = Double(max(fileLength, 1)) / (45 * 60)
+
                 while !Task.isCancelled {
-                    headReady = await session.initialBufferProgress(
-                        headBytes: headBytes, tailBytes: 0)
+                    let header = await session.contiguousBytes(from: 0, limit: headerBytes)
+                    let ahead = await session.contiguousBytes(from: startOffset, limit: cushionBytes)
                     let stats = await session.currentStats()
                     self.stats = stats
-                    bufferProgress = headReady
+                    bufferProgress = cushionBytes > 0 ? Double(ahead) / Double(cushionBytes) : 1
                     if stats.downloadedBytes > lastBytes {
                         lastBytes = stats.downloadedBytes
                         lastProgressAt = Date()
                     }
                     let elapsed = Date().timeIntervalSince(started)
                     let stalledFor = Date().timeIntervalSince(lastProgressAt)
+
+                    let minimumReady = header >= headerBytes && ahead >= minimumBytes
+                    canStartNow = minimumReady
+                    if minimumReady {
+                        let since = Date().timeIntervalSince(minimumReadyAt ?? Date())
+                        if minimumReadyAt == nil { minimumReadyAt = Date() }
+                        let keepingUp = stats.downloadRate >= estimatedBitrate * 1.3
+                        if ahead >= cushionBytes || keepingUp || startNowRequested || since >= 8 {
+                            readyToStart = true
+                            break
+                        }
+                    }
                     #if DEBUG
                     if Int(elapsed * 3.3) % 3 == 0 {   // ~1 line/sec of the 300ms loop
-                        let readable = await session.headReadable(headBytes: headBytes)
-                        torrentLog.notice("gate: elapsed=\(Int(elapsed), privacy: .public)s headReady=\(String(format: "%.2f", headReady), privacy: .public) readable=\(readable, privacy: .public) done=\(stats.downloadedBytes / 1_048_576, privacy: .public)MB stalledFor=\(Int(stalledFor), privacy: .public)s")
+                        torrentLog.notice("gate: elapsed=\(Int(elapsed), privacy: .public)s header=\(header / megabyte, privacy: .public)MB ahead=\(ahead / megabyte, privacy: .public)MB rate=\(Int(stats.downloadRate / 1024), privacy: .public)KB/s")
                     }
                     #endif
-                    if headReady >= 1 {
-                        if !steadyStateStarted {
-                            steadyStateStarted = true
-                            await session.endPrebuffer()
-                        }
-                        if await session.headReadable(headBytes: headBytes) { break }
-                        let verifiedAt = headVerifiedAt ?? Date()
-                        headVerifiedAt = verifiedAt
-                        if Date().timeIntervalSince(verifiedAt) > 6 { break }
-                    }
                     if elapsed > 300 { break }                   // absolute ceiling: 5 min
                     if lastBytes == 0 {
                         if elapsed > 120 && stats.connectedPeers == 0 { break }
@@ -174,8 +210,9 @@ final class StreamCoordinator {
                     }
                     try? await Task.sleep(for: .milliseconds(300))
                 }
+                canStartNow = false
                 guard !Task.isCancelled else { await session.stop(); return }
-                if headReady <= 0 {
+                if !readyToStart {
                     await session.stop()
                     self.session = nil
                     throw TorrentEngineError.bufferTimeout
@@ -273,16 +310,20 @@ final class StreamCoordinator {
         let finished = session
         let directory = streamDirectory
         let cacheLimit = settings.streamCacheLimitBytes
+        let reserved = reservedTorrent
         session = nil
         streamDirectory = nil
+        reservedTorrent = nil
+        canStartNow = false
         Task {
             await finished?.stop()
+            await finished?.waitForTeardown()       // don't delete, or restart a download, under the engine
             if cacheLimit <= 0 {
-                await finished?.waitForTeardown()   // don't delete under the engine
                 if let directory { try? FileManager.default.removeItem(at: directory) }
             } else {
                 StreamCache.prune(toBytes: cacheLimit)
             }
+            if let reserved { DownloadStore.shared.endStreaming(infoHash: reserved) }
         }
     }
 

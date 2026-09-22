@@ -39,6 +39,8 @@ struct StreamPlayerContainer: View {
                     progress: streamer.bufferProgress,
                     status: streamer.preparingStatus,
                     error: streamer.errorMessage,
+                    canStartNow: streamer.canStartNow,
+                    onStartNow: streamer.startNow,
                     onClose: streamer.stop
                 )
             }
@@ -84,6 +86,8 @@ private struct PreparingPlayerView: View {
     let progress: Double?
     let status: String?
     let error: String?
+    var canStartNow = false
+    var onStartNow: () -> Void = {}
     let onClose: () -> Void
 
     var body: some View {
@@ -102,11 +106,27 @@ private struct PreparingPlayerView: View {
                         if let status {
                             Text(status)
                                 .font(.footnote.weight(.medium))
+                                .monospacedDigit()
                                 .foregroundStyle(.white.opacity(0.85))
                                 .contentTransition(.numericText())
                                 .animation(.default, value: status)
                         }
+                        if canStartNow {
+                            // Enough is downloaded to begin; the rest keeps coming
+                            // in ahead of the playhead.
+                            Button(action: onStartNow) {
+                                Label("Play now", systemImage: "play.fill")
+                                    .font(.subheadline.weight(.bold))
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Theme.accent)
+                            .foregroundStyle(Theme.onAccent)
+                            .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        }
                     }
+                    .animation(Theme.smooth, value: canStartNow)
                 }
                 .padding(.horizontal, 40)
                 .shadow(color: .black.opacity(0.6), radius: 14, y: 4)
@@ -155,7 +175,7 @@ private struct PreparingPlayerView: View {
 
     private var titleText: some View {
         Text(title)
-            .font(.system(size: 34, weight: .heavy, design: .rounded))
+            .font(.display(38))
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)
             .lineLimit(3)

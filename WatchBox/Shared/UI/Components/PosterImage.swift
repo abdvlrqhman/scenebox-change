@@ -24,6 +24,7 @@ struct PosterImage: View {
                     .resizable()
                     .fade(duration: 0.2)
                     .cacheOriginalImage()
+                    .cancelOnDisappear(true)     // fast scrolls don't queue off-screen downloads
                     .placeholder {
                         Image(systemName: "film")
                             .font(.title2)

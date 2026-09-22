@@ -53,6 +53,37 @@ final class WatchProgressStore {
         items.first { $0.id == mediaID }
     }
 
+    /// What the Continue Watching shelf shows. Finished movies stay in the
+    /// history (so they can be marked as watched) but are done.
+    var continueItems: [WatchProgress] {
+        items.filter { !($0.mediaType == .movie && $0.isFinished) }
+    }
+
+    /// How far into this episode playback got, while it's unfinished.
+    func episodeFraction(mediaID: String, episodeID: String) -> Double? {
+        guard let saved = progress(for: mediaID), saved.episodeID == episodeID,
+              !saved.isFinished, saved.fraction > 0.01 else { return nil }
+        return saved.fraction
+    }
+
+    func isMovieWatched(_ mediaID: String) -> Bool {
+        guard let saved = progress(for: mediaID) else { return false }
+        return saved.mediaType == .movie && saved.isFinished
+    }
+
+    func setMovieWatched(_ watched: Bool, id: String, title: String, posterURL: URL?) {
+        guard watched else { remove(id: id); return }
+        let item = WatchProgress(
+            id: id, mediaType: .movie, title: title,
+            posterURLString: posterURL?.absoluteString,
+            season: nil, episode: nil, episodeID: nil,
+            positionSeconds: 1, durationSeconds: 1,         // fraction 1 → finished
+            updatedAt: Date())
+        items.removeAll { $0.id == id }
+        items.insert(item, at: 0)
+        Task { [backend] in await backend.upsert(item) }
+    }
+
     func record(id: String, mediaType: MediaType, title: String, posterURL: URL?,
                 season: Int?, episode: Int?, episodeID: String?,
                 position: Duration, duration: Duration?) {
@@ -65,11 +96,6 @@ final class WatchProgressStore {
             season: season, episode: episode, episodeID: episodeID,
             positionSeconds: pos, durationSeconds: duration?.asSeconds ?? 0,
             updatedAt: Date())
-
-        if item.isFinished, item.mediaType == .movie {
-            remove(id: id)
-            return
-        }
 
         if mediaType != .movie, let previous = progress(for: id) {
             var watched = Set(previous.watchedEpisodes ?? [])

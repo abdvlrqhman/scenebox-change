@@ -63,7 +63,7 @@ final class AppSettings {
 
     let accentColorHex: String = Theme.defaultAccentHex
 
-    var accentColor: Color { Color(hex: accentColorHex) }
+    var accentColor: Color { Theme.accent }
 
     // MARK: Debrid
 

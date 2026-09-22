@@ -448,8 +448,10 @@ struct PlaybackScreen: View {
             let media = try Media(url: url)
             if !url.isFileURL {
                 let isTorrent = url.host == "127.0.0.1"
+                // The local torrent server already holds data ahead of the playhead,
+                // so a very deep player cache only delays the first frame.
                 let cacheMs = isTorrent
-                    ? max(settings.networkCacheMilliseconds, 8000)
+                    ? max(settings.networkCacheMilliseconds, 5000)
                     : settings.networkCacheMilliseconds
                 media.addOption(":network-caching=\(cacheMs)")
 

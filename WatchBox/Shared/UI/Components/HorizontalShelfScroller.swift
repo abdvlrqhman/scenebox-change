@@ -17,6 +17,19 @@ struct HorizontalShelfScroller<Content: View>: View {
     @State private var hovering = false
 
     var body: some View {
+        if Platform.isMac {
+            macScroller
+        } else {
+            // Touch devices scroll natively. Tracking the offset here re-rendered
+            // every shelf on every scroll frame just to feed the Mac arrows.
+            ScrollView(.horizontal, showsIndicators: false) {
+                content
+            }
+            .scrollClipDisabled()
+        }
+    }
+
+    private var macScroller: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             content
         }
@@ -30,16 +43,14 @@ struct HorizontalShelfScroller<Content: View>: View {
             contentWidth = metrics.content
         }
         .overlay {
-            if Platform.isMac {
-                HStack {
-                    pager(direction: -1, systemImage: "chevron.left")
-                    Spacer()
-                    pager(direction: 1, systemImage: "chevron.right")
-                }
-                .padding(.horizontal, 6)
-                .opacity(hovering ? 1 : 0)
-                .animation(.easeOut(duration: 0.15), value: hovering)
+            HStack {
+                pager(direction: -1, systemImage: "chevron.left")
+                Spacer()
+                pager(direction: 1, systemImage: "chevron.right")
             }
+            .padding(.horizontal, 6)
+            .opacity(hovering ? 1 : 0)
+            .animation(.easeOut(duration: 0.15), value: hovering)
         }
         #if os(iOS)
         .onHover { hovering = $0 }

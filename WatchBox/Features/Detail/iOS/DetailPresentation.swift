@@ -21,10 +21,10 @@ struct PosterLink<Label: View>: View {
     var body: some View {
         if let openMediaDetail {
             Button { openMediaDetail(item) } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
         } else {
             NavigationLink(value: item) { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
         }
     }
 }

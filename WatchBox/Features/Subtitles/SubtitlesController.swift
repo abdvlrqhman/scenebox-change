@@ -25,6 +25,8 @@ final class SubtitlesController {
     private(set) var externalTrackIDs: Set<String> = []
     private(set) var isLoading = false
     private(set) var statusMessage: String?
+    /// The version being downloaded after a tap, for the row's spinner.
+    private(set) var loadingID: String?
 
     private enum Wanted: Equatable {
         case undecided                  // default language not resolved yet
@@ -60,6 +62,8 @@ final class SubtitlesController {
     @ObservationIgnored private var activeTrackKey: String?
     @ObservationIgnored private var memory: SubtitleMemory.Entry?
     @ObservationIgnored private var fpsChecked = false
+    /// Offsets set this session, per version, so comparing A → B → A keeps A's.
+    @ObservationIgnored private var sessionDelays: [String: Int] = [:]
 
     // MARK: Lifecycle
 
@@ -68,17 +72,18 @@ final class SubtitlesController {
         guard !loaded else { reconcile(); return }
         loaded = true
         self.context = context
-        self.preferred = SubtitleLanguage.canonical(preferred)
         self.memory = SubtitleMemory.entry(for: context)
+        // The version kept last time wins, in whatever language it was: picking
+        // an English version for one episode shouldn't revert to Arabic.
+        var rememberedID: String?
+        if let memory, let key = memory.trackKey, key.hasPrefix("ext:"), let language = memory.language {
+            rememberedID = String(key.dropFirst(4))
+            self.preferred = SubtitleLanguage.canonical(language)
+            fpsChecked = true                 // keep the version the saved offset belongs to
+        } else {
+            self.preferred = SubtitleLanguage.canonical(preferred)
+        }
         if self.preferred.isEmpty { wanted = .off }
-
-        // Last time's file for this episode, if it was in the default language.
-        let rememberedID: String? = {
-            guard let memory, let key = memory.trackKey, key.hasPrefix("ext:"),
-                  memory.language.map(SubtitleLanguage.canonical) == self.preferred else { return nil }
-            return String(key.dropFirst(4))
-        }()
-        if rememberedID != nil { fpsChecked = true }      // keep the file the saved offset belongs to
 
         isLoading = true
         fetchTask = Task { [provider] in
@@ -139,41 +144,85 @@ final class SubtitlesController {
 
     // MARK: User choices
 
-    func apply(_ track: SubtitleTrack?, on player: Player) {
+    /// Shows `track`. `exact` is for a version the viewer tapped: no silent
+    /// substitute if it fails, and the current subtitle stays up. Otherwise
+    /// (picking a language) the next best version is tried.
+    func apply(_ track: SubtitleTrack?, on player: Player, exact: Bool = false) {
         self.player = player
         applyTask?.cancel()
+        loadingID = nil
         statusMessage = nil
-        embeddedID = nil
         guard let track else {
+            embeddedID = nil
             wanted = .off
             selectedID = nil
             activeTrackKey = nil
             player.selectedSubtitleTrack = nil
+            if let context { SubtitleMemory.forgetTrack(for: context) }   // next time: the default language
             return
         }
-        selectedID = track.id
+        let previousSelected = selectedID
+        let previousEmbedded = embeddedID
+        if !exact {
+            selectedID = track.id
+            embeddedID = nil
+        }
+        loadingID = track.id
         applyTask = Task { [provider, context] in
-            // The chosen file first, then other files in the same language.
             var file: (SubtitleTrack, URL)?
             if let url = try? await provider.download(track) {
                 file = (track, url)
-            } else if let context,
+            } else if !exact, let context,
                       let fallback = await provider.bestFile(
                         for: context, language: track.languageCode,
                         tracks: available.filter { $0.id != track.id }) {
                 file = fallback
             }
             guard !Task.isCancelled else { return }
+            loadingID = nil
             guard let (chosen, url) = file else {
-                selectedID = nil
-                statusMessage = "Couldn't download \(track.languageName) subtitles. Try another language or try again."
+                selectedID = previousSelected
+                embeddedID = previousEmbedded
+                statusMessage = exact
+                    ? "That version didn't download. Your current subtitles are still on."
+                    : "Couldn't download \(track.languageName) subtitles. Try another language or try again."
                 return
             }
             selectedID = chosen.id
+            embeddedID = nil
             wanted = .external(chosen, url)
             enforcedGeneration = -1
             reconcile()
         }
+    }
+
+    // MARK: Versions (several subtitle files in one language)
+
+    /// Every version in `languageCode`, best first: same frame rate as the
+    /// video, then closest release name.
+    func versions(for languageCode: String, player: Player) -> [SubtitleTrack] {
+        SubtitlesProvider.candidates(in: available, language: languageCode,
+                                     release: context?.releaseName,
+                                     videoFPS: player.videoTracks.first?.frameRate)
+    }
+
+    /// The external subtitle showing now (or being switched to).
+    var selectedTrack: SubtitleTrack? {
+        selectedID.flatMap { id in available.first { $0.id == id } }
+    }
+
+    /// The offset set for this version, this session or last time.
+    func savedOffset(for track: SubtitleTrack) -> Int? {
+        let key = "ext:\(track.id)"
+        if let value = sessionDelays[key] { return value }
+        guard memory?.trackKey == key else { return nil }
+        return memory?.delayMilliseconds
+    }
+
+    /// The version this episode used last time.
+    var lastKeptID: String? {
+        guard let key = memory?.trackKey, key.hasPrefix("ext:") else { return nil }
+        return String(key.dropFirst(4))
     }
 
     func selectEmbedded(_ track: Track, on player: Player) {
@@ -192,6 +241,7 @@ final class SubtitlesController {
     /// next time it plays.
     func saveDelay(milliseconds: Int) {
         guard let context else { return }
+        if let activeTrackKey { sessionDelays[activeTrackKey] = milliseconds }
         SubtitleMemory.setDelay(milliseconds, trackKey: activeTrackKey, for: context)
         memory = SubtitleMemory.entry(for: context)
         delayGeneration = generation
@@ -203,8 +253,9 @@ final class SubtitlesController {
         guard key != activeTrackKey else { return }
         activeTrackKey = key
         guard let context else { return }
-        let saved = memory?.trackKey == key ? (memory?.delayMilliseconds ?? 0) : 0
+        let saved = sessionDelays[key] ?? (memory?.trackKey == key ? (memory?.delayMilliseconds ?? 0) : 0)
         SubtitleMemory.remember(trackKey: key, language: language, for: context)
+        if saved != 0 { SubtitleMemory.setDelay(saved, trackKey: key, for: context) }
         memory = SubtitleMemory.entry(for: context)
         try? player.setSubtitleDelay(.milliseconds(saved))
         delayGeneration = generation
@@ -421,6 +472,12 @@ enum SubtitleMemory {
         entry.language = language
         entry.lastUsed = Date().timeIntervalSince1970
         all[id(context)] = entry
+        save(all)
+    }
+
+    static func forgetTrack(for context: SubtitleContext) {
+        var all = load()
+        all[id(context)] = nil
         save(all)
     }
 

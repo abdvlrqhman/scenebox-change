@@ -14,8 +14,11 @@ struct PlaybackSettingsPanel: View {
     var onAudioSelected: () -> Void = {}
     let onClose: () -> Void
 
-    private enum Page { case root, subtitles }
+    private enum Page { case root, subtitles, versions }
     @State private var page: Page = .root
+    /// Language whose versions are listed, and where Back returns to.
+    @State private var versionsLanguage: String?
+    @State private var versionsReturn: Page = .root
 
     private let rates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
@@ -39,6 +42,10 @@ struct PlaybackSettingsPanel: View {
                     case .subtitles:
                         header(title: "Subtitles")
                         subtitleSection
+                    case .versions:
+                        header(title: versionsTitle)
+                        versionsSection
+                        if hasActiveSubtitle { subtitleDelaySection }
                     }
                 }
                 .padding(20)
@@ -50,10 +57,10 @@ struct PlaybackSettingsPanel: View {
             .padding(panelInset)
         }
         .foregroundStyle(.white)
-        .animation(.easeInOut(duration: 0.15), value: page == .root)
+        .animation(.easeInOut(duration: 0.15), value: page)
         #if os(tvOS)
         .onExitCommand {
-            if page == .subtitles { page = .root } else { onClose() }
+            if page == .root { onClose() } else { goBack() }
         }
         #endif
     }
@@ -62,10 +69,10 @@ struct PlaybackSettingsPanel: View {
         HStack(spacing: 14) {
             if page != .root {
                 #if os(tvOS)
-                Button { page = .root } label: { Image(systemName: "chevron.left") }
+                Button { goBack() } label: { Image(systemName: "chevron.left") }
                     .buttonStyle(TVCircleButtonStyle(diameter: 46))
                 #else
-                Button { page = .root } label: {
+                Button { goBack() } label: {
                     Image(systemName: "chevron.left.circle.fill")
                         .font(.title3)
                         .foregroundStyle(.white.opacity(0.6))
@@ -107,7 +114,85 @@ struct PlaybackSettingsPanel: View {
     private var subtitleNavSection: some View {
         SettingsSection(title: "Subtitles") {
             NavRow(title: "Language", value: currentSubtitleLabel) { page = .subtitles }
+            if let active = subs.selectedTrack,
+               subs.versions(for: active.languageCode, player: player).count > 1 {
+                NavRow(title: "Version", value: Self.versionName(active)) {
+                    showVersions(of: active.languageCode, returningTo: .root)
+                }
+            }
         }
+    }
+
+    private func goBack() {
+        page = page == .versions ? versionsReturn : .root
+    }
+
+    private func showVersions(of language: String, returningTo origin: Page) {
+        versionsLanguage = language
+        versionsReturn = origin
+        page = .versions
+    }
+
+    private var versionsTitle: String {
+        guard let versionsLanguage else { return "Versions" }
+        return "\(SubtitleLanguage.displayName(for: versionsLanguage)) versions"
+    }
+
+    /// Every version in the chosen language, best first. Tapping switches right
+    /// away and the panel stays open, so versions can be compared.
+    private var versionsSection: some View {
+        let list = versionsLanguage.map { subs.versions(for: $0, player: player) } ?? []
+        let videoFPS = player.videoTracks.first?.frameRate
+        return SettingsSection(title: "\(list.count) available") {
+            ForEach(Array(list.enumerated()), id: \.element.id) { index, track in
+                VersionRow(title: Self.versionName(track, index: index),
+                           tags: tags(for: track, index: index, videoFPS: videoFPS),
+                           selected: subs.selectedID == track.id,
+                           loading: subs.loadingID == track.id) {
+                    subs.apply(track, on: player, exact: true)
+                }
+            }
+            if let message = subs.statusMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func tags(for track: SubtitleTrack, index: Int, videoFPS: Double?) -> [VersionRow.Tag] {
+        var tags: [VersionRow.Tag] = []
+        if index == 0 { tags.append(.init(text: "Best match", tone: .accent)) }
+        if let fps = track.fps {
+            let label = String(format: "%.5g fps", fps)   // 23.976, 25, 29.97
+            if let videoFPS, videoFPS > 1 {
+                tags.append(abs(fps - videoFPS) < 0.05
+                            ? .init(text: "\(label), same as video", tone: .good)
+                            : abs(fps - videoFPS) > 0.3
+                                ? .init(text: "\(label), may drift", tone: .warn)
+                                : .init(text: label, tone: .plain))
+            } else {
+                tags.append(.init(text: label, tone: .plain))
+            }
+        }
+        if subs.lastKeptID == track.id, subs.selectedID != track.id {
+            tags.append(.init(text: "Kept last time", tone: .plain))
+        }
+        if let offset = subs.savedOffset(for: track), offset != 0 {
+            tags.append(.init(text: String(format: "Sync %+.2f s", Double(offset) / 1000), tone: .plain))
+        }
+        return tags
+    }
+
+    /// "Breaking.Bad.S01E01.720p.HDTV.x264-BiA.srt" → "Breaking Bad S01E01 720p HDTV x264-BiA".
+    static func versionName(_ track: SubtitleTrack, index: Int? = nil) -> String {
+        guard var name = track.fileName, !name.isEmpty else {
+            return index.map { "Version \($0 + 1)" } ?? "Selected version"
+        }
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ["srt", "vtt", "ass", "ssa", "sub"].contains(ext) { name = (name as NSString).deletingPathExtension }
+        return name.replacingOccurrences(of: ".", with: " ").replacingOccurrences(of: "_", with: " ")
     }
 
     private var subtitleSection: some View {
@@ -137,11 +222,21 @@ struct PlaybackSettingsPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(subs.byLanguage, id: \.language) { group in
-                if let track = group.tracks.first {
-                    OptionRow(title: group.language,
-                              selected: group.tracks.contains { $0.id == subs.selectedID }) {
-                        subs.apply(track, on: player)
-                        page = .root
+                if let code = group.tracks.first?.languageCode {
+                    let count = group.tracks.count
+                    let active = group.tracks.contains { $0.id == subs.selectedID }
+                    OptionRow(title: count > 1 ? "\(group.language) · \(count) versions" : group.language,
+                              selected: active) {
+                        // Show the best version at once; with a choice, open the
+                        // list so another can be tried.
+                        if !active, let best = subs.versions(for: code, player: player).first {
+                            subs.apply(best, on: player)
+                        }
+                        if count > 1 {
+                            showVersions(of: code, returningTo: .subtitles)
+                        } else {
+                            page = .root
+                        }
                     }
                 }
             }
@@ -173,7 +268,7 @@ struct PlaybackSettingsPanel: View {
                     Text(delayText).font(.headline.monospacedDigit())
                         .contentTransition(.numericText())
                     if abs(delaySeconds) >= 0.01 {
-                        Button("Reset · saved for this episode") { setSubtitleDelay(milliseconds: 0) }
+                        Button("Reset · saved for this version") { setSubtitleDelay(milliseconds: 0) }
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.6))
                             .buttonStyle(.plain)
@@ -300,6 +395,86 @@ struct OptionRow: View {
         }
         .buttonStyle(.plain)
         #endif
+    }
+}
+
+/// One subtitle version: its release name and a few facts that help choose.
+struct VersionRow: View {
+    struct Tag: Hashable {
+        enum Tone { case accent, good, warn, plain }
+        let text: String
+        let tone: Tone
+    }
+
+    let title: String
+    let tags: [Tag]
+    let selected: Bool
+    let loading: Bool
+    let action: () -> Void
+
+    var body: some View {
+        #if os(tvOS)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).lineLimit(2)
+                if !tags.isEmpty {
+                    Text(tags.map(\.text).joined(separator: ", "))
+                        .font(.callout)
+                        .opacity(0.7)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .buttonStyle(OptionRowStyle(selected: selected))
+        #else
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.subheadline.weight(selected ? .semibold : .regular))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.leading)
+                    if !tags.isEmpty {
+                        FlowLayout(spacing: 6) {
+                            ForEach(tags, id: \.self) { tag in
+                                Text(tag.text)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(color(tag.tone))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(color(tag.tone).opacity(0.14), in: Capsule())
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 6)
+                Group {
+                    if loading {
+                        ProgressView().controlSize(.small)
+                    } else if selected {
+                        Image(systemName: "checkmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Theme.accent)
+                    }
+                }
+                .frame(width: 22, height: 22)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        #endif
+    }
+
+    private func color(_ tone: Tag.Tone) -> Color {
+        switch tone {
+        case .accent: Theme.accent
+        case .good: Theme.success
+        case .warn: Theme.warning
+        case .plain: .white.opacity(0.7)
+        }
     }
 }
 

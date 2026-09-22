@@ -45,7 +45,6 @@ final class BackgroundDownloads {
     func start() {
         guard !started else { return }
         started = true
-        isInBackground = UIApplication.shared.applicationState == .background
         let center = NotificationCenter.default
         _ = center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { BackgroundDownloads.shared.didEnterBackground() }

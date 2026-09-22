@@ -123,7 +123,8 @@ final class AppSettings {
         ("ar", "Arabic"), ("tr", "Turkish"), ("nl", "Dutch"), ("pl", "Polish"),
     ]
 
-    var preferredSubtitleLanguage: String = SubtitleLanguage.deviceDefault.code {
+    /// Arabic unless the viewer picked something else in Settings.
+    var preferredSubtitleLanguage: String = "ara" {
         didSet { persist(preferredSubtitleLanguage, .preferredSubtitleLanguage) }
     }
 
@@ -163,8 +164,10 @@ final class AppSettings {
     }
 
     /// iOS 26+: also run downloads as a system "continued processing" task,
-    /// which shows their progress in a Live Activity.
-    var downloadLiveActivity = true {
+    /// which shows their progress in a Live Activity. Off by default: iOS
+    /// marks the task failed when no bytes arrive for ~30 s, which torrents
+    /// do while they look for peers.
+    var downloadLiveActivity = false {
         didSet { persist(downloadLiveActivity, .downloadLiveActivity) }
     }
 

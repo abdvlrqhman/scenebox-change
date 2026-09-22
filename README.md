@@ -28,28 +28,41 @@ play directly over HTTPS.
 - `LibTorrent` – prebuilt `LibTorrentEngine.xcframework` (libtorrent 2.0.11 + OpenSSL) and its ObjC++ wrapper
 - `scripts` – release packaging (`release-mac.sh`, `export-ipa.sh`)
 
-## Building
+## Get the IPA (no Mac needed)
 
-To build this yourself you need:
+Every push builds an unsigned IPA on a GitHub-hosted Mac
+(`.github/workflows/build-ipa.yml`). Pushes to `main` publish it as the
+`latest` release:
 
-1. Xcode 16 or later. Packages resolve on first open.
-2. A Firebase project of your own. Download its `GoogleService-Info.plist` and
-   put it at the repo root (it is not included in this repo). Enable
-   Email/Password auth, Firestore and Storage in the Firebase console.
-3. An Apple Developer account. Set `DEVELOPMENT_TEAM` in the project to your
-   team for device builds, notarized Mac builds and signing.
+- Direct link: `https://github.com/abdvlrqhman/scenebox-change/releases/latest/download/SceneBox.ipa`
+- Sign and install it with ESign, Sideloadly, AltStore, SideStore or TrollStore.
+
+## Building locally
+
+1. Xcode 26.4 or later (SwiftVLC needs Swift 6.3). Packages resolve on first open.
+2. An Apple Developer account for device builds; set `DEVELOPMENT_TEAM`.
 
 The engine is prebuilt; Xcode links the xcframework and does not compile
 `TorrentEngine.mm`. Rebuild scripts live in `~/libtorrent-build/`.
 
-## Firebase
+## Accounts
 
-- Auth: email/password.
-- Firestore: per-account profiles, each with its own watch progress and
-  watchlist; debrid/TMDB keys synced under `users/{uid}/settings`.
-- Storage: profile avatars.
+There are no accounts. Profiles (up to 5, with photos), watch progress and
+watchlists are stored on the device, per profile. Debrid and TMDB keys stay in
+the device Keychain.
 
-Security rules restrict every client to its own `users/{uid}` subtree.
+## Downloads
+
+- Each episode is its own download, even when several come from one season
+  pack. Episodes sharing a torrent download one after another; different
+  torrents run side by side, up to the "Simultaneous downloads" limit.
+- Episodes → Select Episodes / Download Season queues many at once.
+- Downloads that were running resume after the app is relaunched.
+- Background: iOS suspends apps a few seconds after they leave the screen,
+  which drops every peer. While downloads run, SceneBox keeps itself alive with
+  a silent, mixable audio session (Profile → Downloads → "Keep downloading in
+  background"). On iOS 26+ an optional Live Activity shows progress via
+  `BGContinuedProcessingTask`.
 
 ## Releases
 

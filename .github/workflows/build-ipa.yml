@@ -95,5 +95,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES="Unsigned IPA built from ${GITHUB_SHA::7} (run #${{ github.run_number }}). Install with Sideloadly, AltStore, SideStore or TrollStore."
+          # A fixed file name too, so .../releases/latest/download/SceneBox.ipa
+          # always points at the newest build (handy for ESign's URL import).
+          cp "$IPA" SceneBox.ipa
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest "$IPA" --title "SceneBox ${VERSION} (build ${{ github.run_number }})" --notes "$NOTES" --target "$GITHUB_SHA" --latest
+          gh release create latest SceneBox.ipa "$IPA" --title "SceneBox ${VERSION} (build ${{ github.run_number }})" --notes "$NOTES" --target "$GITHUB_SHA" --latest

@@ -239,7 +239,7 @@ struct ProfileView: View {
                     Text("Downloads")
                 } footer: {
                     #if os(iOS)
-                    Text("Extra downloads wait in a queue and start automatically. iOS normally freezes an app a few seconds after you leave it, which drops every peer; background mode keeps SceneBox running while downloads are active by playing silent audio that mixes with your music. Smart uses short pulses to save battery; switch to Always-on audio if downloads still stop. Closing SceneBox from the app switcher always stops downloads.")
+                    Text("Extra downloads wait in a queue and start automatically. iOS normally freezes an app a few seconds after you leave it, which drops every peer; background mode keeps SceneBox running while downloads are active by playing silent audio that mixes with your music. Smart uses short pulses to save battery; switch to Always-on audio if downloads still stop. Closing SceneBox from the app switcher always stops downloads. The Live Activity shows progress on the Lock Screen, but iOS may mark it failed while a torrent is still looking for peers; downloads carry on regardless.")
                     #else
                     Text("Extra downloads wait in a queue and start automatically.")
                     #endif

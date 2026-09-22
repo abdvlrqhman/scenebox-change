@@ -190,7 +190,14 @@ final class DownloadStore {
     private func startQueuedDownloads() {
         let limit = max(1, settings.maxSimultaneousDownloads)
         var running = downloads.filter { $0.phase.isActive }.count
-        for download in downloads.reversed() where download.phase == .queued {
+        // Oldest request first; within one batch (same moment), episode order,
+        // so a season downloads S1E1, S1E2, … rather than in list order.
+        let queued = downloads.filter { $0.phase == .queued }.sorted {
+            let a = $0.record.addedAt.timeIntervalSince1970.rounded()
+            let b = $1.record.addedAt.timeIntervalSince1970.rounded()
+            return a != b ? a < b : $0.record.episodeOrder < $1.record.episodeOrder
+        }
+        for download in queued {
             guard running < limit else { break }
             if !download.record.isDebrid, torrentBlocker(for: download) != nil { continue }
             download.failureMessage = nil

@@ -145,18 +145,33 @@ struct SearchResults: View {
     @ViewBuilder
     var body: some View {
         if model.isLoading && model.results.isEmpty {
-            ProgressView()
-                .controlSize(.large)
-                .tint(Theme.accent)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            placeholderGrid
         } else if model.results.isEmpty {
             EmptyStateView(systemImage: "magnifyingglass",
-                           title: model.isSearching ? "No results" : "Search",
-                           message: model.errorMessage ?? "Search by name, or browse by type, feed and genre.")
+                           title: model.isSearching ? "Nothing found" : "Search",
+                           message: model.errorMessage ?? (model.isSearching
+                               ? "Check the spelling, or try the original title."
+                               : "Search by name, or browse by type, feed and genre."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             grid
         }
+    }
+
+    /// Poster-shaped placeholders while the first page loads.
+    private var placeholderGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: PosterMetrics.gridColumns(sizeClass), spacing: 16) {
+                ForEach(0..<12, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: Theme.posterCorner, style: .continuous)
+                        .fill(Theme.surface)
+                        .aspectRatio(Theme.posterAspect, contentMode: .fit)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .scrollDisabled(true)
+        .accessibilityLabel("Loading")
     }
 
     private var grid: some View {

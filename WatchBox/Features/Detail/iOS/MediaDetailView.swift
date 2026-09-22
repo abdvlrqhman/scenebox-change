@@ -635,7 +635,7 @@ struct MediaDetailView: View {
     }
 
     private func makeEpisodePlaylist(current: Episode, detail: MediaDetail) -> EpisodePlaylist {
-        EpisodePlaylist(current: current, all: detail.episodes) { episode in
+        EpisodePlaylist(current: current, all: detail.episodes, mediaID: mediaID) { episode in
             playEpisode(episode)
         }
     }
@@ -747,15 +747,20 @@ private struct BannerHeader: View {
         ZStack(alignment: .bottomLeading) {
             if !Platform.isMac {
                 let height = self.height
-                KFImage(detail?.backdropURL)
-                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1400, height: 1100)))
-                    .cacheOriginalImage()
-                    .resizable()
-                    .fade(duration: 0.25)
-                    .placeholder { Theme.surface }
-                    .scaledToFill()
+                // The image sits in an overlay so its fill size can never widen
+                // the page; the clear frame alone decides the layout.
+                Color.clear
                     .frame(maxWidth: .infinity)
                     .frame(height: height)
+                    .overlay {
+                        KFImage(detail?.backdropURL)
+                            .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1400, height: 1100)))
+                            .cacheOriginalImage()
+                            .resizable()
+                            .fade(duration: 0.25)
+                            .placeholder { Theme.surface }
+                            .scaledToFill()
+                    }
                     .clipped()
                     .overlay {
                         LinearGradient(

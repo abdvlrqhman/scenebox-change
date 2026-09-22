@@ -11,6 +11,8 @@ import Foundation
 struct EpisodePlaylist {
     let current: Episode
     let all: [Episode]
+    /// The show's id, for watched marks in the episode list.
+    var mediaID: String = ""
     let onPlay: (Episode) -> Void
 
     var next: Episode? {

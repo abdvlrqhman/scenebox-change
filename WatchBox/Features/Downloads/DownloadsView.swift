@@ -445,7 +445,7 @@ private struct DownloadItemRow: View {
                         .font(style == .standalone ? .headline : .subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    if watched { WatchedBadge(size: 16) }
+                    if watched, style == .standalone { WatchedBadge(size: 16) }
                 }
                 if style == .standalone, let episode = download.record.episodeLabel {
                     Text(episode)
@@ -511,6 +511,10 @@ private struct DownloadItemRow: View {
                 ProgressView(value: watchFraction)
                     .tint(.white.opacity(0.7))
                     .frame(maxWidth: 140)
+            } else if watched {
+                Label("Watched", systemImage: "checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
             } else {
                 Text(download.record.releaseName)
                     .font(.caption)

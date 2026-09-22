@@ -14,7 +14,10 @@ struct EpisodePickerSheet: View {
     let onSelect: (Episode) -> Void
 
     @State private var season: Int
+    @State private var progress = WatchProgressStore.shared
     @Environment(\.dismiss) private var dismiss
+
+    private var watched: Set<String> { progress.watchedEpisodes(for: episodes.mediaID) }
 
     init(episodes: EpisodePlaylist, onSelect: @escaping (Episode) -> Void) {
         self.episodes = episodes
@@ -27,7 +30,10 @@ struct EpisodePickerSheet: View {
             List(episodes.episodes(inSeason: season)) { episode in
                 Button { onSelect(episode) } label: {
                     EpisodeSheetRow(episode: episode,
-                                    isCurrent: episode.id == episodes.current.id)
+                                    isCurrent: episode.id == episodes.current.id,
+                                    isWatched: watched.contains(episode.label),
+                                    watchFraction: progress.episodeFraction(mediaID: episodes.mediaID,
+                                                                            episodeID: episode.id))
                 }
                 .listRowBackground(Theme.background)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -65,6 +71,8 @@ struct EpisodePickerSheet: View {
 private struct EpisodeSheetRow: View {
     let episode: Episode
     let isCurrent: Bool
+    var isWatched = false
+    var watchFraction: Double? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -114,6 +122,13 @@ private struct EpisodeSheetRow: View {
                             .foregroundStyle(.white.opacity(0.2))
                     }
                     .scaledToFill()
+                    .opacity(isWatched && !isCurrent ? 0.45 : 1)
+            }
+            .overlay(alignment: .bottom) {
+                if let watchFraction, !isWatched { ArtworkProgress(fraction: watchFraction).padding(4) }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isWatched { WatchedBadge(size: 18).padding(4) }
             }
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }

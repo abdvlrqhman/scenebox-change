@@ -107,6 +107,17 @@ final class SubtitlesController {
         fetchTask = Task { [provider] in
             var tracks = await provider.subtitles(for: context)
             guard !Task.isCancelled else { return }
+            // Translations finished on this device for this episode are
+            // versions like any other.
+            let targets = Set([self.preferred, SubtitleMemory.episodeLanguage(for: context) ?? ""]
+                .map(SubtitleLanguage.canonical)).filter { !$0.isEmpty && $0 != "eng" }
+            let englishIDs = tracks.filter { SubtitleLanguage.canonical($0.languageCode) == "eng" }.map(\.id)
+            for englishID in englishIDs {
+                for target in targets {
+                    let id = TranslatedSubtitles.id(englishID: englishID, target: target)
+                    if let cached = TranslatedSubtitles.cached(id: id) { tracks.append(cached.track) }
+                }
+            }
             // A translation made on this device: finished, or as far as it got
             // (it carries on in the background and updates here).
             if let rememberedID, rememberedID.hasPrefix(TranslatedSubtitles.idPrefix) {
@@ -121,6 +132,7 @@ final class SubtitlesController {
                     #endif
                 }
                 if let found {
+                    tracks.removeAll { $0.id == found.track.id }
                     tracks.append(found.track)
                     available = tracks
                     preferredFile = found

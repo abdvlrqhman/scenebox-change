@@ -24,8 +24,9 @@ struct ReleasePickerView: View {
 
     private var orderedReleases: [TorrentStream] {
         guard let key = lastWatchedKey,
-              let index = model.releases.firstIndex(where: { SourceKey.make($0) == key }) else {
-            return model.releases
+              let index = model.releases.firstIndex(where: { SourceKey.make($0) == key }),
+              model.assessments[model.releases[index].id]?.health != .dead else {
+            return model.releases       // a source gone dead stays down with the others
         }
         var list = model.releases
         list.insert(list.remove(at: index), at: 0)

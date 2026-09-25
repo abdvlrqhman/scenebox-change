@@ -278,7 +278,10 @@ nonisolated struct DLNAController: Sendable {
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
         request.setValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"\(DLNA.avTransport)#\(action)\"", forHTTPHeaderField: "SOAPACTION")
+        // Written exactly so: some Samsung TVs match these case-sensitively,
+        // and refuse commands from a client that doesn't say it's UPnP.
+        request.setValue("\"\(DLNA.avTransport)#\(action)\"", forHTTPHeaderField: "SOAPAction")
+        request.setValue("SceneBox/1.7 UPnP/1.0 DLNADOC/1.50", forHTTPHeaderField: "User-Agent")
         request.httpBody = DLNA.soapEnvelope(action: action, arguments: [("InstanceID", "0")] + arguments)
         let data: Data, response: URLResponse
         do {
@@ -289,7 +292,8 @@ nonisolated struct DLNAController: Sendable {
         let text = String(decoding: data, as: UTF8.self)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw CastError.renderer(DLNA.fault(in: text) ?? "error \(status)")
+            let code = DLNA.value(of: "errorCode", in: text).map { " (\($0))" } ?? ""
+            throw CastError.renderer((DLNA.fault(in: text) ?? "error \(status)") + code)
         }
         return text
     }

@@ -321,11 +321,20 @@ final class CastSession {
     }
 
     private func load(on controller: DLNAController, video: URL, media: Media, at seconds: Double) async throws {
-        let metadata = DLNA.didl(title: media.title, videoURL: video, mimeType: await server.videoMimeType,
-                                 size: size, durationSeconds: media.durationSeconds > 0 ? media.durationSeconds : nil,
-                                 subtitleURL: await server.subtitleURL)
+        func metadata(_ mimeType: String) async -> String {
+            DLNA.didl(title: media.title, videoURL: video, mimeType: mimeType,
+                      size: size, durationSeconds: media.durationSeconds > 0 ? media.durationSeconds : nil,
+                      subtitleURL: await server.subtitleURL)
+        }
+        let mimeType = await server.videoMimeType
         try? await controller.stop()                     // some TVs only take a new video when stopped
-        try await controller.load(video, metadata: metadata)
+        do {
+            try await controller.load(video, metadata: await metadata(mimeType))
+        } catch CastError.renderer(let message) where mimeType == "video/x-matroska"
+                    && (message.contains("MIME") || message.contains("(714)")) {
+            // Some Samsung firmware only knows MKV by its older name.
+            try await controller.load(video, metadata: await metadata("video/x-mkv"))
+        }
         try await controller.play()
         // Pick up where the phone was, once the TV is actually playing.
         guard seconds > 5 else { return }
@@ -357,12 +366,15 @@ final class CastSession {
                         stoppedTicks = 0
                         self.phase = .playing
                     case "PAUSED_PLAYBACK", "PAUSED":
+                        stoppedTicks = 0
                         self.phase = .paused
                     case "TRANSITIONING":
+                        stoppedTicks = 0
                         self.phase = .buffering
                     case "STOPPED", "NO_MEDIA_PRESENT":
+                        // Samsung says STOPPED for a moment on pause and seek.
                         stoppedTicks += 1
-                        if hasPlayed, stoppedTicks >= 3 {
+                        if hasPlayed, stoppedTicks >= 8 {
                             let nearEnd = self.duration > 0 && self.position > self.duration - 60
                             self.phase = nearEnd ? .finished : .failed("Stopped on the TV.")
                         } else if !hasPlayed, stoppedTicks > 20 {

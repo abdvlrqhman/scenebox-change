@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftVLC
 import UIKit
 #if canImport(Translation) && os(iOS)
-import Translation
+@preconcurrency import Translation
 #endif
 #if DEBUG
 import OSLog

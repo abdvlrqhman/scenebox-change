@@ -9,7 +9,7 @@ import Foundation
 import Observation
 import SwiftVLC
 #if canImport(Translation) && os(iOS)
-import Translation
+@preconcurrency import Translation
 #endif
 
 /// Picks, attaches and keeps the subtitle the viewer wants on screen.

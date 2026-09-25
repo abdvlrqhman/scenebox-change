@@ -38,27 +38,43 @@ nonisolated enum TrackerScrape {
 
     /// The largest count any tracker reports for each info-hash (keyed by the
     /// 20-byte hash). Nil when no tracker answered at all, which means the
-    /// network blocks UDP: "unknown", not "dead".
+    /// network blocks UDP: "unknown", not "dead". Once one tracker answers,
+    /// the others get `grace` to add theirs, so one slow tracker doesn't hold
+    /// up the list.
     static func scrape(_ hashes: [Data], trackers: [Endpoint],
-                       timeout: Duration = .milliseconds(2500)) async -> [Data: Swarm]? {
+                       timeout: Duration = .milliseconds(2500),
+                       grace: Duration = .milliseconds(400)) async -> [Data: Swarm]? {
         let hashes = Array(Set(hashes.filter { $0.count == 20 }))
         guard !hashes.isEmpty, !trackers.isEmpty else { return nil }
-        return await withTaskGroup(of: [Swarm]?.self) { group in
+        enum Event: Sendable { case answer([Swarm]?), graceOver }
+        return await withTaskGroup(of: Event.self) { group in
             for tracker in trackers {
-                group.addTask { await scrape(hashes, at: tracker, timeout: timeout) }
+                group.addTask { .answer(await scrape(hashes, at: tracker, timeout: timeout)) }
             }
             var best: [Data: Swarm]?
-            for await answer in group {
-                guard let answer, answer.count == hashes.count else { continue }
-                var merged = best ?? [:]
-                for (hash, swarm) in zip(hashes, answer) {
-                    let seen = merged[hash]
-                    merged[hash] = Swarm(seeders: max(seen?.seeders ?? 0, swarm.seeders),
-                                         leechers: max(seen?.leechers ?? 0, swarm.leechers),
-                                         completed: max(seen?.completed ?? 0, swarm.completed))
+            var heardFrom = 0
+            for await event in group {
+                guard case .answer(let answer) = event else { break }       // grace is over
+                heardFrom += 1
+                if let answer, answer.count == hashes.count {
+                    if best == nil {
+                        group.addTask {
+                            try? await Task.sleep(for: grace)
+                            return .graceOver
+                        }
+                    }
+                    var merged = best ?? [:]
+                    for (hash, swarm) in zip(hashes, answer) {
+                        let seen = merged[hash]
+                        merged[hash] = Swarm(seeders: max(seen?.seeders ?? 0, swarm.seeders),
+                                             leechers: max(seen?.leechers ?? 0, swarm.leechers),
+                                             completed: max(seen?.completed ?? 0, swarm.completed))
+                    }
+                    best = merged
                 }
-                best = merged
+                if heardFrom == trackers.count { break }                    // everyone answered
             }
+            group.cancelAll()
             return best
         }
     }

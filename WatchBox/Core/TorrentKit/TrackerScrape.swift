@@ -139,7 +139,7 @@ nonisolated enum TrackerScrape {
 
 nonisolated private extension Data {
     mutating func appendBigEndian<T: FixedWidthInteger>(_ value: T) {
-        withUnsafeBytes(of: value.bigEndian) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: value.bigEndian) { append(contentsOf: $0) }
     }
 }
 

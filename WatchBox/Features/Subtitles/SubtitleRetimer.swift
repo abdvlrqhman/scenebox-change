@@ -43,18 +43,26 @@ nonisolated enum SubtitleRetimer {
         let usesComma = text.contains("-->") && text.range(of: #"\d,\d{3}\s*-->"#, options: .regularExpression) != nil
         var lines: [String] = []
         lines.reserveCapacity(text.count / 30)
-        text.enumerateLines { line, _ in
-            guard line.contains("-->") else { lines.append(line); return }
+        for line in splitLines(text) {
+            guard line.contains("-->") else { lines.append(line); continue }
             let parts = line.components(separatedBy: "-->")
             guard parts.count == 2,
                   let start = parseCueTime(parts[0]),
-                  let end = parseCueTime(parts[1]) else { lines.append(line); return }
+                  let end = parseCueTime(parts[1]) else { lines.append(line); continue }
             // Keep anything after the end time (VTT cue settings).
             let settings = parts[1].trimmingCharacters(in: .whitespaces)
                 .split(separator: " ", maxSplits: 1).dropFirst().first.map { " " + $0 } ?? ""
             lines.append("\(formatCue(shift(start), comma: usesComma)) --> \(formatCue(shift(end), comma: usesComma))\(settings)")
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Lines with any line ending (CRLF, LF or CR).
+    private static func splitLines(_ text: String) -> [String] {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
     }
 
     /// "01:02:03,456", "01:02:03.456" or "02:03.456" → milliseconds.
@@ -79,12 +87,12 @@ nonisolated enum SubtitleRetimer {
     /// ASS/SSA "Dialogue: 0,0:01:02.34,0:01:04.00,…" (centiseconds).
     private static func retimeASS(_ text: String, _ shift: (Int) -> Int) -> String {
         var lines: [String] = []
-        text.enumerateLines { line, _ in
-            guard line.hasPrefix("Dialogue:") || line.hasPrefix("Comment:") else { lines.append(line); return }
+        for line in splitLines(text) {
+            guard line.hasPrefix("Dialogue:") || line.hasPrefix("Comment:") else { lines.append(line); continue }
             var fields = line.components(separatedBy: ",")
             guard fields.count > 3,
                   let start = parseASSTime(fields[1]), let end = parseASSTime(fields[2]) else {
-                lines.append(line); return
+                lines.append(line); continue
             }
             fields[1] = formatASS(shift(start))
             fields[2] = formatASS(shift(end))

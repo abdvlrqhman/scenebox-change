@@ -42,7 +42,9 @@ struct PlaybackScreen: View {
     @State private var didSeekToStart = false
     @State private var openRetries = 0
     @State private var knownDuration: Duration = .zero
-    @State private var upNextSecondsLeft: Int?
+    /// Seconds left while the next-episode prompt is up (the credits).
+    @State private var upNextRemaining: Double?
+    /// Dismissed: no prompt and no auto-play, unless the viewer rewinds.
     @State private var upNextCancelled = false
     @State private var didAutoAdvance = false
     @State private var originalAudioSatisfied = false
@@ -145,24 +147,36 @@ struct PlaybackScreen: View {
             }
             #endif
 
-            if let seconds = upNextSecondsLeft, let episodes, let next = episodes.next {
+            if let remaining = upNextRemaining, let episodes, let next = episodes.next {
+                #if os(iOS)
+                NextEpisodeButton(episode: next,
+                                  isNewSeason: episodes.nextIsNewSeason,
+                                  autoplayProgress: remaining <= Self.autoplaySeconds
+                                      ? 1 - remaining / Self.autoplaySeconds : nil,
+                                  onPlay: playNextNow,
+                                  onDismiss: dismissUpNext)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, upNextTrailingInset)
+                .padding(.bottom, chrome.isVisible ? upNextRaisedInset : upNextBottomInset)
+                .animation(.easeInOut(duration: 0.25), value: chrome.isVisible)
+                .transition(.opacity.combined(with: .offset(x: 24)))
+                #else
                 UpNextCard(episode: next,
                            isNewSeason: episodes.nextIsNewSeason,
-                           seconds: seconds) {
-                    upNextCancelled = true
-                    upNextSecondsLeft = nil
-                }
+                           seconds: max(1, Int(remaining.rounded(.up))),
+                           onCancel: dismissUpNext)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, upNextTrailingInset)
                 .padding(.bottom, chrome.isVisible ? upNextRaisedInset : upNextBottomInset)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
+                #endif
             }
 
             #if os(iOS)
             SwipeLevelsIndicator(levels: levels)
             #endif
         }
-        .animation(.easeInOut(duration: 0.25), value: upNextSecondsLeft != nil)
+        .animation(.easeInOut(duration: 0.35), value: upNextRemaining != nil)
         .contentShape(Rectangle())
         #if os(iOS)
         .focusable()
@@ -196,9 +210,8 @@ struct PlaybackScreen: View {
             chrome.reveal(autoHide: player.isPlaying && !isBuffering)
         }
         .onExitCommand {
-            if upNextSecondsLeft != nil {
-                upNextCancelled = true
-                upNextSecondsLeft = nil
+            if upNextRemaining != nil {
+                dismissUpNext()
             } else if chrome.isVisible {
                 chrome.hide()
             } else {
@@ -327,38 +340,70 @@ struct PlaybackScreen: View {
     private var upNextRaisedInset: CGFloat { 120 }
     #endif
 
+    /// Auto-play follows after this many seconds of the prompt filling up.
+    private static let autoplaySeconds = 10.0
+
+    /// When the prompt appears: the last 90 s on iPhone and iPad (credits),
+    /// shorter for short episodes; the last 10 s on Apple TV.
+    private var upNextWindow: Double {
+        #if os(tvOS)
+        return Self.autoplaySeconds
+        #else
+        return max(Self.autoplaySeconds + 5, min(90, knownDuration.asSeconds * 0.08))
+        #endif
+    }
+
     private func watchForUpNext() async {
         guard episodes?.next != nil else { return }
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
 
-            guard !upNextCancelled, !didAutoAdvance, failure == nil,
+            guard !didAutoAdvance, failure == nil,
                   knownDuration > .zero, player.currentTime > .zero else {
-                upNextSecondsLeft = nil
+                upNextRemaining = nil
                 continue
             }
-            let remaining = knownDuration - player.currentTime
-            guard remaining > .zero, remaining <= .seconds(10) else {
-                upNextSecondsLeft = nil
+            let remaining = (knownDuration - player.currentTime).asSeconds
+            // Rewound well before the credits: a dismissed prompt may come back.
+            if upNextCancelled, remaining > upNextWindow + 60 { upNextCancelled = false }
+            guard !upNextCancelled, remaining > 0, remaining <= upNextWindow else {
+                upNextRemaining = nil
                 continue
             }
-            upNextSecondsLeft = max(1, Int(remaining.asSeconds.rounded(.up)))
+            upNextRemaining = remaining
         }
     }
 
+    private func dismissUpNext() {
+        upNextCancelled = true
+        upNextRemaining = nil
+    }
+
+    /// "Next Episode" during the credits: this one counts as watched.
+    private func playNextNow() {
+        guard !didAutoAdvance, let episodes, let next = episodes.next else { return }
+        didAutoAdvance = true
+        upNextRemaining = nil
+        markWatched()
+        episodes.onPlay(next)
+    }
+
+    private func markWatched() {
+        guard let progress, knownDuration > .zero else { return }
+        WatchProgressStore.shared.record(
+            id: progress.mediaID, mediaType: progress.mediaType, title: progress.title,
+            posterURL: progress.posterURL, season: progress.season,
+            episode: progress.episode, episodeID: progress.episodeID,
+            position: knownDuration, duration: knownDuration)
+    }
+
     private func playbackEnded() {
-        if let progress, knownDuration > .zero {
-            WatchProgressStore.shared.record(
-                id: progress.mediaID, mediaType: progress.mediaType, title: progress.title,
-                posterURL: progress.posterURL, season: progress.season,
-                episode: progress.episode, episodeID: progress.episodeID,
-                position: knownDuration, duration: knownDuration)
-        }
+        markWatched()
         guard !upNextCancelled, !didAutoAdvance,
               let episodes, let next = episodes.next else { return }
         didAutoAdvance = true
-        upNextSecondsLeft = nil
+        upNextRemaining = nil
         episodes.onPlay(next)
     }
 
@@ -524,9 +569,8 @@ struct PlaybackScreen: View {
     }
 
     private func keyboardEscape() {
-        if upNextSecondsLeft != nil {
-            upNextCancelled = true
-            upNextSecondsLeft = nil
+        if upNextRemaining != nil {
+            dismissUpNext()
         } else if chrome.isVisible, player.isPlaying {
             chrome.hide()
         } else {

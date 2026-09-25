@@ -303,7 +303,7 @@
 				INFOPLIST_FILE = WatchBox/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SceneBox;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "SceneBox connects directly to peers over your local network and the internet to stream and download.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "SceneBox finds TVs and players on your Wi-Fi to play what you're watching on them, and connects to peers to stream and download.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -317,7 +317,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6.3;
+				MARKETING_VERSION = 1.7.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -368,7 +368,7 @@
 				INFOPLIST_FILE = WatchBox/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SceneBox;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "SceneBox connects directly to peers over your local network and the internet to stream and download.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "SceneBox finds TVs and players on your Wi-Fi to play what you're watching on them, and connects to peers to stream and download.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -382,7 +382,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6.3;
+				MARKETING_VERSION = 1.7.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

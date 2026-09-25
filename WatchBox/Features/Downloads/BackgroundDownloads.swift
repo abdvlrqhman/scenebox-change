@@ -121,9 +121,21 @@ final class BackgroundDownloads {
         checkpointTask = .invalid
     }
 
+    /// A TV is playing from the phone: the phone has to keep serving the
+    /// video with the screen off, so the silent audio runs the whole time.
+    func setCasting(_ casting: Bool) {
+        guard isCasting != casting else { return }
+        isCasting = casting
+        updateKeepAlive()
+    }
+
+    private var isCasting = false
+
     private func updateKeepAlive() {
-        let mode = settings.backgroundDownloadMode
-        let needed = isInBackground && mode != .off && DownloadStore.shared.hasPendingWork
+        let downloadMode = settings.backgroundDownloadMode
+        let mode: BackgroundDownloadMode = isCasting ? .continuous : downloadMode
+        let needed = isInBackground
+            && (isCasting || (downloadMode != .off && DownloadStore.shared.hasPendingWork))
         if needed {
             if let keepAlive, keepAlive.mode == mode { return }
             keepAlive?.stop()
@@ -140,6 +152,7 @@ final class BackgroundDownloads {
     func start() {}
     func userStartedDownloads() {}
     func downloadsDidUpdate() {}
+    func setCasting(_ casting: Bool) {}
     #endif
 }
 

@@ -155,6 +155,124 @@ check(SourceRanking.sizeBytes("1.4 GB") == Int64(1.4 * 1_073_741_824) && SourceR
 check(SourceRanking.runtimeMinutes("2h 10min", isSeries: false) == 130 && SourceRanking.runtimeMinutes("58 min", isSeries: true) == 58
       && SourceRanking.runtimeMinutes(nil, isSeries: true) == 45, "runtime text parsed")
 
+// Casting: finding TVs, their description, commands, and the server.
+let ssdpAnswer = Data("HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nLocation: http://192.168.1.50:9197/dmr\r\nSERVER: SHP, UPnP/1.0, Samsung UPnP SDK/1.0\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\nUSN: uuid:abc::urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n".utf8)
+check(SSDP.parseResponse(ssdpAnswer)?.location.absoluteString == "http://192.168.1.50:9197/dmr", "SSDP answer → description address")
+check(SSDP.parseResponse(Data("NOTIFY * HTTP/1.1\r\nLOCATION: http://x/\r\n\r\n".utf8)) == nil, "SSDP notify isn't a search answer")
+let search = String(decoding: SSDP.searchMessage(host: "192.168.1.50"), as: UTF8.self)
+check(search.hasPrefix("M-SEARCH * HTTP/1.1\r\n") && search.contains("HOST: 192.168.1.50:1900") && search.hasSuffix("\r\n\r\n"),
+      "direct M-SEARCH layout")
+
+let samsungXML = """
+<?xml version="1.0"?><root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:sec="http://www.sec.co.kr/dlna">
+<specVersion><major>1</major><minor>0</minor></specVersion>
+<device><deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+<friendlyName>[TV] Samsung 5 Series (43)</friendlyName><manufacturer>Samsung Electronics</manufacturer>
+<modelName>UE43T5300</modelName><UDN>uuid:0bd1f3a4-1234</UDN>
+<serviceList>
+<service><serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType><controlURL>/upnp/control/RenderingControl1</controlURL></service>
+<service><serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType><controlURL>/upnp/control/ConnectionManager1</controlURL></service>
+<service><serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType><controlURL>/upnp/control/AVTransport1</controlURL></service>
+</serviceList></device></root>
+"""
+let samsung = UPnPDescription.parse(Data(samsungXML.utf8), location: URL(string: "http://192.168.1.50:9197/dmr")!)
+check(samsung?.name == "[TV] Samsung 5 Series (43)" && samsung?.avTransport.absoluteString == "http://192.168.1.50:9197/upnp/control/AVTransport1",
+      "Samsung description → AVTransport address (got \(samsung?.avTransport.absoluteString ?? "nil"))")
+check(samsung?.renderingControl?.absoluteString == "http://192.168.1.50:9197/upnp/control/RenderingControl1" && samsung?.isComputer == false,
+      "Samsung rendering control; not a computer")
+let kodiXML = """
+<root xmlns="urn:schemas-upnp-org:device-1-0"><URLBase>http://192.168.1.60:1186/</URLBase>
+<device><deviceType>urn:schemas-upnp-org:device:MediaServer:1</deviceType><friendlyName>Kodi (server)</friendlyName><UDN>uuid:server</UDN>
+<serviceList><service><serviceType>urn:schemas-upnp-org:service:ContentDirectory:1</serviceType><controlURL>cd/control</controlURL></service></serviceList>
+<deviceList><device><deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType><friendlyName>Kodi (LAPTOP)</friendlyName>
+<manufacturer>XBMC Foundation</manufacturer><modelName>Kodi</modelName><UDN>uuid:renderer</UDN>
+<serviceList><service><serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType><controlURL>AVTransport/control.xml</controlURL></service></serviceList>
+</device></deviceList></device></root>
+"""
+let kodi = UPnPDescription.parse(Data(kodiXML.utf8), location: URL(string: "http://192.168.1.60:1186/desc.xml")!)
+check(kodi?.name == "Kodi (LAPTOP)" && kodi?.avTransport.absoluteString == "http://192.168.1.60:1186/AVTransport/control.xml" && kodi?.isComputer == true,
+      "nested Kodi renderer with URLBase (got \(kodi?.avTransport.absoluteString ?? "nil"))")
+
+let didl = DLNA.didl(title: "Breaking Bad · S1E1", videoURL: URL(string: "http://192.168.1.5:5000/abcde/video.mkv")!,
+                     mimeType: "video/x-matroska", size: 1_234, durationSeconds: 3_487,
+                     subtitleURL: URL(string: "http://192.168.1.5:5000/abcde/subtitles.srt")!)
+check(didl.contains("sec:CaptionInfoEx sec:type=\"srt\">http://192.168.1.5:5000/abcde/subtitles.srt<")
+      && didl.contains("http-get:*:text/srt:*") && didl.contains("pv:subtitleFileUri=")
+      && didl.contains("duration=\"0:58:07.000\"") && didl.contains("<dc:title>Breaking Bad · S1E1.</dc:title>"),
+      "DIDL carries the subtitles for Samsung, LG and Kodi")
+let envelope = String(decoding: DLNA.soapEnvelope(action: "SetAVTransportURI", arguments: [("InstanceID", "0"), ("CurrentURIMetaData", didl)]), as: UTF8.self)
+check(envelope.contains("<u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\">")
+      && envelope.contains("&lt;DIDL-Lite") && !envelope.contains("<DIDL-Lite"), "SOAP envelope escapes the metadata")
+check(DLNA.timeString(3725) == "1:02:05" && DLNA.parseTime("01:02:05.500") == 3725.5 && DLNA.parseTime("NOT_IMPLEMENTED") == nil,
+      "DLNA time strings")
+let positionAnswer = "<s:Envelope><s:Body><u:GetPositionInfoResponse xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><Track>1</Track><TrackDuration>0:44:10</TrackDuration><RelTime>0:12:34</RelTime></u:GetPositionInfoResponse></s:Body></s:Envelope>"
+check(DLNA.value(of: "RelTime", in: positionAnswer).flatMap(DLNA.parseTime) == 754, "position read from the TV's answer")
+check(DLNA.fault(in: "<s:Fault><detail><UPnPError><errorCode>714</errorCode><errorDescription>Illegal MIME-type</errorDescription></UPnPError></detail></s:Fault>") == "Illegal MIME-type",
+      "SOAP fault text")
+let neighbours = LocalNetwork.neighbours(of: "192.168.1.37", prefixLength: 24)
+check(neighbours.count == 253 && !neighbours.contains("192.168.1.37") && neighbours.first == "192.168.1.1" && neighbours.last == "192.168.1.254",
+      "the /24 around the phone")
+check(LocalNetwork.neighbours(of: "10.0.5.9", prefixLength: 16).count == 253, "big networks: just our /24")
+check(CastServer.parseRange("bytes=10-19", length: 100)! == (10, 19) && CastServer.parseRange("bytes=90-", length: 100)! == (90, 99)
+      && CastServer.parseRange("bytes=-5", length: 100)! == (95, 99) && CastServer.parseRange("bytes=100-", length: 100) == nil,
+      "HTTP ranges")
+
+let assFile = work.appendingPathComponent("cast.ass")
+try "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.50,0:00:03.00,Default,,0,0,0,,{\\i1}مرحبا{\\i0}\\Nيا صديقي, كيف\n".write(to: assFile, atomically: true, encoding: .utf8)
+let castSubs = CastSubtitles.make(from: assFile)
+let castSRT = castSubs.map { String(decoding: $0.srt, as: UTF8.self) } ?? ""
+check(castSubs?.srt.prefix(3) == Data([0xEF, 0xBB, 0xBF]) && castSRT.contains("00:00:01,500 --> 00:00:03,000\r\nمرحبا\r\nيا صديقي, كيف"),
+      "ASS → SRT for TVs, with the UTF-8 mark and CRLF")
+check(castSubs.map { String(decoding: $0.vtt, as: UTF8.self) }?.contains("WEBVTT\n\n00:00:01.500 --> 00:00:03.000") == true, "and WebVTT for browsers")
+
+// The server itself, on this machine: a file source, then a relay through a second server.
+let videoFile = work.appendingPathComponent("video.mkv")
+let videoBytes = Data((0..<300_000).map { UInt8($0 % 251) })
+try videoBytes.write(to: videoFile)
+let fileServer = CastServer()
+do {
+try await fileServer.start(host: "127.0.0.1")
+await fileServer.update(.init(source: .file(videoFile), fileExtension: "mkv", title: "Test & Co", subtitles: castSubs))
+if let url = await fileServer.videoURL {
+    var request = URLRequest(url: url)
+    request.setValue("bytes=1000-1999", forHTTPHeaderField: "Range")
+    let (body, response) = try await URLSession.shared.data(for: request)
+    let http = response as? HTTPURLResponse
+    check(http?.statusCode == 206 && body == videoBytes[1000..<2000], "cast server: range from the file")
+    check(http?.value(forHTTPHeaderField: "contentFeatures.dlna.org") == DLNA.contentFeatures
+          && http?.value(forHTTPHeaderField: "CaptionInfo.sec")?.hasSuffix("/subtitles.srt") == true
+          && http?.value(forHTTPHeaderField: "Content-Type") == "video/x-matroska", "cast server: DLNA and caption headers")
+    let base = await fileServer.baseURL!
+    let (page, _) = try await URLSession.shared.data(from: base)
+    check(String(decoding: page, as: UTF8.self).contains("Test &amp; Co") && String(decoding: page, as: UTF8.self).contains("subtitles.vtt"),
+          "cast server: page for computers")
+    let (srtBody, _) = try await URLSession.shared.data(from: base.appendingPathComponent("subtitles.srt"))
+    check(srtBody == castSubs?.srt, "cast server: subtitles")
+    let port = await fileServer.port
+    var wrong = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/nope/video.mkv")!)
+    wrong.timeoutInterval = 5
+    let (_, refused) = try await URLSession.shared.data(for: wrong)
+    check((refused as? HTTPURLResponse)?.statusCode == 404, "cast server: wrong code refused")
+
+    let relayServer = CastServer()
+    try await relayServer.start(host: "127.0.0.1")
+    await relayServer.update(.init(source: .upstream(url), fileExtension: "mkv", title: "Relay", subtitles: nil))
+    if let relayed = await relayServer.videoURL {
+        var ranged = URLRequest(url: relayed)
+        ranged.setValue("bytes=250000-", forHTTPHeaderField: "Range")
+        let (tail, tailResponse) = try await URLSession.shared.data(for: ranged)
+        check((tailResponse as? HTTPURLResponse)?.statusCode == 206 && tail == videoBytes[250_000...],
+              "cast server: relays the stream with ranges (\(tail.count) bytes)")
+        let (whole, _) = try await URLSession.shared.data(from: relayed)
+        check(whole == videoBytes, "cast server: relays the whole stream")
+    }
+    await relayServer.stop()
+}
+} catch {
+    check(false, "cast server test threw: \(error)")
+}
+await fileServer.stop()
+
 try? FileManager.default.removeItem(at: work)
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

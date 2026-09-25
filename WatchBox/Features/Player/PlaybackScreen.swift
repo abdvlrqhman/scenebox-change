@@ -62,6 +62,9 @@ struct PlaybackScreen: View {
     #if os(iOS)
     @State private var isLandscape = false
     @State private var levels = SwipeLevels()
+    @State private var cast = CastSession()
+    @State private var showCastPicker = false
+    @State private var showCastSubtitles = false
     @FocusState private var hasKeyboardFocus: Bool
     @State private var lastHoverReveal = Date.distantPast
     #endif
@@ -103,9 +106,25 @@ struct PlaybackScreen: View {
                 .ignoresSafeArea()
             #endif
 
+            #if os(iOS)
+            if cast.isActive {
+                CastingOverlay(cast: cast, title: title, artworkURL: artworkURL,
+                               subtitlesChanged: subs.fileOnScreen != cast.sentSubtitleFile,
+                               onSendSubtitles: { Task { await cast.sendSubtitles(subs.fileOnScreen) } },
+                               onSubtitles: { showCastSubtitles = true },
+                               onStop: stopCasting,
+                               onClose: onClose)
+                .transition(.opacity)
+                if showCastSubtitles {
+                    PlaybackSettingsPanel(player: player, subs: subs) { showCastSubtitles = false }
+                        .transition(.opacity)
+                }
+            }
+            #endif
+
             if let failure {
                 FailureOverlay(message: failure, onClose: onClose)
-            } else if chrome.isVisible {
+            } else if chrome.isVisible, !cast.isActive {
                 #if os(tvOS)
                 TVPlaybackChrome(
                     player: player,
@@ -138,6 +157,7 @@ struct PlaybackScreen: View {
                     onToggleOrientation: toggleOrientation,
                     onAudioSelected: { originalAudioSatisfied = true },
                     episodes: episodes,
+                    onCast: openCastPicker,
                     onClose: onClose
                 )
                 .transition(.opacity)
@@ -188,6 +208,20 @@ struct PlaybackScreen: View {
             #endif
         }
         .animation(.easeInOut(duration: 0.35), value: upNextRemaining != nil)
+        .animation(.easeInOut(duration: 0.25), value: cast.isActive)
+        .onChange(of: cast.computerPlays) { _, _ in
+            // A computer is playing it from the page: one player at a time.
+            if player.isPlaying { player.pause() }
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showCastPicker) {
+            CastSheet(discovery: CastDiscovery.shared, computerPageURL: cast.computerPageURL,
+                      hasSubtitles: subs.fileOnScreen != nil) { device in
+                showCastPicker = false
+                startCasting(on: device)
+            }
+        }
+        #endif
         .contentShape(Rectangle())
         #if os(iOS)
         .focusable()
@@ -290,7 +324,7 @@ struct PlaybackScreen: View {
             if let new, new > .zero { knownDuration = new }
         }
         .onChange(of: player.didReachEnd) { _, ended in
-            guard ended else { return }
+            guard ended, !cast.isActive else { return }
             // VLC reports "ended" whenever the stream closes. Mid-episode that
             // means the stream broke (e.g. after the phone was locked): pick
             // up where it stopped, never mark it watched or skip ahead.
@@ -305,7 +339,7 @@ struct PlaybackScreen: View {
                 recoverySeek = nil
                 try? player.seek(to: target)
             }
-            guard state == .error, failure == nil else { return }
+            guard state == .error, failure == nil, !cast.isActive else { return }
             if lastGoodPosition > .zero {
                 recoverStream()
             } else if sourceURL.host == "127.0.0.1", player.currentTime == .zero, openRetries < 5 {
@@ -336,7 +370,7 @@ struct PlaybackScreen: View {
     /// Reopens the video where it stopped: from the file itself when it's all
     /// on the phone, else from the stream once it answers again.
     private func recoverStream() {
-        guard !isRecovering, failure == nil else { return }
+        guard !isRecovering, failure == nil, !cast.isActive else { return }
         guard recoveries < 5 else {
             failure = "The stream stopped and couldn't restart. Close the player and open the episode again; it will continue from here."
             return
@@ -430,7 +464,7 @@ struct PlaybackScreen: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
 
-            guard !didAutoAdvance, failure == nil,
+            guard !didAutoAdvance, failure == nil, !cast.isActive,
                   knownDuration > .zero, player.currentTime > .zero else {
                 upNextRemaining = nil
                 continue
@@ -667,15 +701,59 @@ struct PlaybackScreen: View {
 
     private func recordProgress(publish: Bool = false) {
         guard let progress, failure == nil else { return }
-        guard player.currentTime > .zero else { return }
+        let position = cast.isActive ? Duration.seconds(cast.position) : player.currentTime
+        let duration = cast.isActive && cast.duration > 0 ? Duration.seconds(cast.duration) : player.duration
+        guard position > .zero else { return }
         WatchProgressStore.shared.record(
             id: progress.mediaID, mediaType: progress.mediaType, title: progress.title,
             posterURL: progress.posterURL, season: progress.season,
             episode: progress.episode, episodeID: progress.episodeID,
-            position: player.currentTime, duration: player.duration, publish: publish)
+            position: position, duration: duration, publish: publish)
+    }
+
+    // MARK: - Casting
+
+    /// Opens the screen picker, serving the video on the Wi-Fi meanwhile so
+    /// a computer can open it too.
+    private func openCastPicker() {
+        showCastPicker = true
+        let media = CastSession.Media(source: sourceURL, title: title,
+                                      durationSeconds: knownDuration.asSeconds)
+        let subtitleFile = subs.fileOnScreen
+        Task { await cast.prepare(media, subtitleFile: subtitleFile) }
+    }
+
+    /// The phone's player stops (so the TV gets the whole stream) and the TV
+    /// takes over from the same spot.
+    private func startCasting(on device: RendererDescription) {
+        let from = player.currentTime > .zero ? player.currentTime : lastGoodPosition
+        lastGoodPosition = from
+        recordProgress()
+        upNextRemaining = nil
+        player.stop()
+        Task {
+            await cast.prepare(CastSession.Media(source: sourceURL, title: title,
+                                                 durationSeconds: knownDuration.asSeconds),
+                               subtitleFile: subs.fileOnScreen)
+            await cast.cast(to: device, from: from.asSeconds)
+        }
+    }
+
+    /// Back to the phone, where the TV got to.
+    private func stopCasting() {
+        Task {
+            let reached = await cast.stop()
+            showCastSubtitles = false
+            let resumeAt = reached > 1 ? Duration.seconds(reached) : lastGoodPosition
+            lastGoodPosition = resumeAt
+            recordProgress()
+            recoverySeek = resumeAt
+            beginPlayback()
+        }
     }
 
     private func teardown() {
+        cast.shutdown()
         subs.stop()
         #if os(iOS)
         nowPlaying?.end()

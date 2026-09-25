@@ -48,6 +48,9 @@ jobs:
             WatchBox/Core/TorrentKit/NetworkIO.swift \
             WatchBox/Core/TorrentKit/Models/TorrentError.swift \
             WatchBox/Features/Detail/SourceRanking.swift \
+            WatchBox/Features/Cast/DLNA.swift \
+            WatchBox/Features/Cast/LocalNetwork.swift \
+            WatchBox/Features/Cast/CastServer.swift \
             scripts/selftest/main.swift
           build/selftest build/fixtures
 

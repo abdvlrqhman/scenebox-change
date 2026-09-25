@@ -46,7 +46,15 @@ final class SubtitlesController {
     @ObservationIgnored private var context: SubtitleContext?
     @ObservationIgnored private var preferred = ""
     @ObservationIgnored private var loaded = false
-    @ObservationIgnored private var wanted: Wanted = .undecided
+    @ObservationIgnored private var wanted: Wanted = .undecided {
+        didSet {
+            var file: URL?
+            if case .external(_, let url) = wanted { file = url }
+            if file != fileOnScreen { fileOnScreen = file }
+        }
+    }
+    /// The subtitle file showing now, sync written in: what a TV gets.
+    private(set) var fileOnScreen: URL?
     @ObservationIgnored private var preferredFile: (track: SubtitleTrack, file: URL)?
     @ObservationIgnored private var preferredLookupDone = false
     @ObservationIgnored private var embeddedChecked = false

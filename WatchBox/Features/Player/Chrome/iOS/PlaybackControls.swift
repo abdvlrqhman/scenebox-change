@@ -20,6 +20,7 @@ struct PlaybackControls: View {
     var onToggleOrientation: () -> Void = {}
     var onAudioSelected: () -> Void = {}
     var episodes: EpisodePlaylist? = nil
+    var onCast: (() -> Void)? = nil
     let onClose: () -> Void
 
     @State private var showSettings = false
@@ -33,6 +34,7 @@ struct PlaybackControls: View {
                        onSettings: { showSettings = true },
                        episodes: episodes,
                        onShowEpisodes: { showEpisodes = true },
+                       onCast: onCast,
                        onClose: onClose)
                 Spacer(minLength: 0)
                 TransportRow(player: player, isBuffering: isBuffering)
@@ -68,6 +70,7 @@ private struct TopBar: View {
     let onSettings: () -> Void
     var episodes: EpisodePlaylist? = nil
     var onShowEpisodes: () -> Void = {}
+    var onCast: (() -> Void)? = nil
     let onClose: () -> Void
 
     var body: some View {
@@ -94,6 +97,10 @@ private struct TopBar: View {
                     icon(isLandscape ? "arrow.down.right.and.arrow.up.left"
                                      : "arrow.up.left.and.arrow.down.right")
                 }
+            }
+            if let onCast, !Platform.isMac {
+                Button(action: onCast) { icon("tv") }
+                    .accessibilityLabel("Play on TV or computer")
             }
             Button(action: onSettings) { icon("slider.horizontal.3") }
         }

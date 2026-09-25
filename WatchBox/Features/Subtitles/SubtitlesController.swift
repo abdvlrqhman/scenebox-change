@@ -342,6 +342,17 @@ final class SubtitlesController {
         }
     }
 
+    /// One batch, off the main actor: only plain strings go in and out.
+    nonisolated private static func translate(_ lines: [(Int, String)],
+                                              with session: TranslationSession) async throws -> [(Int, String)] {
+        let requests = lines.map { TranslationSession.Request(sourceText: $0.1, clientIdentifier: String($0.0)) }
+        let responses = try await session.translations(from: requests)
+        return responses.compactMap { response in
+            guard let id = response.clientIdentifier, let index = Int(id) else { return nil }
+            return (index, response.targetText)
+        }
+    }
+
     /// Runs inside the player's `.translationTask`. iOS asks to download the
     /// language the first time; after that it works offline.
     func runTranslation(_ session: TranslationSession) async {
@@ -356,16 +367,12 @@ final class SubtitlesController {
             let batch = 80
             for first in stride(from: 0, to: cues.count, by: batch) {
                 let range = first..<min(cues.count, first + batch)
-                let requests = range.compactMap { index -> TranslationSession.Request? in
+                let lines: [(Int, String)] = range.compactMap { index in
                     let source = cues[index].plainText
-                    return source.isEmpty ? nil
-                        : TranslationSession.Request(sourceText: source, clientIdentifier: String(index))
+                    return source.isEmpty ? nil : (index, source)
                 }
-                let responses = try await session.translations(from: requests)
-                for response in responses {
-                    if let id = response.clientIdentifier, let index = Int(id) {
-                        cues[index].text = response.targetText
-                    }
+                for (index, translated) in try await Self.translate(lines, with: session) {
+                    cues[index].text = translated
                 }
                 translationProgress = Double(range.upperBound) / Double(cues.count)
             }

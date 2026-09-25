@@ -81,6 +81,14 @@ nonisolated struct SubtitleLanguage: Identifiable, Sendable, Hashable {
         "pt-br": "pob", "pt_br": "pob", "zh-tw": "zht", "zh-cn": "chi",
     ]
 
+    /// "ara" → "ar", for Apple's translator, which uses two-letter codes.
+    static func iso639_1(for code: String) -> String? {
+        let wanted = canonical(code)
+        if wanted == "pob" { return "pt" }
+        if wanted == "zht" { return "zh-Hant" }
+        return iso639_1ToOpenSubtitles.first { $0.value == wanted }?.key
+    }
+
     static func displayName(for code: String) -> String {
         if let match = all[code] { return match }
         return code.uppercased()

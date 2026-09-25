@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftVLC
 import UIKit
+#if canImport(Translation) && os(iOS)
+import Translation
+#endif
 #if DEBUG
 import OSLog
 
@@ -253,6 +256,12 @@ struct PlaybackScreen: View {
             }
         }
         .onDisappear(perform: teardown)
+        #if canImport(Translation) && os(iOS)
+        // Apple's translator only hands out sessions through a view.
+        .translationTask(subs.translationConfiguration) { session in
+            await subs.runTranslation(session)
+        }
+        #endif
     }
 
     private var isBuffering: Bool {
@@ -422,6 +431,14 @@ struct PlaybackScreen: View {
     private func start() {
         player.aspectRatio = settings.fillScreen ? .fill : .default
         player.setSubtitleScale(SubtitleScale(Float(settings.subtitleScale)))
+        #if os(iOS)
+        // Video opens the way it's watched. The rotate button still returns to
+        // portrait, and iPads keep whichever way they're held.
+        if UIDevice.current.userInterfaceIdiom == .phone, !Platform.isMac {
+            isLandscape = true
+            ScreenOrientation.landscape()
+        }
+        #endif
         Task {
             await PlaybackAudioSession.activate()
             beginPlayback()

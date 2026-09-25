@@ -98,6 +98,37 @@ final class AppSettings {
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: Subtitle sources
+
+    /// Wyzie search key. A build can ship one (Info.plist `SBWyzieAPIKey`,
+    /// filled from a CI secret); a key typed in Settings wins.
+    var wyzieAPIKey: String = "" {
+        didSet {
+            KeychainStore.setString(wyzieAPIKey == Self.bundledWyzieKey ? "" : wyzieAPIKey,
+                                    for: Key.wyzieAPIKey.rawValue)
+            Task { await SubtitlesProvider.shared.reset() }
+        }
+    }
+
+    var subdlAPIKey: String = "" {
+        didSet {
+            KeychainStore.setString(subdlAPIKey, for: Key.subdlAPIKey.rawValue)
+            Task { await SubtitlesProvider.shared.reset() }
+        }
+    }
+
+    var subsourceAPIKey: String = "" {
+        didSet {
+            KeychainStore.setString(subsourceAPIKey, for: Key.subsourceAPIKey.rawValue)
+            Task { await SubtitlesProvider.shared.reset() }
+        }
+    }
+
+    nonisolated static let bundledWyzieKey: String = {
+        let value = (Bundle.main.object(forInfoDictionaryKey: "SBWyzieAPIKey") as? String) ?? ""
+        return value.hasPrefix("$(") ? "" : value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }()
+
     // MARK: Cast metadata
 
     var tmdbAPIKey: String = "" {
@@ -293,6 +324,9 @@ final class AppSettings {
         }
         defaults.removeObject(forKey: Key.debridAPIKeys.rawValue)
         defaults.removeObject(forKey: Key.debridAPIKey.rawValue)
+        wyzieAPIKey = KeychainStore.string(for: Key.wyzieAPIKey.rawValue) ?? Self.bundledWyzieKey
+        subdlAPIKey = KeychainStore.string(for: Key.subdlAPIKey.rawValue) ?? ""
+        subsourceAPIKey = KeychainStore.string(for: Key.subsourceAPIKey.rawValue) ?? ""
         if let stored = KeychainStore.string(for: Key.tmdbAPIKey.rawValue) {
             tmdbAPIKey = stored
         } else if let stored = defaults.string(forKey: Key.tmdbAPIKey.rawValue), !stored.isEmpty {
@@ -319,6 +353,7 @@ final class AppSettings {
         case maxSimultaneousDownloads, backgroundDownloadMode, downloadLiveActivity
         case debridProvider, debridAPIKey, debridAPIKeys
         case tmdbAPIKey
+        case wyzieAPIKey, subdlAPIKey, subsourceAPIKey
         case extraSourceProviders
         case autoSelectSource
         case enabledSources

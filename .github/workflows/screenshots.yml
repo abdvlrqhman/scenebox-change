@@ -53,6 +53,7 @@ jobs:
             -destination "id=$UDID" \
             -derivedDataPath "$DERIVED" -clonedSourcePackagesDirPath "$PACKAGES" \
             -skipPackagePluginValidation -skipMacroValidation \
+            WYZIE_API_KEY="${{ secrets.WYZIE_API_KEY }}" \
             build 2>&1 | tee build.log | xcbeautify --renderer github-actions
 
       - name: Capture screens

@@ -37,6 +37,15 @@ jobs:
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
 
+      - name: Subtitle helpers self-test
+        run: |
+          python3 scripts/selftest/make_fixtures.py build/fixtures
+          xcrun swiftc -O -o build/selftest \
+            WatchBox/Features/Subtitles/ZipReader.swift \
+            WatchBox/Features/Subtitles/SubtitleRetimer.swift \
+            scripts/selftest/main.swift
+          build/selftest build/fixtures
+
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -59,6 +68,7 @@ jobs:
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            WYZIE_API_KEY="${{ secrets.WYZIE_API_KEY }}" \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build.log | xcbeautify --renderer github-actions
 

@@ -158,7 +158,42 @@ struct PlaybackSettingsPanel: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let versionsLanguage { translateRow(to: versionsLanguage) }
         }
+    }
+
+    /// "Translate English to Arabic": for when no version in the language fits.
+    @ViewBuilder
+    private func translateRow(to language: String) -> some View {
+        #if canImport(Translation) && os(iOS)
+        if subs.canTranslate(to: language, player: player) {
+            let name = SubtitleLanguage.displayName(for: language)
+            Button {
+                subs.translate(to: language, player: player)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "character.bubble")
+                        .foregroundStyle(Theme.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(subs.translationProgress == nil
+                             ? "Translate English to \(name)"
+                             : "Translating… \(Int((subs.translationProgress ?? 0) * 100))%")
+                            .font(.subheadline.weight(.semibold))
+                        Text("On this iPhone, offline after the first time. Timing comes from the English version, so it stays in sync.")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 6)
+                    if subs.translationProgress != nil { ProgressView().controlSize(.small) }
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(subs.translationProgress != nil)
+        }
+        #endif
     }
 
     private func tags(for track: SubtitleTrack, index: Int, videoFPS: Double?) -> [VersionRow.Tag] {
@@ -167,14 +202,24 @@ struct PlaybackSettingsPanel: View {
         if let fps = track.fps {
             let label = String(format: "%.5g fps", fps)   // 23.976, 25, 29.97
             if let videoFPS, videoFPS > 1 {
-                tags.append(abs(fps - videoFPS) < 0.05
-                            ? .init(text: "\(label), same as video", tone: .good)
-                            : abs(fps - videoFPS) > 0.3
-                                ? .init(text: "\(label), may drift", tone: .warn)
-                                : .init(text: label, tone: .plain))
+                if abs(fps - videoFPS) < 0.05 {
+                    tags.append(.init(text: "\(label), same as video", tone: .good))
+                } else if subs.frameRateScale(for: track) != 1 {
+                    tags.append(.init(text: "\(label), corrected", tone: .good))
+                } else if abs(fps - videoFPS) > 0.3 {
+                    tags.append(.init(text: "\(label), may drift", tone: .warn))
+                } else {
+                    tags.append(.init(text: label, tone: .plain))
+                }
             } else {
                 tags.append(.init(text: label, tone: .plain))
             }
+        }
+        if track.isMachineTranslated { tags.append(.init(text: "Machine translated", tone: .warn)) }
+        if track.isHearingImpaired { tags.append(.init(text: "SDH", tone: .plain)) }
+        tags.append(.init(text: track.provider, tone: .plain))
+        if track.downloads >= 1000 {
+            tags.append(.init(text: "\(track.downloads / 1000)k downloads", tone: .plain))
         }
         if subs.lastKeptID == track.id, subs.selectedID != track.id {
             tags.append(.init(text: "Kept last time", tone: .plain))
@@ -240,6 +285,10 @@ struct PlaybackSettingsPanel: View {
                     }
                 }
             }
+            // Always reachable, including when the default language has no
+            // versions at all.
+            let defaultLanguage = AppSettings.shared.preferredSubtitleLanguage
+            if !defaultLanguage.isEmpty { translateRow(to: defaultLanguage) }
         }
     }
 
@@ -258,17 +307,19 @@ struct PlaybackSettingsPanel: View {
 
     private var subtitleDelaySection: some View {
         SettingsSection(title: "Subtitle sync") {
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
+                syncStep(-1, label: "−1s")
                 Button { adjustSubtitleDelay(by: -0.25) } label: {
                     Image(systemName: "minus.circle.fill").font(.title2)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Subtitles earlier by a quarter second")
 
                 VStack(spacing: 2) {
                     Text(delayText).font(.headline.monospacedDigit())
                         .contentTransition(.numericText())
                     if abs(delaySeconds) >= 0.01 {
-                        Button("Reset · saved for this version") { setSubtitleDelay(milliseconds: 0) }
+                        Button("Reset to 0") { setSubtitleDelay(milliseconds: 0) }
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.6))
                             .buttonStyle(.plain)
@@ -282,8 +333,25 @@ struct PlaybackSettingsPanel: View {
                     Image(systemName: "plus.circle.fill").font(.title2)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Subtitles later by a quarter second")
+                syncStep(1, label: "+1s")
             }
+            Text("Minus shows subtitles earlier, plus later. Saved for this version.")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.45))
         }
+    }
+
+    private func syncStep(_ seconds: Double, label: String) -> some View {
+        Button { adjustSubtitleDelay(by: seconds) } label: {
+            Text(label)
+                .font(.caption.weight(.bold).monospacedDigit())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(.white.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(seconds < 0 ? "Subtitles one second earlier" : "Subtitles one second later")
     }
 
     private var speedSection: some View {
@@ -321,10 +389,9 @@ struct PlaybackSettingsPanel: View {
         subs.embeddedID != nil || subs.selectedID != nil
     }
 
-    private var delaySeconds: Double {
-        let c = player.subtitleDelay.components
-        return Double(c.seconds) + Double(c.attoseconds) / 1e18
-    }
+    /// Sync lives in the subtitle controller: baked into external versions,
+    /// VLC's delay for tracks inside the video.
+    private var delaySeconds: Double { Double(subs.offsetMilliseconds) / 1000 }
 
     private var delayText: String { String(format: "%+.2f s", delaySeconds) }
 
@@ -338,8 +405,7 @@ struct PlaybackSettingsPanel: View {
     }
 
     private func setSubtitleDelay(milliseconds: Int) {
-        try? player.setSubtitleDelay(.milliseconds(milliseconds))
-        subs.saveDelay(milliseconds: milliseconds)
+        subs.setOffset(milliseconds)
     }
 
     #if os(tvOS)

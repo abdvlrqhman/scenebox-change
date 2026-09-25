@@ -15,7 +15,6 @@ import CryptoKit
 actor SubtitlesProvider {
     static let shared = SubtitlesProvider()
 
-    private let base = "https://opensubtitles-v3.strem.io"
     private var lists: [String: (tracks: [SubtitleTrack], fetched: Date)] = [:]
     private var inflightLists: [String: Task<[SubtitleTrack], Never>] = [:]
     private var inflightFiles: [String: Task<URL, Error>] = [:]
@@ -24,16 +23,26 @@ actor SubtitlesProvider {
 
     // MARK: Lists
 
-    func subtitles(imdbID: String, type: MediaType, season: Int?, episode: Int?) async -> [SubtitleTrack] {
-        var id = imdbID
-        if type == .series, let season, let episode { id += ":\(season):\(episode)" }
+    /// Forget cached lists (after a source key changes).
+    func reset() {
+        lists.removeAll()
+    }
 
-        if let cached = lists[id], Date().timeIntervalSince(cached.fetched) < 6 * 3600, !cached.tracks.isEmpty {
+    func subtitles(imdbID: String, type: MediaType, season: Int?, episode: Int?) async -> [SubtitleTrack] {
+        await subtitles(for: SubtitleContext(imdbID: imdbID, type: type, season: season, episode: episode))
+    }
+
+    /// Asks every configured source at once and merges the answers. One weak
+    /// catalogue no longer decides what a viewer can pick.
+    func subtitles(for context: SubtitleContext) async -> [SubtitleTrack] {
+        let id = SubtitleFetch.stremioID(context)
+        if let cached = lists[id], Date().timeIntervalSince(cached.fetched) < 2 * 3600, !cached.tracks.isEmpty {
             return cached.tracks
         }
         if let running = inflightLists[id] { return await running.value }
 
-        let task = Task { await Self.fetchList(id: id, type: type, base: base) }
+        let sources = await SubtitleKeys.current.sources
+        let task = Task { await Self.fetchAll(sources, context: context, cacheID: id) }
         inflightLists[id] = task
         let tracks = await task.value
         inflightLists[id] = nil
@@ -41,68 +50,59 @@ actor SubtitlesProvider {
         return tracks
     }
 
-    func subtitles(for context: SubtitleContext) async -> [SubtitleTrack] {
-        await subtitles(imdbID: context.imdbID, type: context.type,
-                        season: context.season, episode: context.episode)
-    }
-
-    /// Tries the network a few times (the addon is often slow to answer), then
-    /// falls back to the last list saved on disk.
-    private static func fetchList(id: String, type: MediaType, base: String) async -> [SubtitleTrack] {
-        guard let url = URL(string: "\(base)/subtitles/\(type.rawValue)/\(id).json") else { return [] }
-        let listCache = directory.appendingPathComponent("list-\(digest(id)).json")
-
-        for attempt in 0..<3 {
-            if attempt > 0 { try? await Task.sleep(for: .seconds(Double(attempt))) }
-            if Task.isCancelled { break }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 12
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  (response as? HTTPURLResponse)?.statusCode ?? 200 < 400,
-                  let tracks = parse(data)
-            else { continue }
+    private static func fetchAll(_ sources: [SubtitleSource], context: SubtitleContext,
+                                 cacheID: String) async -> [SubtitleTrack] {
+        var collected: [SubtitleTrack] = []
+        await withTaskGroup(of: [SubtitleTrack].self) { group in
+            for source in sources {
+                group.addTask { await source.subtitles(for: context) }
+            }
+            for await tracks in group { collected.append(contentsOf: tracks) }
+        }
+        let merged = deduplicate(collected)
+        if merged.isEmpty {
+            // Every source failed (offline, most likely): fall back to the last list.
+            return (try? Data(contentsOf: listCache(cacheID)))
+                .flatMap { try? JSONDecoder().decode([SubtitleTrack].self, from: $0) } ?? []
+        }
+        if let data = try? JSONEncoder().encode(merged) {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.write(to: listCache, options: .atomic)
-            return tracks
+            try? data.write(to: listCache(cacheID), options: .atomic)
         }
-        if let cached = try? Data(contentsOf: listCache), let tracks = parse(cached) {
-            return tracks
-        }
-        return []
+        return merged
     }
 
-    private static func parse(_ data: Data) -> [SubtitleTrack]? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = json["subtitles"] as? [[String: Any]]
-        else { return nil }
-
-        var seen = Set<String>()
-        var out: [SubtitleTrack] = []
-        for item in raw {
-            guard let urlString = item["url"] as? String, let url = URL(string: urlString),
-                  let lang = item["lang"] as? String else { continue }
-            let identifier = (item["id"] as? String) ?? urlString
-            guard seen.insert(identifier).inserted else { continue }
-            out.append(SubtitleTrack(
-                id: identifier,
-                languageCode: SubtitleLanguage.canonical(lang),
-                url: url,
-                fileName: (item["subtitleFileName"] as? String) ?? (item["movieReleaseName"] as? String),
-                encoding: item["SubEncoding"] as? String,
-                fps: frameRate(item)))
+    /// The same upload often appears in several catalogues. Keep one of each,
+    /// preferring the entry that knows the most about it.
+    private static func deduplicate(_ tracks: [SubtitleTrack]) -> [SubtitleTrack] {
+        var byKey: [String: SubtitleTrack] = [:]
+        var order: [String] = []
+        for track in tracks {
+            let name = (track.fileName ?? track.id)
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+            let key = "\(track.languageCode)|\(name)"
+            if let existing = byKey[key] {
+                byKey[key] = score(track) > score(existing) ? track : existing
+            } else {
+                byKey[key] = track
+                order.append(key)
+            }
         }
-        // Stable sort: common languages first, the addon's own order within one.
-        return out.enumerated()
+        let merged = order.compactMap { byKey[$0] }
+        return merged.enumerated()
             .sorted { (rank($0.element.languageCode), $0.offset) < (rank($1.element.languageCode), $1.offset) }
             .map(\.element)
     }
 
-    /// "fpsMilli": 23976 → 23.976. Zero or missing means unknown.
-    private static func frameRate(_ item: [String: Any]) -> Double? {
-        let milli = (item["fpsMilli"] as? Int) ?? (item["fpsMilli"] as? String).flatMap(Int.init)
-        if let milli, milli > 1000 { return Double(milli) / 1000 }
-        if let fps = (item["fps"] as? Double) ?? (item["fps"] as? String).flatMap(Double.init), fps > 1 { return fps }
-        return nil
+    /// How much is known about an entry, for picking between duplicates.
+    private static func score(_ track: SubtitleTrack) -> Int {
+        var score = 0
+        if track.fps != nil { score += 2 }
+        if track.downloads > 0 { score += 2 }
+        if track.fileName != nil { score += 1 }
+        if track.encoding != nil { score += 1 }
+        return score
     }
 
     // MARK: Picking a file
@@ -123,6 +123,12 @@ actor SubtitlesProvider {
                 if let video = videoFPS, let sub = entry.element.fps {
                     score += abs(video - sub) < 0.05 ? 8 : (abs(video - sub) > 0.3 ? -8 : 0)
                 }
+                // Popularity as a tie-breaker: 1 point per order of magnitude.
+                if entry.element.downloads > 0 {
+                    score += min(4, Int(log10(Double(entry.element.downloads))))
+                }
+                if entry.element.isHearingImpaired { score -= 1 }
+                if entry.element.isMachineTranslated { score -= 3 }
                 return (entry.element, entry.offset, score)
             }
             .sorted { ($0.score, -$0.offset) > ($1.score, -$1.offset) }
@@ -180,10 +186,18 @@ actor SubtitlesProvider {
             if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
             do {
                 var request = URLRequest(url: track.url)
-                request.timeoutInterval = 20
-                let (data, response) = try await URLSession.shared.data(for: request)
+                request.timeoutInterval = 25
+                request.setValue(TorrentSearch.userAgent, forHTTPHeaderField: "User-Agent")
+                for (key, value) in track.requestHeaders { request.setValue(value, forHTTPHeaderField: key) }
+                let (payload, response) = try await URLSession.shared.data(for: request)
                 if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                     throw Failure.badResponse
+                }
+                // SubDL and SubSource serve zipped subtitles.
+                var data = payload
+                if ZipReader.isZip(payload) {
+                    guard let unzipped = ZipReader.firstSubtitle(in: payload) else { throw Failure.notSubtitles }
+                    data = unzipped.contents
                 }
                 let text = utf8(data, declared: track.encoding, language: track.languageCode)
                 guard looksLikeSubtitles(text) else { throw Failure.notSubtitles }
@@ -235,6 +249,10 @@ actor SubtitlesProvider {
         guard data.count > 20 else { return false }
         let head = String(decoding: data.prefix(512), as: UTF8.self).lowercased()
         return !head.contains("<html") && !head.contains("<!doctype")
+    }
+
+    private static func listCache(_ id: String) -> URL {
+        directory.appendingPathComponent("list-\(digest(id)).json")
     }
 
     private static func digest(_ text: String) -> String {

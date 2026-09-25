@@ -8,6 +8,9 @@
 import Foundation
 import Observation
 import SwiftVLC
+#if canImport(Translation) && os(iOS)
+import Translation
+#endif
 
 /// Picks, attaches and keeps the subtitle the viewer wants on screen.
 ///
@@ -27,6 +30,10 @@ final class SubtitlesController {
     private(set) var statusMessage: String?
     /// The version being downloaded after a tap, for the row's spinner.
     private(set) var loadingID: String?
+    /// Sync for what's on screen, in milliseconds (negative = earlier).
+    private(set) var offsetMilliseconds = 0
+    /// 0…1 while an English version is being translated on the device.
+    private(set) var translationProgress: Double?
 
     private enum Wanted: Equatable {
         case undecided                  // default language not resolved yet
@@ -53,9 +60,14 @@ final class SubtitlesController {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var playingSince: Date?
     @ObservationIgnored private var attachedTracks: [URL: String] = [:]
-    @ObservationIgnored private var attaching = false
-    @ObservationIgnored private var attachAttempts = 0
-    @ObservationIgnored private var lastAttachAttempt = Date.distantPast
+    /// An attach VLC hasn't finished yet; adopted whenever its track shows up.
+    @ObservationIgnored private var pendingAttach: (url: URL, before: Set<String>, generation: Int, at: Date)?
+    /// Per file, so switching versions or sync never runs out of attempts.
+    @ObservationIgnored private var attemptsByURL: [URL: Int] = [:]
+    /// Downloaded file of each version; synced copies are made from it.
+    @ObservationIgnored private var originals: [String: URL] = [:]
+    @ObservationIgnored private var bakeTask: Task<Void, Never>?
+    @ObservationIgnored private var offsetTask: Task<Void, Never>?
     @ObservationIgnored private var enforcedGeneration = -1
     @ObservationIgnored private var delayGeneration = -1
     /// What's on screen now, as stored in `SubtitleMemory`.
@@ -90,8 +102,19 @@ final class SubtitlesController {
 
         isLoading = true
         fetchTask = Task { [provider] in
-            let tracks = await provider.subtitles(for: context)
+            var tracks = await provider.subtitles(for: context)
             guard !Task.isCancelled else { return }
+            // A translation made on this device earlier is kept on disk.
+            if let rememberedID, rememberedID.hasPrefix(TranslatedSubtitles.idPrefix),
+               let cached = TranslatedSubtitles.cached(id: rememberedID) {
+                tracks.append(cached.track)
+                available = tracks
+                preferredFile = cached
+                preferredLookupDone = true
+                isLoading = false
+                reconcile()
+                return
+            }
             available = tracks
             if !self.preferred.isEmpty {
                 preferredFile = await provider.bestFile(for: context, language: self.preferred, tracks: tracks,
@@ -116,6 +139,8 @@ final class SubtitlesController {
         loop?.cancel()
         fetchTask?.cancel()
         applyTask?.cancel()
+        bakeTask?.cancel()
+        offsetTask?.cancel()
     }
 
     /// Called from the screen whenever the player's state changes.
@@ -128,8 +153,8 @@ final class SubtitlesController {
                 playingSince = nil
                 attachedTracks.removeAll()
                 externalTrackIDs.removeAll()
-                attachAttempts = 0
-                lastAttachAttempt = .distantPast
+                pendingAttach = nil
+                attemptsByURL.removeAll()
             }
         case .playing:
             if playingSince == nil { playingSince = Date() }
@@ -191,13 +216,173 @@ final class SubtitlesController {
                     : "Couldn't download \(track.languageName) subtitles. Try another language or try again."
                 return
             }
-            selectedID = chosen.id
-            embeddedID = nil
-            wanted = .external(chosen, url)
+            show(chosen, original: url)
+        }
+    }
+
+    // MARK: Showing a version (sync baked into the file)
+
+    /// Puts a downloaded version on screen with its saved sync and any
+    /// frame-rate correction written into a copy of the file.
+    private func show(_ track: SubtitleTrack, original: URL) {
+        originals[track.id] = original
+        selectedID = track.id
+        embeddedID = nil
+        offsetMilliseconds = savedOffset(for: track) ?? 0
+        try? player?.setSubtitleDelay(.zero)          // the file carries the timing now
+        bake(track, offset: offsetMilliseconds)
+    }
+
+    private func bake(_ track: SubtitleTrack, offset: Int) {
+        guard let original = originals[track.id] else { return }
+        let scale = frameRateScale(for: track)
+        bakeTask?.cancel()
+        if offset == 0, abs(scale - 1) < 0.000_1 {
+            wanted = .external(track, original)
+            enforcedGeneration = -1
+            reconcile()
+            return
+        }
+        bakeTask = Task {
+            let url = await Task.detached(priority: .userInitiated) {
+                (try? SubtitleRetimer.retime(original, offsetMilliseconds: offset, scale: scale)) ?? original
+            }.value
+            guard !Task.isCancelled else { return }
+            wanted = .external(track, url)
             enforcedGeneration = -1
             reconcile()
         }
     }
+
+    /// A version timed for a 25 fps release runs 4% short against a
+    /// 23.976 fps video (and the reverse). Stretch it back when both rates are
+    /// known and differ that way.
+    func frameRateScale(for track: SubtitleTrack) -> Double {
+        guard let video = player?.videoTracks.first?.frameRate, video > 1,
+              let sub = track.fps, sub > 1, abs(sub - video) > 0.3 else { return 1 }
+        let ratio = sub / video
+        return (0.9...1.1).contains(ratio) ? ratio : 1
+    }
+
+    /// Sync from the panel. External versions get a re-timed copy (works both
+    /// ways, unlike VLC's delay, which drops lines when set negative); embedded
+    /// tracks can only use VLC's delay.
+    func setOffset(_ milliseconds: Int) {
+        offsetMilliseconds = milliseconds
+        persistOffset(milliseconds)
+        switch wanted {
+        case .external(let track, _):
+            offsetTask?.cancel()
+            offsetTask = Task {
+                try? await Task.sleep(for: .milliseconds(400))    // settle while tapping
+                guard !Task.isCancelled else { return }
+                bake(track, offset: milliseconds)
+            }
+        case .embedded:
+            try? player?.setSubtitleDelay(.milliseconds(milliseconds))
+        default:
+            break
+        }
+    }
+
+
+    // MARK: Translation (on device)
+
+    #if canImport(Translation) && os(iOS)
+    /// Handed to the player screen's `.translationTask`; setting it starts a run.
+    private(set) var translationConfiguration: TranslationSession.Configuration?
+    @ObservationIgnored private var translationJob: (english: SubtitleTrack, file: URL, target: String)?
+
+    /// English versions the translator can work from (SRT and VTT).
+    func canTranslate(to target: String, player: Player) -> Bool {
+        SubtitleLanguage.canonical(target) != "eng"
+            && SubtitleLanguage.iso639_1(for: target) != nil
+            && !translatableEnglish(player: player).isEmpty
+    }
+
+    private func translatableEnglish(player: Player) -> [SubtitleTrack] {
+        versions(for: "eng", player: player).filter { track in
+            let ext = ((track.fileName ?? "") as NSString).pathExtension.lowercased()
+            return !["ass", "ssa", "sub"].contains(ext) && !track.isMachineTranslated
+        }
+    }
+
+    /// Translates the English version that best fits this release. Its timing
+    /// is kept exactly, which is the point: English versions are plentiful and
+    /// usually match the release, so the result is in sync.
+    func translate(to target: String, player: Player) {
+        self.player = player
+        guard translationProgress == nil else { return }
+        let target = SubtitleLanguage.canonical(target)
+        guard let code = SubtitleLanguage.iso639_1(for: target),
+              let english = translatableEnglish(player: player).first else {
+            statusMessage = "There are no English subtitles to translate for this title."
+            return
+        }
+        let id = TranslatedSubtitles.id(englishID: english.id, target: target)
+        if let cached = TranslatedSubtitles.cached(id: id) {
+            if !available.contains(where: { $0.id == id }) { available.append(cached.track) }
+            show(cached.track, original: cached.file)
+            return
+        }
+        statusMessage = nil
+        translationProgress = 0
+        applyTask?.cancel()
+        applyTask = Task { [provider] in
+            guard let file = try? await provider.download(english) else {
+                translationProgress = nil
+                statusMessage = "The English subtitles didn't download, so there was nothing to translate."
+                return
+            }
+            guard !Task.isCancelled else { translationProgress = nil; return }
+            translationJob = (english, file, target)
+            translationConfiguration = TranslationSession.Configuration(
+                source: Locale.Language(identifier: "en"),
+                target: Locale.Language(identifier: code))
+        }
+    }
+
+    /// Runs inside the player's `.translationTask`. iOS asks to download the
+    /// language the first time; after that it works offline.
+    func runTranslation(_ session: TranslationSession) async {
+        guard let job = translationJob else { return }
+        translationJob = nil
+        defer { translationConfiguration = nil }
+        do {
+            let text = try String(contentsOf: job.file, encoding: .utf8)
+            var cues = SubtitleCues.parse(text)
+            guard !cues.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+            try await session.prepareTranslation()
+            let batch = 80
+            for first in stride(from: 0, to: cues.count, by: batch) {
+                let range = first..<min(cues.count, first + batch)
+                let requests = range.compactMap { index -> TranslationSession.Request? in
+                    let source = cues[index].plainText
+                    return source.isEmpty ? nil
+                        : TranslationSession.Request(sourceText: source, clientIdentifier: String(index))
+                }
+                let responses = try await session.translations(from: requests)
+                for response in responses {
+                    if let id = response.clientIdentifier, let index = Int(id) {
+                        cues[index].text = response.targetText
+                    }
+                }
+                translationProgress = Double(range.upperBound) / Double(cues.count)
+            }
+            let track = TranslatedSubtitles.track(from: job.english, target: job.target, url: job.file)
+            let url = try TranslatedSubtitles.write(cues, track: track)
+            guard let saved = TranslatedSubtitles.cached(id: track.id) else { throw CocoaError(.fileWriteUnknown) }
+            _ = url
+            available.removeAll { $0.id == saved.track.id }
+            available.append(saved.track)
+            translationProgress = nil
+            show(saved.track, original: saved.file)
+        } catch {
+            translationProgress = nil
+            statusMessage = "Translation didn't finish. If iOS asked to download the language, allow it and try again."
+        }
+    }
+    #endif
 
     // MARK: Versions (several subtitle files in one language)
 
@@ -240,9 +425,9 @@ final class SubtitlesController {
         trackBecameActive("emb:\(track.id)", language: track.language, player: player)
     }
 
-    /// Subtitle sync is remembered per episode (or movie) and put back the
-    /// next time it plays.
-    func saveDelay(milliseconds: Int) {
+    /// Subtitle sync is remembered per episode, source and version, and put
+    /// back the next time it plays.
+    private func persistOffset(_ milliseconds: Int) {
         guard let context else { return }
         if let activeTrackKey { sessionDelays[activeTrackKey] = milliseconds }
         SubtitleMemory.setDelay(milliseconds, trackKey: activeTrackKey, for: context)
@@ -260,7 +445,9 @@ final class SubtitlesController {
         SubtitleMemory.remember(trackKey: key, language: language, for: context)
         if saved != 0 { SubtitleMemory.setDelay(saved, trackKey: key, for: context) }
         memory = SubtitleMemory.entry(for: context)
-        try? player.setSubtitleDelay(.milliseconds(saved))
+        offsetMilliseconds = saved
+        // External versions already carry their sync in the file.
+        try? player.setSubtitleDelay(.milliseconds(key.hasPrefix("emb:") ? saved : 0))
         delayGeneration = generation
     }
 
@@ -284,7 +471,7 @@ final class SubtitlesController {
 
         // After a reopen, put the offset back once the same track is showing again.
         if tracksSettled, delayGeneration != generation, let activeTrackKey,
-           memory?.trackKey == activeTrackKey {
+           activeTrackKey.hasPrefix("emb:"), memory?.trackKey == activeTrackKey {
             delayGeneration = generation
             try? player.setSubtitleDelay(.milliseconds(memory?.delayMilliseconds ?? 0))
         }
@@ -332,13 +519,11 @@ final class SubtitlesController {
                 }
             }
             if let preferredFile {
-                selectedID = preferredFile.track.id
-                wanted = .external(preferredFile.track, preferredFile.file)
-                ensureAttached(preferredFile.file, in: player, settled: tracksSettled)
+                show(preferredFile.track, original: preferredFile.file)
             } else if preferredLookupDone {
                 wanted = .off
                 if !preferred.isEmpty {
-                    statusMessage = "No \(SubtitleLanguage.displayName(for: preferred)) subtitles found for this title."
+                    statusMessage = "No \(SubtitleLanguage.displayName(for: preferred)) subtitles found for this title. You can translate the English ones below."
                 }
                 enforceOff(in: player, settled: tracksSettled)
             }
@@ -381,42 +566,40 @@ final class SubtitlesController {
             }
             return
         }
-        guard settled || player.state == .paused else { return }
-        guard !attaching, attachAttempts < 4,
-              Date().timeIntervalSince(lastAttachAttempt) > 5 else { return }
 
-        attaching = true
-        attachAttempts += 1
-        lastAttachAttempt = Date()
-        let startedIn = generation
+        // Adopt the track of an earlier attach, however long VLC took (it waits
+        // while a torrent stream is buffering).
+        if let pending = pendingAttach, pending.generation == generation {
+            let added = player.subtitleTracks.filter {
+                !pending.before.contains($0.id) && !externalTrackIDs.contains($0.id)
+            }
+            if let track = added.first(where: \.isSelected) ?? added.last {
+                externalTrackIDs.insert(track.id)
+                attachedTracks[pending.url] = track.id
+                pendingAttach = nil
+                if pending.url == url {
+                    enforcedGeneration = generation
+                    if !track.isSelected { player.selectedSubtitleTrack = track }
+                    if case .external(let chosen, _) = wanted {
+                        trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
+                    }
+                }
+                return                                   // a newer file attaches on the next pass
+            }
+            if pending.url == url, Date().timeIntervalSince(pending.at) < 12 { return }
+        }
+
+        guard settled || player.state == .paused else { return }
+        let attempts = attemptsByURL[url, default: 0]
+        guard attempts < 3 else { return }
         let before = Set(player.subtitleTracks.map(\.id))
         do {
             try player.addExternalTrack(from: url, type: .subtitle, select: true)
         } catch {
-            attaching = false                       // no input yet; the loop retries
-            return
+            return                                       // no input yet; the loop retries
         }
-
-        Task { [weak self, weak player] in
-            for _ in 0..<40 {                        // up to 8 s for VLC to parse it
-                try? await Task.sleep(for: .milliseconds(200))
-                guard let self, let player else { return }
-                guard self.generation == startedIn else { self.attaching = false; return }
-                let added = player.subtitleTracks.filter { !before.contains($0.id) }
-                if let track = added.first(where: \.isSelected) ?? added.last {
-                    self.externalTrackIDs.insert(track.id)
-                    self.attachedTracks[url] = track.id
-                    self.enforcedGeneration = self.generation
-                    if !track.isSelected { player.selectedSubtitleTrack = track }
-                    self.attaching = false
-                    if case .external(let chosen, let wantedURL) = self.wanted, wantedURL == url {
-                        self.trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
-                    }
-                    return
-                }
-            }
-            self?.attaching = false                  // try again on a later pass
-        }
+        attemptsByURL[url] = attempts + 1
+        pendingAttach = (url, before, generation, Date())
     }
 
     /// A subtitle track inside the video in the default language. Embedded

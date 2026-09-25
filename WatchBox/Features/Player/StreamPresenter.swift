@@ -11,6 +11,7 @@ import Kingfisher
 struct StreamPlayerContainer: View {
     let streamer: StreamCoordinator
     @Environment(AppSettings.self) private var settings
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -27,6 +28,7 @@ struct StreamPlayerContainer: View {
                     progress: target.progress,
                     artworkURL: streamer.backdropURL,
                     originalAudioLanguage: target.originalAudioLanguage,
+                    onRecover: { await streamer.recoveryURL() },
                     onClose: streamer.stop
                 )
                 .id(target.url)   // rebuild the player for a new episode's stream
@@ -48,6 +50,9 @@ struct StreamPlayerContainer: View {
             }
         }
         .animation(nil, value: streamer.target?.url)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { streamer.revive() }
+        }
         #if DEBUG
         .overlay(alignment: .topTrailing) { DiagnosticsOverlay() }
         #endif

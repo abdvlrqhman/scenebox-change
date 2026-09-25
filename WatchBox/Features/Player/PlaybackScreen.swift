@@ -27,6 +27,8 @@ struct PlaybackScreen: View {
     var progress: WatchProgressContext? = nil
     var artworkURL: URL? = nil
     var originalAudioLanguage: String? = nil
+    /// After the stream broke off mid-episode: where to reopen it.
+    var onRecover: (() async -> URL?)? = nil
     let onClose: () -> Void
 
     @Environment(AppSettings.self) private var settings
@@ -41,6 +43,15 @@ struct PlaybackScreen: View {
     @State private var isStalled = false
     @State private var didSeekToStart = false
     @State private var openRetries = 0
+    /// Replaces `url` after a recovery (e.g. the finished file on disk).
+    @State private var sourceOverride: URL?
+    /// The last place playback really reached, for picking up after a break.
+    @State private var lastGoodPosition: Duration = .zero
+    @State private var recoverySeek: Duration?
+    @State private var recoveries = 0
+    @State private var isRecovering = false
+    @State private var recoveredAt: Duration?
+    @Environment(\.scenePhase) private var scenePhase
     @State private var knownDuration: Duration = .zero
     /// Seconds left while the next-episode prompt is up (the credits).
     @State private var upNextRemaining: Double?
@@ -239,9 +250,19 @@ struct PlaybackScreen: View {
         .task { await runAutoSeekScript() }
         #endif
         .onChange(of: player.isSeekable) { _, seekable in
-            guard seekable, !didSeekToStart, startAt > .zero else { return }
+            guard seekable else { return }
+            if let target = recoverySeek {
+                recoverySeek = nil
+                try? player.seek(to: target)
+                return
+            }
+            guard !didSeekToStart, startAt > .zero else { return }
             didSeekToStart = true
             try? player.seek(to: startAt)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Save the spot before iOS may suspend the app.
+            if phase == .background { recordProgress() }
         }
         .onAppear(perform: start)
         .onChange(of: player.isPlaying) { _, playing in
@@ -269,15 +290,25 @@ struct PlaybackScreen: View {
             if let new, new > .zero { knownDuration = new }
         }
         .onChange(of: player.didReachEnd) { _, ended in
-            if ended { playbackEnded() }
+            guard ended else { return }
+            // VLC reports "ended" whenever the stream closes. Mid-episode that
+            // means the stream broke (e.g. after the phone was locked): pick
+            // up where it stopped, never mark it watched or skip ahead.
+            if endedEarly { recoverStream() } else { playbackEnded() }
         }
         .onChange(of: isBuffering) { wasBuffering, buffering in
             if wasBuffering, !buffering { chrome.playbackStarted() }
         }
         .onChange(of: player.state) { _, state in
             subs.playerStateChanged(state)
+            if state == .playing, let target = recoverySeek, player.isSeekable {
+                recoverySeek = nil
+                try? player.seek(to: target)
+            }
             guard state == .error, failure == nil else { return }
-            if url.host == "127.0.0.1", player.currentTime == .zero, openRetries < 5 {
+            if lastGoodPosition > .zero {
+                recoverStream()
+            } else if sourceURL.host == "127.0.0.1", player.currentTime == .zero, openRetries < 5 {
                 player.stop()
                 openRetries += 1
             } else {
@@ -292,6 +323,38 @@ struct PlaybackScreen: View {
             await subs.prepareLanguage(session)
         }
         #endif
+    }
+
+    private var sourceURL: URL { sourceOverride ?? url }
+
+    /// "Ended" well before the credits: the stream broke off.
+    private var endedEarly: Bool {
+        knownDuration > .zero && lastGoodPosition > .zero
+            && lastGoodPosition < knownDuration - .seconds(20)
+    }
+
+    /// Reopens the video where it stopped: from the file itself when it's all
+    /// on the phone, else from the stream once it answers again.
+    private func recoverStream() {
+        guard !isRecovering, failure == nil else { return }
+        guard recoveries < 5 else {
+            failure = "The stream stopped and couldn't restart. Close the player and open the episode again; it will continue from here."
+            return
+        }
+        recoveries += 1
+        isRecovering = true
+        let resumeAt = lastGoodPosition
+        recoveredAt = resumeAt
+        recordProgress()
+        let attempt = recoveries
+        Task {
+            player.stop()
+            try? await Task.sleep(for: .milliseconds(500 * attempt))
+            if let fresh = await onRecover?() { sourceOverride = fresh }
+            recoverySeek = resumeAt
+            isRecovering = false
+            beginPlayback()
+        }
     }
 
     private var isBuffering: Bool {
@@ -323,6 +386,14 @@ struct PlaybackScreen: View {
             } else {
                 frozenTicks = 0
                 lastSeen = player.currentTime
+            }
+            if recoverySeek == nil, !isRecovering, player.currentTime > .zero {
+                // A minute of good playback after a recovery clears the count.
+                if let at = recoveredAt, player.currentTime > at + .seconds(60) {
+                    recoveries = 0
+                    recoveredAt = nil
+                }
+                lastGoodPosition = player.currentTime
             }
             isStalled = frozenTicks >= 3
         }
@@ -524,6 +595,7 @@ struct PlaybackScreen: View {
     }
 
     private func beginPlayback() {
+        let url = sourceURL
         do {
             let media = try Media(url: url)
             if !url.isFileURL {

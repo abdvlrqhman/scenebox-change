@@ -19,6 +19,7 @@ actor LibtorrentStreamServer {
 
     private let preferredPort: UInt16
     private var listener: NWListener?
+    private var isStopped = false
     private let queue = DispatchQueue(label: "libtorrent.stream.http")
     private var task: Task<Void, Never>?
     private var reprimeTask: Task<Void, Never>?
@@ -79,6 +80,7 @@ actor LibtorrentStreamServer {
         self.listener = listener
         self.port = actual
         torrentLog.notice("stream: listening on 127.0.0.1:\(actual, privacy: .public)")
+        watch(listener)
 
         task = Task { await self.acceptLoop(incoming) }
         reprimeTask = Task { [weak self] in
@@ -100,9 +102,11 @@ actor LibtorrentStreamServer {
         return url
     }
 
-    private nonisolated static func makeListener(port: UInt16) throws -> NWListener {
+    /// `reuse`: coming back on our own port, which may still hold closed
+    /// connections from before.
+    private nonisolated static func makeListener(port: UInt16, reuse: Bool = false) throws -> NWListener {
         let params = NWParameters.tcp
-        params.allowLocalEndpointReuse = false
+        params.allowLocalEndpointReuse = reuse
         params.requiredLocalEndpoint = NWEndpoint.hostPort(
             host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port) ?? .any)
         return try NWListener(using: params)
@@ -128,7 +132,65 @@ actor LibtorrentStreamServer {
         }
     }
 
+    // MARK: Surviving suspension
+
+    /// iOS takes listening sockets back from a suspended app (a paused video
+    /// with the phone locked). The player's address has to keep working, so
+    /// the listener comes back on the same port.
+    private func watch(_ listener: NWListener) {
+        listener.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .failed, .cancelled:
+                Task { await self?.listenerWentDown(listener) }
+            default:
+                break
+            }
+        }
+    }
+
+    private func listenerWentDown(_ failed: NWListener) async {
+        guard !isStopped, failed === listener else { return }
+        await relisten()
+    }
+
+    /// Called when the app comes back to the screen: re-opens the listener
+    /// if iOS closed it meanwhile.
+    func revive() async {
+        guard !isStopped, let listener else { return }
+        if case .ready = listener.state { return }
+        await relisten()
+    }
+
+    private func relisten() async {
+        guard !isStopped, port != 0 else { return }
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
+        task?.cancel()
+        for attempt in 0..<20 {
+            guard !isStopped else { return }
+            if let fresh = try? Self.makeListener(port: port, reuse: true) {
+                let incoming = AsyncStream<NWConnection> { continuation in
+                    fresh.newConnectionHandler = { continuation.yield($0) }
+                    continuation.onTermination = { _ in fresh.cancel() }
+                }
+                if await Self.bind(fresh, on: queue) {
+                    listener = fresh
+                    watch(fresh)
+                    task = Task { await self.acceptLoop(incoming) }
+                    torrentLog.notice("stream: listening again on 127.0.0.1:\(self.port, privacy: .public)")
+                    return
+                }
+                fresh.cancel()
+            }
+            try? await Task.sleep(for: .milliseconds(attempt < 5 ? 200 : 1000))
+        }
+        torrentLog.notice("stream: could not listen again on port \(self.port, privacy: .public)")
+    }
+
     func stop() {
+        isStopped = true
+        listener?.stateUpdateHandler = nil
         task?.cancel()
         task = nil
         reprimeTask?.cancel()

@@ -159,6 +159,11 @@ actor LibtorrentSession {
         return server.headReadable(headBytes: headBytes)
     }
 
+    /// The app is back on screen: the player's address must answer again.
+    func reviveServer() async {
+        await server?.revive()
+    }
+
     func endPrebuffer() async {
         guard let file = streamFile else { return }
         engine.beginStreamingSteadyState(forFile: file.index)

@@ -382,6 +382,28 @@ final class StreamCoordinator {
         }
     }
 
+    // MARK: Coming back from the lock screen
+
+    /// iOS closes the local stream's listener while the app is suspended;
+    /// reopen it as soon as the app is back.
+    func revive() {
+        guard let session else { return }
+        Task { await session.reviveServer() }
+    }
+
+    /// Where the player should reopen after the stream broke off: the file
+    /// itself when all of it is on the phone (nothing left to fail), else the
+    /// stream, once its listener answers again.
+    func recoveryURL() async -> URL? {
+        guard let session, let target else { return nil }
+        if await session.currentStats().isComplete {
+            let file = await session.localFileURL()
+            if FileManager.default.fileExists(atPath: file.path) { return file }
+        }
+        await session.reviveServer()
+        return target.url
+    }
+
     private func pollStats(from session: LibtorrentSession) {
         statsTask?.cancel()
         statsTask = Task { [weak self] in

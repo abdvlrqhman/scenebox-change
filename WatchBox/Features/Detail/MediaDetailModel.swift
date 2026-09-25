@@ -29,7 +29,11 @@ final class MediaDetailModel {
 
     var releaseRequest: ReleaseRequest?
     private(set) var releases: [TorrentStream] = []
+    /// How each source looks right now (live seeders, weight), by source id.
+    private(set) var assessments: [String: SourceRanking.Assessment] = [:]
     private(set) var isLoadingReleases = false
+    /// "Finding sources…", then "Checking which are alive…".
+    private(set) var releaseStage = "Finding sources…"
     private(set) var releaseError: String?
 
     @ObservationIgnored private var search: TorrentSearch
@@ -133,17 +137,23 @@ final class MediaDetailModel {
     private func loadReleases(for episode: Episode?) {
         releaseTask?.cancel()
         releases = []
+        assessments = [:]
         releaseError = nil
+        releaseStage = "Finding sources…"
         isLoadingReleases = true
 
-        releaseTask = Task { [mediaID, type, search, settings] in
+        releaseTask = Task { [mediaID, type, search] in
             do {
                 let found = try await search.streams(
                     id: mediaID, type: type,
                     season: episode?.season, episode: episode?.episode)
                 guard !Task.isCancelled else { return }
 
-                releases = Self.rank(found, preferring: settings.preferredResolution)
+                releaseStage = "Checking which are alive…"
+                let ranked = await rank(found)
+                guard !Task.isCancelled else { return }
+                releases = ranked.streams
+                assessments = ranked.assessments
                 releaseError = releases.isEmpty ? "No sources available for this title." : nil
             } catch {
                 guard !Task.isCancelled else { return }
@@ -157,43 +167,70 @@ final class MediaDetailModel {
         releaseTask?.cancel()
         releaseRequest = nil
         releases = []
+        assessments = [:]
         releaseError = nil
         isLoadingReleases = false
+    }
+
+    /// What to try, in order, if `stream` doesn't start: the next best
+    /// sources that still have seeders.
+    func fallbacks(after stream: TorrentStream, limit: Int = 3) -> [TorrentStream] {
+        Array(releases
+            .filter { $0.id != stream.id && !$0.isDebrid && (assessments[$0.id]?.isPlayable ?? true) }
+            .prefix(limit))
     }
 
     func bestStream(for episode: Episode?) async -> TorrentStream? {
         await rankedStreams(for: episode).first
     }
 
+    /// The best sources to try in order (auto-pick and batch downloads): the
+    /// one that played last time if it still has seeders, then by live health.
     func rankedStreams(for episode: Episode?, limit: Int = 4) async -> [TorrentStream] {
         let found = (try? await search.streams(
             id: mediaID, type: type,
             season: episode?.season, episode: episode?.episode)) ?? []
-        var remaining = found
-        var ranked: [TorrentStream] = []
-        // The source that played last time for this episode goes first.
+        let ranked = await rank(found)
+        var ordered = ranked.streams.filter { ranked.assessments[$0.id]?.isPlayable ?? true }
+        if ordered.isEmpty { ordered = ranked.streams }      // all quiet: still try the best
         if let last = SourceMemory.last(mediaID: mediaID, season: episode?.season, episode: episode?.episode),
-           let match = found.first(where: { SourceKey.make($0) == last.sourceKey }) {
-            ranked.append(match)
-            remaining.removeAll { $0.id == match.id }
+           let index = ordered.firstIndex(where: { SourceKey.make($0) == last.sourceKey }) {
+            ordered.insert(ordered.remove(at: index), at: 0)
         }
-        while ranked.count < limit,
-              let best = StreamPicker.best(from: remaining,
-                                           preferredResolution: settings.preferredResolution,
-                                           debridEnabled: settings.debridEnabled) {
-            ranked.append(best)
-            remaining.removeAll { $0.id == best.id }
-        }
-        return ranked
+        return Array(ordered.prefix(limit))
     }
 
-    private static func rank(_ streams: [TorrentStream], preferring resolution: String) -> [TorrentStream] {
+    /// Asks the trackers who is sharing each source right now (about a
+    /// quarter of a second, 2.5 s at most), then orders them by what will
+    /// start and keep playing best.
+    private func rank(_ streams: [TorrentStream]) async
+        -> (streams: [TorrentStream], assessments: [String: SourceRanking.Assessment]) {
         var seen = Set<String>()
         let unique = streams.filter { seen.insert($0.id).inserted }
-        let wanted = resolution.lowercased()
-        guard !wanted.isEmpty else { return unique }
-        let preferred = unique.filter { $0.resolution?.lowercased() == wanted }
-        let rest = unique.filter { $0.resolution?.lowercased() != wanted }
-        return preferred + rest
+        let preferred = settings.preferredResolution
+        let debridEnabled = settings.debridEnabled
+        let runtime = SourceRanking.runtimeMinutes(detail?.runtime, isSeries: type != .movie)
+
+        async let liveCounts = SwarmHealth.shared.check(unique)
+        async let failedIDs = SwarmHealth.shared.failedIDs()
+        let (live, failed) = await (liveCounts, failedIDs)
+
+        var assessments: [String: SourceRanking.Assessment] = [:]
+        for stream in unique {
+            let key = stream.id.lowercased()
+            let swarm = live[key]
+            let facts = SourceRanking.Facts(
+                listedSeeders: stream.seeders, liveSeeders: swarm?.seeders, liveLeechers: swarm?.leechers,
+                resolution: stream.resolution, sizeBytes: SourceRanking.sizeBytes(stream.sizeText),
+                isDebrid: stream.isDebrid, failedBefore: failed.contains(key))
+            assessments[stream.id] = SourceRanking.assess(facts, preferredResolution: preferred,
+                                                          runtimeMinutes: runtime, debridEnabled: debridEnabled)
+        }
+        let ordered = unique.enumerated().sorted { a, b in
+            let left = assessments[a.element.id]?.score ?? 0
+            let right = assessments[b.element.id]?.score ?? 0
+            return left != right ? left > right : a.offset < b.offset
+        }.map(\.element)
+        return (ordered, assessments)
     }
 }

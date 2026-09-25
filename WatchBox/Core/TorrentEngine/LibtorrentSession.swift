@@ -27,22 +27,29 @@ actor LibtorrentSession {
     private init(saveDirectory: URL, maxPeers: Int, extraTrackers: [URL], preferredFileIndex: Int?) {
         self.saveDirectory = saveDirectory
         self.preferredFileIndex = preferredFileIndex
-        let trackers = extraTrackers + DefaultTrackers.list
+        let trackers = extraTrackers + DefaultTrackers.current
         self.engine = TorrentEngine(saveDirectory: saveDirectory.path,
                                     maxPeers: maxPeers,
                                     extraTrackers: trackers.map(\.absoluteString))
     }
 
+    /// `noPeerTimeout`: give up early when not a single peer has connected by
+    /// then (a dead torrent), so the next source can be tried sooner.
     static func resolve(magnet: MagnetLink, downloadDirectory: URL, preferredFileIndex: Int? = nil,
-                        timeout: TimeInterval = 40, maxPeers: Int = 80,
+                        timeout: TimeInterval = 40, noPeerTimeout: TimeInterval? = nil, maxPeers: Int = 80,
                         extraTrackers: [URL] = []) async throws -> LibtorrentSession {
         let session = LibtorrentSession(saveDirectory: downloadDirectory, maxPeers: maxPeers,
                                         extraTrackers: extraTrackers, preferredFileIndex: preferredFileIndex)
-        try await session.begin(magnet: magnet, timeout: timeout)
+        do {
+            try await session.begin(magnet: magnet, timeout: timeout, noPeerTimeout: noPeerTimeout)
+        } catch {
+            await session.stop()
+            throw error
+        }
         return session
     }
 
-    private func begin(magnet: MagnetLink, timeout: TimeInterval) async throws {
+    private func begin(magnet: MagnetLink, timeout: TimeInterval, noPeerTimeout: TimeInterval?) async throws {
         engine.onPieceFinished = { [waiters] index in waiters.fulfill(Int(index)) }
         let resume = try? Data(contentsOf: resumeURL)
         engine.startMagnet(magnet.magnetURI, resumeData: resume)
@@ -51,7 +58,8 @@ actor LibtorrentSession {
         await TorrentDiagnostics.shared.begin(engine: engine, infoHash: magnet.infoHash.hexString)
         #endif
 
-        let deadline = Date().addingTimeInterval(timeout)
+        let started = Date()
+        let deadline = started.addingTimeInterval(timeout)
         var lastDiscoveryRetry = Date()
         while !engine.hasMetadata {
             try await Task.sleep(for: .milliseconds(200))
@@ -67,6 +75,10 @@ actor LibtorrentSession {
             }
             #endif
             if Date() > deadline { throw TorrentEngineError.metadataTimeout }
+            if let noPeerTimeout, Date().timeIntervalSince(started) > noPeerTimeout,
+               engine.stats().numPeers == 0 {
+                throw TorrentEngineError.metadataTimeout
+            }
         }
         try selectStreamFile()
     }

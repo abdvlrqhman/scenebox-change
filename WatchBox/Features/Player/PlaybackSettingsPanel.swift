@@ -193,7 +193,6 @@ struct PlaybackSettingsPanel: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(running)
         }
         #endif
     }
@@ -213,7 +212,7 @@ struct PlaybackSettingsPanel: View {
         case .none:
             "On this iPhone, offline after the first time. Whole sentences are translated, and the timing comes from the English version, so it stays in sync."
         case .running:
-            "Keeps going if you close the player. Translated lines appear as they're ready."
+            "Tap to show it now. Lines fill in as they're translated, and it keeps going if you close the player."
         case .paused:
             "It stopped part-way. The lines already translated are kept."
         case .done:
@@ -239,6 +238,16 @@ struct PlaybackSettingsPanel: View {
                 }
             } else {
                 tags.append(.init(text: label, tone: .plain))
+            }
+        }
+        if track.id.hasPrefix(TranslatedSubtitles.idPrefix) {
+            switch TranslationCenter.shared.state(for: track.id) {
+            case .running(let progress):
+                tags.append(.init(text: "Translating \(Int(progress * 100))%", tone: .accent))
+            case .paused(let progress):
+                tags.append(.init(text: "\(Int(progress * 100))% translated", tone: .warn))
+            default:
+                break
             }
         }
         if track.isMachineTranslated { tags.append(.init(text: "Machine translated", tone: .warn)) }

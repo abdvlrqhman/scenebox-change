@@ -44,6 +44,10 @@ jobs:
             WatchBox/Features/Subtitles/ZipReader.swift \
             WatchBox/Features/Subtitles/SubtitleRetimer.swift \
             WatchBox/Features/Subtitles/TranslationUnits.swift \
+            WatchBox/Core/TorrentKit/TrackerScrape.swift \
+            WatchBox/Core/TorrentKit/NetworkIO.swift \
+            WatchBox/Core/TorrentKit/Models/TorrentError.swift \
+            WatchBox/Features/Detail/SourceRanking.swift \
             scripts/selftest/main.swift
           build/selftest build/fixtures
 

@@ -41,6 +41,8 @@ struct StreamPlayerContainer: View {
                     error: streamer.errorMessage,
                     canStartNow: streamer.canStartNow,
                     onStartNow: streamer.startNow,
+                    canTryAnother: streamer.canTryAnotherSource,
+                    onTryAnother: streamer.tryAnotherSource,
                     onClose: streamer.stop
                 )
             }
@@ -88,6 +90,8 @@ private struct PreparingPlayerView: View {
     let error: String?
     var canStartNow = false
     var onStartNow: () -> Void = {}
+    var canTryAnother = false
+    var onTryAnother: () -> Void = {}
     let onClose: () -> Void
 
     var body: some View {
@@ -125,8 +129,21 @@ private struct PreparingPlayerView: View {
                             .foregroundStyle(Theme.onAccent)
                             .transition(.scale(scale: 0.9).combined(with: .opacity))
                         }
+                        if canTryAnother {
+                            // Slow to start: the next best source is one tap away.
+                            Button(action: onTryAnother) {
+                                Label("Try another source", systemImage: "arrow.triangle.2.circlepath")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.white)
+                            .transition(.opacity)
+                        }
                     }
                     .animation(Theme.smooth, value: canStartNow)
+                    .animation(Theme.smooth, value: canTryAnother)
                 }
                 .padding(.horizontal, 40)
                 .shadow(color: .black.opacity(0.6), radius: 14, y: 4)

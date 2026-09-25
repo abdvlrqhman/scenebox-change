@@ -79,6 +79,12 @@ final class TranslationCenter {
         return .none
     }
 
+    /// The translation running now, for a player of the same episode to list.
+    var runningJob: (id: String, english: SubtitleTrack, target: String)? {
+        guard let work, work.id == runningID else { return nil }
+        return (work.id, work.english, work.target)
+    }
+
     /// The best file there is right now: finished, or what's translated so far.
     func currentFile(for id: String) -> URL? {
         if let update = updates[id] { return update.url }
@@ -239,10 +245,11 @@ final class TranslationCenter {
             lastSave = Date()
             Self.saveWork(current)
         }
-        // Show the first minutes as soon as they're ready, then refresh every
-        // quarter, so a viewer already watching sees more of it translated.
-        let firstBatchReady = lastPublishedProgress == 0 && current.done.count >= min(40, current.units.count)
-        if firstBatchReady || current.progress - lastPublishedProgress >= 0.25 {
+        // The lines at the playhead go on screen within seconds (they're
+        // translated first), then the file is refreshed every fifth, so a
+        // viewer already watching sees more of it translated.
+        let firstBatchReady = lastPublishedProgress == 0 && current.done.count >= min(12, current.units.count)
+        if firstBatchReady || current.progress - lastPublishedProgress >= 0.2 {
             lastPublishedProgress = current.progress
             if let url = try? TranslatedSubtitles.writePartial(current.cuesSoFar(), id: current.id) {
                 revision += 1

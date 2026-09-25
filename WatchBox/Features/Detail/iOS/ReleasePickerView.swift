@@ -32,6 +32,14 @@ struct ReleasePickerView: View {
         return list
     }
 
+    /// The top of the ranking, when it's in good health: marked "Best pick".
+    private var bestPickID: String? {
+        guard let first = model.releases.first,
+              let health = model.assessments[first.id]?.health,
+              health == .strong || health == .fair else { return nil }
+        return first.id
+    }
+
     private var sourcesWithSubtitles: Set<String> {
         SubtitleMemory.sourcesWithChoice(for: SubtitleContext(
             imdbID: model.mediaID, type: model.type,
@@ -58,7 +66,7 @@ struct ReleasePickerView: View {
         NavigationStack {
             Group {
                 if model.isLoadingReleases {
-                    ProgressView("Finding sources…")
+                    ProgressView(model.releaseStage)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = model.releaseError {
                     EmptyStateView(systemImage: "magnifyingglass",
@@ -68,12 +76,20 @@ struct ReleasePickerView: View {
                     ScrollView {
                         let lastKey = lastWatchedKey
                         let withSubtitles = sourcesWithSubtitles
+                        let ordered = orderedReleases
+                        let firstDeadID = ordered.first { model.assessments[$0.id]?.health == .dead }?.id
                         LazyVStack(spacing: rowSpacing) {
-                            ForEach(orderedReleases) { stream in
+                            ForEach(ordered) { stream in
                                 let isLast = SourceKey.make(stream) == lastKey
+                                let assessment = model.assessments[stream.id]
+                                if stream.id == firstDeadID {
+                                    DeadSourcesHeader()
+                                }
                                 Button { onSelect(stream) } label: {
                                     ReleaseRow(
                                         stream: stream,
+                                        assessment: assessment,
+                                        isBestPick: stream.id == bestPickID,
                                         isDownloaded: downloads.contains(infoHash: stream.id,
                                                                    episodeLabel: request.episode?.label),
                                         isLastWatched: isLast,
@@ -91,6 +107,7 @@ struct ReleasePickerView: View {
                                             }
                                         }
                                         #endif
+                                        .opacity(assessment?.health == .dead ? 0.55 : 1)
                                         .contentShape(Rectangle())
                                 }
                                 #if os(tvOS)
@@ -121,8 +138,26 @@ struct ReleasePickerView: View {
     }
 }
 
+/// Divides off the sources nobody is sharing right now.
+private struct DeadSourcesHeader: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "person.2.slash")
+            Text("No seeders right now, likely won't start")
+            Spacer(minLength: 0)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.white.opacity(0.55))
+        .padding(.top, 10)
+        .padding(.horizontal, 4)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
 private struct ReleaseRow: View {
     let stream: TorrentStream
+    var assessment: SourceRanking.Assessment? = nil
+    var isBestPick = false
     let isDownloaded: Bool
     var isLastWatched = false
     var hasSavedSubtitles = false
@@ -147,8 +182,14 @@ private struct ReleaseRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             FlowLayout(spacing: 8) {
+                if isBestPick {
+                    Chip(text: "Best pick", systemImage: "sparkles", tint: Theme.accent)
+                }
                 if isLastWatched {
                     Chip(text: "Last watched", systemImage: "clock.arrow.circlepath", tint: Theme.accent)
+                }
+                if assessment?.failedBefore == true {
+                    Chip(text: "Didn't start", systemImage: "exclamationmark.triangle.fill", tint: .red)
                 }
                 if hasSavedSubtitles {
                     Chip(text: "Subtitles saved", systemImage: "captions.bubble.fill")
@@ -162,9 +203,9 @@ private struct ReleaseRow: View {
                 if let size = stream.sizeText {
                     Chip(text: size)
                 }
-                if let seeders = stream.seeders {
-                    Chip(text: "\(seeders)", systemImage: "person.2.fill",
-                         tint: seeders > 20 ? .green : .orange)
+                seedersChip
+                if assessment?.isHeavy == true {
+                    Chip(text: "May buffer", systemImage: "tortoise.fill", tint: .orange)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,5 +213,26 @@ private struct ReleaseRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
         .foregroundStyle(isFocused ? .black : .white)
+    }
+
+    /// Live counts come from the trackers just now; otherwise the source
+    /// list's count, which can be weeks old.
+    @ViewBuilder
+    private var seedersChip: some View {
+        if let assessment, assessment.isLive, let seeders = assessment.seeders {
+            switch assessment.health {
+            case .dead:
+                Chip(text: "No seeders", systemImage: "person.2.slash", tint: .red)
+            case .strong:
+                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: .green)
+            case .fair:
+                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: .yellow)
+            default:
+                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: .orange)
+            }
+        } else if let seeders = stream.seeders {
+            Chip(text: "\(seeders)", systemImage: "person.2.fill",
+                 tint: seeders > 20 ? .green : .orange)
+        }
     }
 }

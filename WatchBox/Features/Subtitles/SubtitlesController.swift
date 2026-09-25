@@ -56,6 +56,10 @@ final class SubtitlesController {
 
     // Per opened media ("generation"): VLC throws external tracks away whenever
     // the stream is reopened, so everything attached is remembered per open.
+    /// Set by "Translate": the first translated lines go on screen when ready,
+    /// unless the viewer picks something else first.
+    @ObservationIgnored private var showsFirstTranslatedLines = false
+
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var playingSince: Date?
     @ObservationIgnored private var attachedTracks: [URL: String] = [:]
@@ -188,6 +192,7 @@ final class SubtitlesController {
     /// (picking a language) the next best version is tried.
     func apply(_ track: SubtitleTrack?, on player: Player, exact: Bool = false) {
         self.player = player
+        showsFirstTranslatedLines = false
         applyTask?.cancel()
         loadingID = nil
         statusMessage = nil
@@ -369,16 +374,19 @@ final class SubtitlesController {
         }
         let id = TranslatedSubtitles.id(englishID: english.id, target: target)
         followedTranslation = (id, english, target)
-        shownTranslationRevision = -1
+        shownTranslationRevision = TranslationCenter.shared.updates[id]?.revision ?? -1
         statusMessage = nil
 
         if let cached = TranslatedSubtitles.cached(id: id) {
             showTranslated(id: id, english: english, target: target, url: cached.file)
             return
         }
-        // What's translated so far goes on screen while the rest continues.
+        // What's translated so far goes on screen while the rest continues;
+        // with nothing yet, the first lines go on screen the moment they exist.
         if let partial = TranslationCenter.shared.currentFile(for: id) {
             showTranslated(id: id, english: english, target: target, url: partial)
+        } else {
+            showsFirstTranslatedLines = true
         }
         let startAt = Int(player.currentTime.asSeconds * 1000)
         applyTask?.cancel()
@@ -421,20 +429,46 @@ final class SubtitlesController {
 
     private func showTranslated(id: String, english: SubtitleTrack, target: String, url: URL) {
         let track = TranslatedSubtitles.track(from: english, target: target, url: url)
-        available.removeAll { $0.id == id }
-        available.append(track)
+        list(track)
         show(track, original: url)
     }
 
-    /// Swaps in newer translated lines as they arrive, while the viewer is on
-    /// the translated version.
+    /// Keeps the translation in the versions list while it's being made, and
+    /// swaps in newer lines as they arrive while the viewer is on it.
     private func followTranslation() {
+        adoptRunningTranslation()
         guard let followed = followedTranslation,
               let update = TranslationCenter.shared.updates[followed.id],
               update.revision > shownTranslationRevision else { return }
         shownTranslationRevision = update.revision
-        guard selectedID == followed.id else { return }
-        showTranslated(id: followed.id, english: followed.english, target: followed.target, url: update.url)
+        if selectedID == followed.id || showsFirstTranslatedLines {
+            showsFirstTranslatedLines = false
+            showTranslated(id: followed.id, english: followed.english, target: followed.target, url: update.url)
+        } else {
+            list(TranslatedSubtitles.track(from: followed.english, target: followed.target, url: update.url))
+        }
+    }
+
+    /// A translation started earlier for this episode (then the player was
+    /// closed) is listed among the versions as far as it has got.
+    private func adoptRunningTranslation() {
+        guard followedTranslation == nil,
+              let job = TranslationCenter.shared.runningJob,
+              available.contains(where: { $0.id == job.english.id }) else { return }
+        followedTranslation = (job.id, job.english, job.target)
+        shownTranslationRevision = -1
+        if TranslationCenter.shared.updates[job.id] == nil,
+           let partial = TranslationCenter.shared.currentFile(for: job.id) {
+            list(TranslatedSubtitles.track(from: job.english, target: job.target, url: partial))
+        }
+    }
+
+    private func list(_ track: SubtitleTrack) {
+        if let index = available.firstIndex(where: { $0.id == track.id }) {
+            available[index] = track
+        } else {
+            available.append(track)
+        }
     }
     #endif
 
@@ -469,6 +503,7 @@ final class SubtitlesController {
 
     func selectEmbedded(_ track: Track, on player: Player) {
         self.player = player
+        showsFirstTranslatedLines = false
         applyTask?.cancel()
         statusMessage = nil
         selectedID = nil

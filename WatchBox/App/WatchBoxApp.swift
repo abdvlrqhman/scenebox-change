@@ -21,6 +21,7 @@ struct WatchBoxApp: App {
         _ = VLCInstance.prewarmShared()
 
         StreamCoordinator.pruneCacheAtLaunch()
+        Task.detached(priority: .utility) { await DefaultTrackers.refreshIfStale() }
 
         // Resume downloads that were running when the app last closed, and keep
         // them going when the app leaves the screen.

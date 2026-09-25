@@ -41,6 +41,9 @@ final class StreamCoordinator {
     private(set) var stats = SwarmStats()
     /// Enough is downloaded to begin; the loading screen offers "Play now".
     private(set) var canStartNow = false
+    /// Starting is slow and another good source exists: the loading screen
+    /// offers "Try another source".
+    private(set) var canTryAnotherSource = false
 
     @ObservationIgnored private var session: LibtorrentSession?
     @ObservationIgnored private var prepareTask: Task<Void, Never>?
@@ -48,6 +51,9 @@ final class StreamCoordinator {
     @ObservationIgnored private var streamDirectory: URL?
     @ObservationIgnored private var startNowRequested = false
     @ObservationIgnored private var reservedTorrent: String?
+    @ObservationIgnored private var currentStreamID: String?
+    @ObservationIgnored private var switchToNextSource: (() -> Void)?
+    @ObservationIgnored private var offerTask: Task<Void, Never>?
     @ObservationIgnored private let settings: AppSettings
 
     static var streamCacheRoot: URL { StreamCache.root }
@@ -74,6 +80,14 @@ final class StreamCoordinator {
     /// Skip the rest of the cushion and start with what's downloaded.
     func startNow() { startNowRequested = true }
 
+    /// The viewer gave up on this source: note it (it sinks in the list for
+    /// this session) and start the next best one.
+    func tryAnotherSource() {
+        guard let next = switchToNextSource else { return }
+        if let id = currentStreamID { Task { await SwarmHealth.shared.markFailed(id) } }
+        next()
+    }
+
     var preparingStatus: String? {
         if let preparing { return preparing }
         guard bufferProgress != nil, errorMessage == nil else { return nil }
@@ -91,6 +105,29 @@ final class StreamCoordinator {
         prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         prepareTask?.cancel()
+        // The next best source, for a failure here or the viewer's "Try another source".
+        let hasFallback = !fallbacks.isEmpty
+        currentStreamID = stream.id
+        switchToNextSource = fallbacks.first.map { next in
+            { [weak self] in
+                guard let self else { return }
+                self.play(next, title: title, backdropURL: backdropURL, logoURL: logoURL,
+                          subtitleContext: subtitleContext, episodes: episodes,
+                          startAt: startAt, resumeFraction: resumeFraction,
+                          progress: progress, originalAudioLanguage: originalAudioLanguage,
+                          fallbacks: Array(fallbacks.dropFirst()))
+                self.preparing = "Trying the next best source…"
+            }
+        }
+        canTryAnotherSource = false
+        offerTask?.cancel()
+        if hasFallback {
+            offerTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled, let self, self.target == nil, self.errorMessage == nil else { return }
+                self.canTryAnotherSource = true
+            }
+        }
         let previousSession = session
         let previousDirectory = streamDirectory
         session = nil
@@ -132,10 +169,14 @@ final class StreamCoordinator {
                 self.streamDirectory = directory
                 if cacheLimit > 0 { StreamCache.prune(toBytes: cacheLimit, keeping: [stream.id]) }
 
+                // With another source to fall back on, a torrent nobody answers
+                // for is dropped after 15 s instead of 40.
                 let session = try await LibtorrentSession.resolve(
                     magnet: stream.magnet,
                     downloadDirectory: directory,
                     preferredFileIndex: stream.fileIndex,
+                    timeout: hasFallback ? 30 : 45,
+                    noPeerTimeout: hasFallback ? 15 : nil,
                     maxPeers: settings.maxPeers,
                     extraTrackers: settings.customTrackerURLs)
                 guard !Task.isCancelled else { await session.stop(); return }
@@ -203,9 +244,11 @@ final class StreamCoordinator {
                     }
                     #endif
                     if elapsed > 300 { break }                   // absolute ceiling: 5 min
+                    // Nothing arriving: move on sooner when there's a next source.
                     if lastBytes == 0 {
-                        if elapsed > 120 && stats.connectedPeers == 0 { break }
-                    } else if stalledFor > 90 {
+                        if stats.connectedPeers == 0, elapsed > (hasFallback ? 25 : 120) { break }
+                        if hasFallback, elapsed > 45 { break }
+                    } else if stalledFor > (hasFallback ? 40 : 90) {
                         break
                     }
                     try? await Task.sleep(for: .milliseconds(300))
@@ -219,6 +262,8 @@ final class StreamCoordinator {
                 }
                 await session.endPrebuffer()
 
+                canTryAnotherSource = false
+                offerTask?.cancel()
                 // This source works: remember it for the episode's source list.
                 if let progress {
                     SourceMemory.remember(stream, mediaID: progress.mediaID,
@@ -232,19 +277,14 @@ final class StreamCoordinator {
                 pollStats(from: session)
             } catch {
                 guard !Task.isCancelled else { return }
-                if let engineError = error as? TorrentEngineError,
-                   engineError == .metadataTimeout || engineError == .bufferTimeout,
-                   let next = fallbacks.first {
-                    preparing = "Source unresponsive — trying another…"
-                    Task { @MainActor [self] in
-                        play(next, title: title, backdropURL: backdropURL, logoURL: logoURL,
-                             subtitleContext: subtitleContext, episodes: episodes,
-                             startAt: startAt, resumeFraction: resumeFraction,
-                             progress: progress, originalAudioLanguage: originalAudioLanguage,
-                             fallbacks: Array(fallbacks.dropFirst()))
-                    }
+                // Any failure to start moves on to the next best source, and
+                // this one sinks in the list for the rest of the session.
+                if error is TorrentEngineError, let next = switchToNextSource {
+                    Task { await SwarmHealth.shared.markFailed(stream.id) }
+                    next()
                     return
                 }
+                canTryAnotherSource = false
                 preparing = nil
                 errorMessage = friendlyError(error)
             }
@@ -308,6 +348,10 @@ final class StreamCoordinator {
     func stop() {
         prepareTask?.cancel(); prepareTask = nil
         statsTask?.cancel(); statsTask = nil
+        offerTask?.cancel(); offerTask = nil
+        switchToNextSource = nil
+        currentStreamID = nil
+        canTryAnotherSource = false
         preparing = nil
         bufferProgress = nil
         errorMessage = nil

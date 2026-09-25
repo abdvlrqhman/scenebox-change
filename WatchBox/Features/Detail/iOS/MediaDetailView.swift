@@ -507,9 +507,7 @@ struct MediaDetailView: View {
     }
 
     private func handle(request: MediaDetailModel.ReleaseRequest, stream: TorrentStream) {
-        let fallbacks = Array(model.releases
-            .filter { $0.id != stream.id && !$0.isDebrid }
-            .prefix(3))
+        let fallbacks = model.fallbacks(after: stream)
         model.dismissReleases()
         switch request.intent {
         case .watch:

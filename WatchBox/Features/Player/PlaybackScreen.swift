@@ -48,6 +48,7 @@ struct PlaybackScreen: View {
     @State private var originalAudioSatisfied = false
     #if os(iOS)
     @State private var isLandscape = false
+    @State private var levels = SwipeLevels()
     @FocusState private var hasKeyboardFocus: Bool
     @State private var lastHoverReveal = Date.distantPast
     #endif
@@ -55,6 +56,15 @@ struct PlaybackScreen: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+
+            #if os(iOS)
+            if !Platform.isMac {
+                SystemVolumeHost(levels: levels)
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            #endif
 
             VideoView(player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,6 +77,8 @@ struct PlaybackScreen: View {
             #if os(iOS)
             Color.clear
                 .contentShape(Rectangle())
+                // Landscape: swipe up/down on the left for brightness, on the right for volume.
+                .swipeToAdjustLevels(levels, enabled: failure == nil)
                 .onTapGesture(count: 2) {
                     guard Platform.isMac else { return }
                     MacWindow.toggleFullScreen()
@@ -145,6 +157,10 @@ struct PlaybackScreen: View {
                 .padding(.bottom, chrome.isVisible ? upNextRaisedInset : upNextBottomInset)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
+
+            #if os(iOS)
+            SwipeLevelsIndicator(levels: levels)
+            #endif
         }
         .animation(.easeInOut(duration: 0.25), value: upNextSecondsLeft != nil)
         .contentShape(Rectangle())
@@ -439,6 +455,7 @@ struct PlaybackScreen: View {
             isLandscape = true
             ScreenOrientation.landscape()
         }
+        levels.attach(player: player)
         #endif
         Task {
             await PlaybackAudioSession.activate()
@@ -547,6 +564,7 @@ struct PlaybackScreen: View {
         #if os(iOS)
         nowPlaying?.end()
         nowPlaying = nil
+        levels.detach()
         #endif
         recordProgress(publish: true)
         chrome.viewDisappeared()

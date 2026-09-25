@@ -126,17 +126,20 @@ nonisolated enum SubtitleRetimer {
 }
 
 /// One subtitle line: when it shows and what it says.
-nonisolated struct SubtitleCue: Sendable {
+nonisolated struct SubtitleCue: Sendable, Codable {
     var start: String       // kept as written, so timing survives untouched
     var end: String
     var text: String
 
     /// "00:01:02,345" → 62345.
-    var startMilliseconds: Int {
-        let pieces = start.replacingOccurrences(of: ",", with: ".").split(separator: ":")
+    var startMilliseconds: Int { Self.milliseconds(start) }
+    var endMilliseconds: Int { Self.milliseconds(end) }
+
+    private static func milliseconds(_ time: String) -> Int {
+        let pieces = time.replacingOccurrences(of: ",", with: ".").split(separator: ":")
         guard pieces.count == 3, let h = Int(pieces[0]), let m = Int(pieces[1]) else { return 0 }
         let seconds = Double(pieces[2]) ?? 0
-        return (h * 3600 + m * 60) * 1000 + Int(seconds * 1000)
+        return (h * 3600 + m * 60) * 1000 + Int((seconds * 1000).rounded())
     }
 
     /// The words only: formatting tags confuse a translator.

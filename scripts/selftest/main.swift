@@ -60,6 +60,40 @@ let advert = "1\r\n00:00:00,000 --> 00:00:06,000\r\nYou're on the free plan. Unl
 let cleaned = SubtitleCues.removingCues(containing: "wyzie", from: advert)
 check(!cleaned.contains("free plan") && cleaned.contains("00:00:00,130 --> 00:00:05,320"), "advert cue removed, real cue kept")
 
+// Sentences split across cues are joined for translation, then spread back.
+let dialogue = SubtitleCues.parse("""
+1
+00:00:01,000 --> 00:00:02,000
+I think we
+
+2
+00:00:02,100 --> 00:00:03,500
+should leave now.
+
+3
+00:00:03,600 --> 00:00:05,000
+Hello.
+
+4
+00:00:05,100 --> 00:00:06,000
+- Who's there?
+- Me.
+
+5
+00:00:20,000 --> 00:00:21,000
+Later
+""")
+let units = TranslationUnits.build(dialogue)
+check(units.count == 4, "4 translation units (got \(units.count))")
+check(units.first?.cues == [0, 1] && units.first?.text == "I think we should leave now.", "split sentence joined")
+check(units.count > 2 && units[2].cues == [3], "dialogue cue stands alone")
+check(units.last?.cues == [4], "long pause starts a new unit")
+let parts = TranslationUnits.split("a b c d e f", weights: [10, 10])
+check(parts == ["a b c", "d e f"], "translation spread by length (got \(parts))")
+let uneven = TranslationUnits.split("one two three four", weights: [3, 30])
+check(uneven.count == 2 && uneven[0] == "one" && uneven[1] == "two three four", "short first piece gets fewer words (got \(uneven))")
+check(TranslationUnits.split("كلمة", weights: [5, 5]) == ["كلمة", "كلمة"], "too few words: whole line on each")
+
 try? FileManager.default.removeItem(at: work)
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

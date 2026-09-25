@@ -45,11 +45,49 @@ nonisolated enum TranslatedSubtitles {
 
     /// What's translated so far (the rest still in English), shown while the
     /// translation finishes. Not kept.
-    static func writePartial(_ cues: [SubtitleCue], track: SubtitleTrack) throws -> URL {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(digest(track.id) + "-partial").appendingPathExtension("srt")
+    static func writePartial(_ cues: [SubtitleCue], id: String) throws -> URL {
+        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        removePartials(id: id)
+        // A fresh name per write: the player attaches files, and a changed file
+        // under the same name wouldn't be re-read.
+        let url = workDirectory.appendingPathComponent("\(digest(id))-\(Int(Date().timeIntervalSince1970 * 1000))")
+            .appendingPathExtension("srt")
         try Data(SubtitleCues.srt(cues).utf8).write(to: url, options: .atomic)
         return url
+    }
+
+    /// The player reads a subtitle file whole when it attaches it, so older
+    /// partial files can go.
+    static func removePartials(id: String) {
+        let prefix = digest(id) + "-"
+        let files = (try? FileManager.default.contentsOfDirectory(at: workDirectory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.lastPathComponent.hasPrefix(prefix) && file.pathExtension == "srt" {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    /// Unfinished work and partial files.
+    static var workDirectory: URL { directory.appendingPathComponent("InProgress", isDirectory: true) }
+
+    /// Everything subtitle-related that can be fetched or made again.
+    static var cacheDirectories: [URL] {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return [caches.appendingPathComponent("Subtitles", isDirectory: true), directory]
+    }
+
+    static func totalCacheBytes() -> Int64 {
+        var total: Int64 = 0
+        for root in cacheDirectories {
+            guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) else { continue }
+            for case let url as URL in files {
+                total += Int64((try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
+            }
+        }
+        return total
+    }
+
+    static func clearCaches() {
+        for root in cacheDirectories { try? FileManager.default.removeItem(at: root) }
     }
 
     /// A translation made earlier, by its version id.
@@ -72,7 +110,7 @@ nonisolated enum TranslatedSubtitles {
         AppDirectories.support.appendingPathComponent("Subtitles/Translated", isDirectory: true)
     }
 
-    private static func digest(_ text: String) -> String {
+    static func digest(_ text: String) -> String {
         SHA256.hash(data: Data(text.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 }

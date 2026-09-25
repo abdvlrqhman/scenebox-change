@@ -208,20 +208,20 @@ struct ProfileView: View {
                     }
                     .disabled(downloads.downloads.isEmpty)
 
-                    LabeledContent("Stream cache", value: ByteFormat.size(streamCacheBytes))
+                    LabeledContent("Cache", value: ByteFormat.size(streamCacheBytes))
                     Picker("Stream cache limit", selection: $settings.streamCacheLimitGB) {
                         ForEach(AppSettings.streamCacheOptions, id: \.self) { gb in
                             Text(gb == 0 ? "Off" : "\(gb) GB").tag(gb)
                         }
                     }
-                    Button("Clear stream cache", role: .destructive) {
+                    Button("Clear cache", role: .destructive) {
                         confirmClearStreamCache = true
                     }
                     .disabled(streamCacheBytes == 0)
                 } header: {
                     Text("Storage")
                 } footer: {
-                    Text("New downloads won't start past the download limit. The stream cache keeps recently streamed titles on disk so re-opening them starts instantly; the oldest are evicted past its limit.")
+                    Text("New downloads won't start past the download limit. The cache keeps recently streamed video (so re-opening starts instantly; the oldest goes past the stream cache limit) plus downloaded and translated subtitles. Clearing it keeps your downloads and your saved subtitle choices.")
                 }
 
                 Section {
@@ -311,15 +311,20 @@ struct ProfileView: View {
         } message: {
             Text("Every downloaded file and its resume data will be removed.")
         }
-        .confirmationDialog("Clear stream cache?",
+        .confirmationDialog("Clear cache?",
                             isPresented: $confirmClearStreamCache,
                             titleVisibility: .visible) {
             Button("Clear", role: .destructive) {
                 StreamCoordinator.purgeStreamCache()
-                Task { await refreshStreamCacheSize() }
+                TranslationCenter.shared.cancelAll()
+                TranslatedSubtitles.clearCaches()
+                Task {
+                    await SubtitlesProvider.shared.reset()
+                    await refreshStreamCacheSize()
+                }
             }
         } message: {
-            Text("Recently streamed titles will need to buffer again next time.")
+            Text("Recently streamed video will buffer again, and subtitles (including translations) will be downloaded or translated again when needed.")
         }
         .sheet(item: $editing) { mode in
             ProfileEditorView(mode: mode)
@@ -389,7 +394,9 @@ struct ProfileView: View {
     }
 
     private func refreshStreamCacheSize() async {
-        streamCacheBytes = await Task.detached(priority: .utility) { StreamCache.totalBytes() }.value
+        streamCacheBytes = await Task.detached(priority: .utility) {
+            StreamCache.totalBytes() + TranslatedSubtitles.totalCacheBytes()
+        }.value
     }
 
     private var toggleTint: Color {

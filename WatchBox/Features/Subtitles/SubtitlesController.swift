@@ -32,8 +32,6 @@ final class SubtitlesController {
     private(set) var loadingID: String?
     /// Sync for what's on screen, in milliseconds (negative = earlier).
     private(set) var offsetMilliseconds = 0
-    /// 0…1 while an English version is being translated on the device.
-    private(set) var translationProgress: Double?
 
     private enum Wanted: Equatable {
         case undecided                  // default language not resolved yet
@@ -105,16 +103,28 @@ final class SubtitlesController {
         fetchTask = Task { [provider] in
             var tracks = await provider.subtitles(for: context)
             guard !Task.isCancelled else { return }
-            // A translation made on this device earlier is kept on disk.
-            if let rememberedID, rememberedID.hasPrefix(TranslatedSubtitles.idPrefix),
-               let cached = TranslatedSubtitles.cached(id: rememberedID) {
-                tracks.append(cached.track)
-                available = tracks
-                preferredFile = cached
-                preferredLookupDone = true
-                isLoading = false
-                reconcile()
-                return
+            // A translation made on this device: finished, or as far as it got
+            // (it carries on in the background and updates here).
+            if let rememberedID, rememberedID.hasPrefix(TranslatedSubtitles.idPrefix) {
+                var found: (track: SubtitleTrack, file: URL)?
+                if let cached = TranslatedSubtitles.cached(id: rememberedID) {
+                    found = cached
+                } else if let saved = TranslationCenter.loadWork(id: rememberedID),
+                          let url = TranslationCenter.shared.currentFile(for: rememberedID) {
+                    found = (TranslatedSubtitles.track(from: saved.english, target: saved.target, url: url), url)
+                    #if canImport(Translation) && os(iOS)
+                    followedTranslation = (rememberedID, saved.english, saved.target)
+                    #endif
+                }
+                if let found {
+                    tracks.append(found.track)
+                    available = tracks
+                    preferredFile = found
+                    preferredLookupDone = true
+                    isLoading = false
+                    reconcile()
+                    return
+                }
             }
             available = tracks
             if !self.preferred.isEmpty {
@@ -292,18 +302,38 @@ final class SubtitlesController {
     }
 
 
-    // MARK: Translation (on device)
+    // MARK: Translation (on device, run by TranslationCenter)
 
     #if canImport(Translation) && os(iOS)
-    /// Handed to the player screen's `.translationTask`; setting it starts a run.
-    private(set) var translationConfiguration: TranslationSession.Configuration?
-    @ObservationIgnored private var translationJob: (english: SubtitleTrack, file: URL, target: String)?
+    /// Used only to download the language the first time: the prompt has to
+    /// come from the visible player. The translating itself runs app-wide.
+    private(set) var prepareConfiguration: TranslationSession.Configuration?
+    @ObservationIgnored private var pendingTranslation: (english: SubtitleTrack, file: URL, target: String,
+                                                          code: String, startAt: Int)?
+    /// The translation this player shows or waits for.
+    @ObservationIgnored private var followedTranslation: (id: String, english: SubtitleTrack, target: String)?
+    @ObservationIgnored private var shownTranslationRevision = -1
 
     /// English versions the translator can work from (SRT and VTT).
     func canTranslate(to target: String, player: Player) -> Bool {
         SubtitleLanguage.canonical(target) != "eng"
             && SubtitleLanguage.iso639_1(for: target) != nil
-            && !translatableEnglish(player: player).isEmpty
+            && translationSource(for: target, player: player) != nil
+    }
+
+    func translationState(to target: String, player: Player) -> TranslationCenter.State {
+        guard let id = translationID(for: target, player: player) else { return .none }
+        return TranslationCenter.shared.state(for: id)
+    }
+
+    func translationError(to target: String, player: Player) -> String? {
+        translationID(for: target, player: player).flatMap { TranslationCenter.shared.lastError[$0] }
+    }
+
+    private func translationID(for target: String, player: Player) -> String? {
+        translationSource(for: target, player: player).map {
+            TranslatedSubtitles.id(englishID: $0.id, target: SubtitleLanguage.canonical(target))
+        }
     }
 
     private func translatableEnglish(player: Player) -> [SubtitleTrack] {
@@ -313,158 +343,98 @@ final class SubtitlesController {
         }
     }
 
-    /// Translates the English version that best fits this release. Its timing
-    /// is kept exactly, which is the point: English versions are plentiful and
-    /// usually match the release, so the result is in sync.
+    /// A translation already begun for this episode keeps its English source,
+    /// so "Continue" picks up the same one.
+    private func translationSource(for target: String, player: Player) -> SubtitleTrack? {
+        let target = SubtitleLanguage.canonical(target)
+        if let followed = followedTranslation, followed.target == target { return followed.english }
+        let prefix = "\(TranslatedSubtitles.idPrefix)\(target)-"
+        if let kept = lastKeptID, kept.hasPrefix(prefix) {
+            let englishID = String(kept.dropFirst(prefix.count))
+            if let english = available.first(where: { $0.id == englishID }) { return english }
+        }
+        return translatableEnglish(player: player).first
+    }
+
+    /// Translates (or continues translating) the English version that best
+    /// fits this release. Its timing is kept exactly, so the result is in
+    /// sync; sentences split across lines are translated whole.
     func translate(to target: String, player: Player) {
         self.player = player
-        guard translationProgress == nil else { return }
         let target = SubtitleLanguage.canonical(target)
         guard let code = SubtitleLanguage.iso639_1(for: target),
-              let english = translatableEnglish(player: player).first else {
+              let english = translationSource(for: target, player: player) else {
             statusMessage = "There are no English subtitles to translate for this title."
             return
         }
         let id = TranslatedSubtitles.id(englishID: english.id, target: target)
+        followedTranslation = (id, english, target)
+        shownTranslationRevision = -1
+        statusMessage = nil
+
         if let cached = TranslatedSubtitles.cached(id: id) {
-            if !available.contains(where: { $0.id == id }) { available.append(cached.track) }
-            show(cached.track, original: cached.file)
+            showTranslated(id: id, english: english, target: target, url: cached.file)
             return
         }
-        statusMessage = nil
-        translationProgress = 0
+        // What's translated so far goes on screen while the rest continues.
+        if let partial = TranslationCenter.shared.currentFile(for: id) {
+            showTranslated(id: id, english: english, target: target, url: partial)
+        }
+        let startAt = Int(player.currentTime.asSeconds * 1000)
         applyTask?.cancel()
         applyTask = Task { [provider] in
             guard let file = try? await provider.download(english) else {
-                translationProgress = nil
                 statusMessage = "The English subtitles didn't download, so there was nothing to translate."
                 return
             }
-            guard !Task.isCancelled else { translationProgress = nil; return }
-            translationJob = (english, file, target)
-            translationConfiguration = TranslationSession.Configuration(
-                source: Locale.Language(identifier: "en"),
-                target: Locale.Language(identifier: code))
+            guard !Task.isCancelled else { return }
+            let status = await LanguageAvailability().status(from: Locale.Language(identifier: "en"),
+                                                             to: Locale.Language(identifier: code))
+            switch status {
+            case .installed:
+                TranslationCenter.shared.enqueue(english: english, file: file, target: target,
+                                                 code: code, startAt: startAt)
+            case .supported:
+                // Needs the one-time language download first.
+                pendingTranslation = (english, file, target, code, startAt)
+                prepareConfiguration = TranslationSession.Configuration(
+                    source: Locale.Language(identifier: "en"), target: Locale.Language(identifier: code))
+            default:
+                statusMessage = "This iPhone can't translate English to \(SubtitleLanguage.displayName(for: target))."
+            }
         }
     }
 
-    /// One batch, off the main actor: only plain strings go in and out.
-    // Running translation: filled as responses stream in.
-    @ObservationIgnored private var translationCues: [SubtitleCue] = []
-    /// For each distinct line, the cues that say it ("Yeah." appears dozens of times).
-    @ObservationIgnored private var translationTargets: [[Int]] = []
-    @ObservationIgnored private var translatedCount = 0
-    @ObservationIgnored private var translationShownEarly = false
-    @ObservationIgnored private var translationTrack: SubtitleTrack?
-
-    /// Streams the translation: Apple's `translate(batch:)` hands back each
-    /// line as it's done (the all-at-once call is slower). Only plain strings
-    /// cross back to the main actor, in small groups.
-    nonisolated private static func translateStreaming(
-        _ texts: [String], with session: TranslationSession,
-        onResults: @escaping @MainActor ([(Int, String)]) -> Void
-    ) async throws {
-        let requests = texts.enumerated().map {
-            TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset))
-        }
-        var buffer: [(Int, String)] = []
-        var lastFlush = Date()
-        for try await response in session.translate(batch: requests) {
-            if let id = response.clientIdentifier, let index = Int(id) {
-                buffer.append((index, response.targetText))
-            }
-            if buffer.count >= 25 || Date().timeIntervalSince(lastFlush) > 0.4 {
-                let flushed = buffer
-                buffer.removeAll()
-                lastFlush = Date()
-                await onResults(flushed)
-            }
-        }
-        if !buffer.isEmpty { await onResults(buffer) }
-    }
-
-    /// Runs inside the player's `.translationTask`. iOS asks to download the
-    /// language the first time; after that it works offline.
-    ///
-    /// Lines from the current position come first, so the next few minutes
-    /// are ready within seconds and appear on screen while the rest finishes.
-    func runTranslation(_ session: TranslationSession) async {
-        guard let job = translationJob else { return }
-        translationJob = nil
-        defer { translationConfiguration = nil }
+    /// Runs in the player's `.translationTask` so iOS can show its download prompt.
+    func prepareLanguage(_ session: TranslationSession) async {
+        defer { prepareConfiguration = nil }
+        guard let pending = pendingTranslation else { return }
+        pendingTranslation = nil
         do {
-            let text = try String(contentsOf: job.file, encoding: .utf8)
-            let cues = SubtitleCues.parse(text)
-            guard !cues.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-
-            // Order: from a few seconds before the playhead to the end, then the start.
-            let playhead = Int((player?.currentTime.asSeconds ?? 0) * 1000)
-            let first = cues.firstIndex { $0.startMilliseconds >= playhead - 5000 } ?? 0
-            let order = Array(first..<cues.count) + Array(0..<first)
-
-            var texts: [String] = []
-            var targets: [[Int]] = []
-            var slot: [String: Int] = [:]
-            for index in order {
-                let line = cues[index].plainText
-                guard !line.isEmpty else { continue }
-                if let existing = slot[line] {
-                    targets[existing].append(index)
-                } else {
-                    slot[line] = texts.count
-                    texts.append(line)
-                    targets.append([index])
-                }
-            }
-
-            translationCues = cues
-            translationTargets = targets
-            translatedCount = 0
-            translationShownEarly = false
-            translationTrack = TranslatedSubtitles.track(from: job.english, target: job.target, url: job.file)
-
-            try await Self.translateStreaming(texts, with: session) { [weak self] results in
-                self?.applyTranslated(results, total: texts.count)
-            }
-
-            guard let track = translationTrack else { return }
-            _ = try TranslatedSubtitles.write(translationCues, track: track)
-            guard let saved = TranslatedSubtitles.cached(id: track.id) else { throw CocoaError(.fileWriteUnknown) }
-            available.removeAll { $0.id == saved.track.id }
-            available.append(saved.track)
-            translationProgress = nil
-            show(saved.track, original: saved.file)
+            try await session.prepareTranslation()
+            TranslationCenter.shared.enqueue(english: pending.english, file: pending.file, target: pending.target,
+                                             code: pending.code, startAt: pending.startAt)
         } catch {
-            translationProgress = nil
-            statusMessage = "Translation didn't finish. If iOS asked to download the language, allow it and try again."
+            statusMessage = "The language wasn't downloaded, so the translation didn't start."
         }
-        translationCues = []
-        translationTargets = []
     }
 
-    private func applyTranslated(_ results: [(Int, String)], total: Int) {
-        for (slot, translated) in results where slot < translationTargets.count {
-            for index in translationTargets[slot] { translationCues[index].text = translated }
-        }
-        translatedCount += results.count
-        translationProgress = total > 0 ? Double(translatedCount) / Double(total) : 1
+    private func showTranslated(id: String, english: SubtitleTrack, target: String, url: URL) {
+        let track = TranslatedSubtitles.track(from: english, target: target, url: url)
+        available.removeAll { $0.id == id }
+        available.append(track)
+        show(track, original: url)
+    }
 
-        // Once the next few minutes are done, put them on screen; the finished
-        // file replaces this when everything is translated.
-        let early = min(total, 60)
-        if !translationShownEarly, translatedCount >= early, translatedCount < total,
-           let track = translationTrack,
-           let partial = try? TranslatedSubtitles.writePartial(translationCues, track: track) {
-            translationShownEarly = true
-            // Listed with the partial file, so picking it from the menu shows this too.
-            let listed = SubtitleTrack(id: track.id, languageCode: track.languageCode, url: partial,
-                                       fileName: track.fileName, encoding: track.encoding, fps: track.fps,
-                                       provider: track.provider, downloads: 0,
-                                       isHearingImpaired: track.isHearingImpaired, isMachineTranslated: true)
-            available.removeAll { $0.id == track.id }
-            available.append(listed)
-            show(listed, original: partial)
-        }
+    /// Swaps in newer translated lines as they arrive, while the viewer is on
+    /// the translated version.
+    private func followTranslation() {
+        guard let followed = followedTranslation,
+              let update = TranslationCenter.shared.updates[followed.id],
+              update.revision > shownTranslationRevision else { return }
+        shownTranslationRevision = update.revision
+        guard selectedID == followed.id else { return }
+        showTranslated(id: followed.id, english: followed.english, target: followed.target, url: update.url)
     }
     #endif
 
@@ -548,6 +518,9 @@ final class SubtitlesController {
     // MARK: Keeping the player in line
 
     private func reconcile() {
+        #if canImport(Translation) && os(iOS)
+        followTranslation()
+        #endif
         guard let player else { return }
         let state = player.state
         guard state == .opening || state == .buffering || state == .playing || state == .paused else { return }

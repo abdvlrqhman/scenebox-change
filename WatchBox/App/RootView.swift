@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(Translation) && os(iOS)
+@preconcurrency import Translation
+#endif
 
 struct RootView: View {
     @State private var profiles = ProfileStore.shared
@@ -46,6 +49,12 @@ struct RootView: View {
             }
         }
         .environment(profiles)
+        #if canImport(Translation) && os(iOS)
+        // Subtitle translations run here, so they keep going after the player closes.
+        .translationTask(TranslationCenter.shared.configuration) { session in
+            await TranslationCenter.shared.run(session)
+        }
+        #endif
         .onChange(of: profiles.selected?.id, initial: true) { _, profileID in
             guard let profileID else { return }
             WatchProgressStore.shared.use(LocalWatchProgressBackend(profileID: profileID))

@@ -43,6 +43,7 @@ jobs:
           xcrun swiftc -O -o build/selftest \
             WatchBox/Features/Subtitles/ZipReader.swift \
             WatchBox/Features/Subtitles/SubtitleRetimer.swift \
+            WatchBox/Features/Subtitles/TranslationUnits.swift \
             scripts/selftest/main.swift
           build/selftest build/fixtures
 

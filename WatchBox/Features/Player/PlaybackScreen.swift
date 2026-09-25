@@ -257,9 +257,10 @@ struct PlaybackScreen: View {
         }
         .onDisappear(perform: teardown)
         #if canImport(Translation) && os(iOS)
-        // Apple's translator only hands out sessions through a view.
-        .translationTask(subs.translationConfiguration) { session in
-            await subs.runTranslation(session)
+        // Only for the first-time language download prompt; translating runs
+        // app-wide (TranslationCenter) so it survives closing the player.
+        .translationTask(subs.prepareConfiguration) { session in
+            await subs.prepareLanguage(session)
         }
         #endif
     }

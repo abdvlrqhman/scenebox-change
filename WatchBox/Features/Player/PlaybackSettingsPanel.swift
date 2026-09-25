@@ -163,11 +163,14 @@ struct PlaybackSettingsPanel: View {
     }
 
     /// "Translate English to Arabic": for when no version in the language fits.
+    /// Shows where a translation stands, since it runs on after the player closes.
     @ViewBuilder
     private func translateRow(to language: String) -> some View {
         #if canImport(Translation) && os(iOS)
         if subs.canTranslate(to: language, player: player) {
             let name = SubtitleLanguage.displayName(for: language)
+            let state = subs.translationState(to: language, player: player)
+            let running: Bool = { if case .running = state { return true } else { return false } }()
             Button {
                 subs.translate(to: language, player: player)
             } label: {
@@ -175,26 +178,49 @@ struct PlaybackSettingsPanel: View {
                     Image(systemName: "character.bubble")
                         .foregroundStyle(Theme.accent)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(subs.translationProgress == nil
-                             ? "Translate English to \(name)"
-                             : "Translating… \(Int((subs.translationProgress ?? 0) * 100))%")
+                        Text(title(for: state, name: name))
                             .font(.subheadline.weight(.semibold))
-                        Text("On this iPhone, offline after the first time. Timing comes from the English version, so it stays in sync.")
+                            .monospacedDigit()
+                        Text(subs.translationError(to: language, player: player) ?? detail(for: state))
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.55))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 6)
-                    if subs.translationProgress != nil { ProgressView().controlSize(.small) }
+                    if running { ProgressView().controlSize(.small) }
                 }
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(subs.translationProgress != nil)
+            .disabled(running)
         }
         #endif
     }
+
+    #if canImport(Translation) && os(iOS)
+    private func title(for state: TranslationCenter.State, name: String) -> String {
+        switch state {
+        case .none: "Translate English to \(name)"
+        case .running(let progress): "Translating… \(Int(progress * 100))%"
+        case .paused(let progress): "Continue translating (\(Int(progress * 100))% done)"
+        case .done: "Show the \(name) translation"
+        }
+    }
+
+    private func detail(for state: TranslationCenter.State) -> String {
+        switch state {
+        case .none:
+            "On this iPhone, offline after the first time. Whole sentences are translated, and the timing comes from the English version, so it stays in sync."
+        case .running:
+            "Keeps going if you close the player. Translated lines appear as they're ready."
+        case .paused:
+            "It stopped part-way. The lines already translated are kept."
+        case .done:
+            "Translated on this iPhone."
+        }
+    }
+    #endif
 
     private func tags(for track: SubtitleTrack, index: Int, videoFPS: Double?) -> [VersionRow.Tag] {
         var tags: [VersionRow.Tag] = []

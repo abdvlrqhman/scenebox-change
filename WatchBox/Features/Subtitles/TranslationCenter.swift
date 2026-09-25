@@ -111,14 +111,24 @@ final class TranslationCenter {
         startNext()
     }
 
+    /// Stops everything now (Clear cache): the running translation ends at its
+    /// next result and writes nothing, so cleared files don't come back.
     func cancelAll() {
+        runToken += 1
         queue.removeAll()
         runningID = nil
+        runningProgress = 0
         work = nil
+        updates.removeAll()
+        lastError.removeAll()
         #if canImport(Translation) && os(iOS)
+        textTargets = []
         configuration = nil
         #endif
     }
+
+    /// Changes on cancelAll(); a run that sees a different value stops.
+    @ObservationIgnored private var runToken = 0
 
     private func startNext() {
         guard runningID == nil, let next = queue.first else { return }
@@ -151,6 +161,7 @@ final class TranslationCenter {
     @ObservationIgnored private var lastConfiguration: TranslationSession.Configuration?
 
     func run(_ session: TranslationSession) async {
+        let token = runToken
         guard let id = runningID, let current = Self.loadWork(id: id) else { finishRun(); return }
         work = current
         lastPublishedProgress = current.progress
@@ -182,9 +193,10 @@ final class TranslationCenter {
         do {
             if !texts.isEmpty {
                 try await Self.translateStreaming(texts, with: session) { [weak self] results in
-                    self?.apply(results)
+                    self?.apply(results, token: token) ?? false
                 }
             }
+            guard token == runToken else { return }            // cleared: write nothing
             guard let finished = work, finished.id == id else { finishRun(); return }
             if finished.isComplete {
                 let english = finished.english
@@ -203,6 +215,7 @@ final class TranslationCenter {
                 lastError[id] = "Translation paused. Tap Continue to finish it."
             }
         } catch {
+            guard token == runToken else { return }
             if let partial = work { Self.saveWork(partial) }
             lastError[id] = "Translation paused. If iOS asked to download the language, allow it and tap Continue."
         }
@@ -211,8 +224,9 @@ final class TranslationCenter {
 
     /// Each result fills every sentence with that text, then saves and shows
     /// progress now and then.
-    private func apply(_ results: [(Int, String)]) {
-        guard var current = work else { return }
+    /// Returns false when the run was cancelled, which stops the stream.
+    private func apply(_ results: [(Int, String)], token: Int) -> Bool {
+        guard token == runToken, var current = work else { return false }
         for (slot, translated) in results where slot < textTargets.count {
             for unit in textTargets[slot] where unit < current.units.count {
                 current.done[unit] = TranslationUnits.split(translated, weights: current.units[unit].weights)
@@ -235,6 +249,7 @@ final class TranslationCenter {
                 updates[current.id] = Update(url: url, isFinal: false, revision: revision)
             }
         }
+        return true
     }
 
     @ObservationIgnored private var textTargets: [[Int]] = []
@@ -251,7 +266,7 @@ final class TranslationCenter {
     /// as it's ready. Only plain strings cross back to the main actor.
     nonisolated private static func translateStreaming(
         _ texts: [String], with session: TranslationSession,
-        onResults: @escaping @MainActor ([(Int, String)]) -> Void
+        onResults: @escaping @MainActor ([(Int, String)]) -> Bool
     ) async throws {
         let requests = texts.enumerated().map {
             TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset))
@@ -266,10 +281,10 @@ final class TranslationCenter {
                 let flushed = buffer
                 buffer.removeAll()
                 lastFlush = Date()
-                await onResults(flushed)
+                guard await onResults(flushed) else { return }     // cancelled
             }
         }
-        if !buffer.isEmpty { await onResults(buffer) }
+        if !buffer.isEmpty { _ = await onResults(buffer) }
     }
     #else
     private func finishRun() {

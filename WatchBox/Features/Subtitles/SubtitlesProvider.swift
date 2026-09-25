@@ -199,7 +199,10 @@ actor SubtitlesProvider {
                     guard let unzipped = ZipReader.firstSubtitle(in: payload) else { throw Failure.notSubtitles }
                     data = unzipped.contents
                 }
-                let text = utf8(data, declared: track.encoding, language: track.languageCode)
+                var text = utf8(data, declared: track.encoding, language: track.languageCode)
+                if track.provider == "Wyzie", let raw = String(data: text, encoding: .utf8) {
+                    text = Data(SubtitleCues.removingCues(containing: "wyzie", from: raw).utf8)
+                }
                 guard looksLikeSubtitles(text) else { throw Failure.notSubtitles }
                 try text.write(to: file, options: .atomic)
                 return file

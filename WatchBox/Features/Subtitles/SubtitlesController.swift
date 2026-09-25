@@ -40,6 +40,7 @@ final class SubtitlesController {
         case off
         case embedded(String)           // track id inside the video
         case external(SubtitleTrack, URL)
+        case preparing(SubtitleTrack)   // synced copy being written
     }
 
     @ObservationIgnored private let provider = SubtitlesProvider.shared
@@ -237,12 +238,17 @@ final class SubtitlesController {
         guard let original = originals[track.id] else { return }
         let scale = frameRateScale(for: track)
         bakeTask?.cancel()
-        if offset == 0, abs(scale - 1) < 0.000_1 {
+        // MicroDVD (.sub) counts frames, not time: it can't be re-timed, so it
+        // keeps VLC's delay.
+        let frameBased = original.pathExtension.lowercased() == "sub"
+        if frameBased || (offset == 0 && abs(scale - 1) < 0.000_1) {
+            try? player?.setSubtitleDelay(.milliseconds(frameBased ? offset : 0))
             wanted = .external(track, original)
             enforcedGeneration = -1
             reconcile()
             return
         }
+        wanted = .preparing(track)
         bakeTask = Task {
             let url = await Task.detached(priority: .userInitiated) {
                 (try? SubtitleRetimer.retime(original, offsetMilliseconds: offset, scale: scale)) ?? original
@@ -271,7 +277,7 @@ final class SubtitlesController {
         offsetMilliseconds = milliseconds
         persistOffset(milliseconds)
         switch wanted {
-        case .external(let track, _):
+        case .external(let track, _), .preparing(let track):
             offsetTask?.cancel()
             offsetTask = Task {
                 try? await Task.sleep(for: .milliseconds(400))    // settle while tapping
@@ -453,8 +459,11 @@ final class SubtitlesController {
         if saved != 0 { SubtitleMemory.setDelay(saved, trackKey: key, for: context) }
         memory = SubtitleMemory.entry(for: context)
         offsetMilliseconds = saved
-        // External versions already carry their sync in the file.
-        try? player.setSubtitleDelay(.milliseconds(key.hasPrefix("emb:") ? saved : 0))
+        // External versions already carry their sync in the file, except
+        // frame-based .sub files, which keep VLC's delay like embedded tracks.
+        var usesPlayerDelay = key.hasPrefix("emb:")
+        if case .external(_, let url) = wanted, url.pathExtension.lowercased() == "sub" { usesPlayerDelay = true }
+        try? player.setSubtitleDelay(.milliseconds(usesPlayerDelay ? saved : 0))
         delayGeneration = generation
     }
 
@@ -547,6 +556,9 @@ final class SubtitlesController {
 
         case .external(_, let url):
             ensureAttached(url, in: player, settled: tracksSettled)
+
+        case .preparing:
+            break                       // the bake calls back when the copy is ready
         }
     }
 
@@ -593,7 +605,10 @@ final class SubtitlesController {
                 }
                 return                                   // a newer file attaches on the next pass
             }
-            if pending.url == url, Date().timeIntervalSince(pending.at) < 12 { return }
+            // Wait for it (up to 12 s) even when a newer file is wanted, so a late
+            // track can't be taken for the newer one.
+            if Date().timeIntervalSince(pending.at) < 12 { return }
+            pendingAttach = nil
         }
 
         guard settled || player.state == .paused else { return }

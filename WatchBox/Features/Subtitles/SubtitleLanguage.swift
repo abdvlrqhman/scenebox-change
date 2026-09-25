@@ -70,6 +70,10 @@ nonisolated struct SubtitleLanguage: Identifiable, Sendable, Hashable {
         let lower = code.lowercased().trimmingCharacters(in: .whitespaces)
         if let alias = aliases[lower] { return alias }
         if lower.count == 2, let mapped = iso639_1ToOpenSubtitles[lower] { return mapped }
+        // Some catalogues send the name instead ("arabic", "Brazillian Portuguese").
+        if lower.count > 3, let named = all.first(where: { $0.value.lowercased() == lower })?.key {
+            return named
+        }
         return lower
     }
 

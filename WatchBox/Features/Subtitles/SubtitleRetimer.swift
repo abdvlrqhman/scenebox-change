@@ -165,6 +165,14 @@ nonisolated enum SubtitleCues {
         return value
     }
 
+    /// Removes whole cues mentioning `marker` (an advert a catalogue inserts).
+    static func removingCues(containing marker: String, from text: String) -> String {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let blocks = normalized.components(separatedBy: "\n\n")
+        let kept = blocks.filter { !$0.lowercased().contains(marker) }
+        return kept.count == blocks.count ? text : kept.joined(separator: "\n\n")
+    }
+
     static func srt(_ cues: [SubtitleCue]) -> String {
         cues.enumerated().map { index, cue in
             "\(index + 1)\n\(cue.start) --> \(cue.end)\n\(cue.text)\n"

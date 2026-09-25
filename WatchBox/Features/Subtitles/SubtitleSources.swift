@@ -162,9 +162,11 @@ nonisolated struct SubDLSubtitleSource: SubtitleSource {
 
         return raw.compactMap { item in
             guard let path = item["url"] as? String else { return nil }
+            // A season pack's zip starts with episode 1, whatever was asked for.
+            if context.episode != nil, (item["full_season"] as? Bool) == true { return nil }
             let absolute = path.hasPrefix("http") ? path : "https://dl.subdl.com" + path
             guard let url = URL(string: absolute) else { return nil }
-            let language = (item["language"] as? String) ?? (item["lang"] as? String) ?? ""
+            let language = (item["lang"] as? String) ?? (item["language"] as? String) ?? ""
             return SubtitleTrack(
                 id: "sd-" + absolute,
                 languageCode: SubtitleLanguage.canonical(language),

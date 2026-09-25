@@ -56,6 +56,10 @@ check(cues.count == 2, "VTT parsed into 2 cues")
 check(cues.first?.start == "00:00:01,000", "VTT time normalised to SRT form")
 check(cues.last?.plainText == "Second line", "formatting tags stripped for translation")
 
+let advert = "1\r\n00:00:00,000 --> 00:00:06,000\r\nYou're on the free plan. Unlock every source → store.wyzie.io\r\n\r\n2\r\n00:00:00,130 --> 00:00:05,320\r\nمرحبا\r\n"
+let cleaned = SubtitleCues.removingCues(containing: "wyzie", from: advert)
+check(!cleaned.contains("free plan") && cleaned.contains("00:00:00,130 --> 00:00:05,320"), "advert cue removed, real cue kept")
+
 try? FileManager.default.removeItem(at: work)
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

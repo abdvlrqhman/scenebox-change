@@ -349,43 +349,87 @@ final class SubtitlesController {
     }
 
     /// One batch, off the main actor: only plain strings go in and out.
-    nonisolated private static func translate(_ lines: [(Int, String)],
-                                              with session: TranslationSession) async throws -> [(Int, String)] {
-        let requests = lines.map { TranslationSession.Request(sourceText: $0.1, clientIdentifier: String($0.0)) }
-        let responses = try await session.translations(from: requests)
-        return responses.compactMap { response in
-            guard let id = response.clientIdentifier, let index = Int(id) else { return nil }
-            return (index, response.targetText)
+    // Running translation: filled as responses stream in.
+    @ObservationIgnored private var translationCues: [SubtitleCue] = []
+    /// For each distinct line, the cues that say it ("Yeah." appears dozens of times).
+    @ObservationIgnored private var translationTargets: [[Int]] = []
+    @ObservationIgnored private var translatedCount = 0
+    @ObservationIgnored private var translationShownEarly = false
+    @ObservationIgnored private var translationTrack: SubtitleTrack?
+
+    /// Streams the translation: Apple's `translate(batch:)` hands back each
+    /// line as it's done (the all-at-once call is slower). Only plain strings
+    /// cross back to the main actor, in small groups.
+    nonisolated private static func translateStreaming(
+        _ texts: [String], with session: TranslationSession,
+        onResults: @escaping @MainActor ([(Int, String)]) -> Void
+    ) async throws {
+        let requests = texts.enumerated().map {
+            TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset))
         }
+        var buffer: [(Int, String)] = []
+        var lastFlush = Date()
+        for try await response in session.translate(batch: requests) {
+            if let id = response.clientIdentifier, let index = Int(id) {
+                buffer.append((index, response.targetText))
+            }
+            if buffer.count >= 25 || Date().timeIntervalSince(lastFlush) > 0.4 {
+                let flushed = buffer
+                buffer.removeAll()
+                lastFlush = Date()
+                await onResults(flushed)
+            }
+        }
+        if !buffer.isEmpty { await onResults(buffer) }
     }
 
     /// Runs inside the player's `.translationTask`. iOS asks to download the
     /// language the first time; after that it works offline.
+    ///
+    /// Lines from the current position come first, so the next few minutes
+    /// are ready within seconds and appear on screen while the rest finishes.
     func runTranslation(_ session: TranslationSession) async {
         guard let job = translationJob else { return }
         translationJob = nil
         defer { translationConfiguration = nil }
         do {
             let text = try String(contentsOf: job.file, encoding: .utf8)
-            var cues = SubtitleCues.parse(text)
+            let cues = SubtitleCues.parse(text)
             guard !cues.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-            try await session.prepareTranslation()
-            let batch = 80
-            for first in stride(from: 0, to: cues.count, by: batch) {
-                let range = first..<min(cues.count, first + batch)
-                let lines: [(Int, String)] = range.compactMap { index in
-                    let source = cues[index].plainText
-                    return source.isEmpty ? nil : (index, source)
+
+            // Order: from a few seconds before the playhead to the end, then the start.
+            let playhead = Int((player?.currentTime.asSeconds ?? 0) * 1000)
+            let first = cues.firstIndex { $0.startMilliseconds >= playhead - 5000 } ?? 0
+            let order = Array(first..<cues.count) + Array(0..<first)
+
+            var texts: [String] = []
+            var targets: [[Int]] = []
+            var slot: [String: Int] = [:]
+            for index in order {
+                let line = cues[index].plainText
+                guard !line.isEmpty else { continue }
+                if let existing = slot[line] {
+                    targets[existing].append(index)
+                } else {
+                    slot[line] = texts.count
+                    texts.append(line)
+                    targets.append([index])
                 }
-                for (index, translated) in try await Self.translate(lines, with: session) {
-                    cues[index].text = translated
-                }
-                translationProgress = Double(range.upperBound) / Double(cues.count)
             }
-            let track = TranslatedSubtitles.track(from: job.english, target: job.target, url: job.file)
-            let url = try TranslatedSubtitles.write(cues, track: track)
+
+            translationCues = cues
+            translationTargets = targets
+            translatedCount = 0
+            translationShownEarly = false
+            translationTrack = TranslatedSubtitles.track(from: job.english, target: job.target, url: job.file)
+
+            try await Self.translateStreaming(texts, with: session) { [weak self] results in
+                self?.applyTranslated(results, total: texts.count)
+            }
+
+            guard let track = translationTrack else { return }
+            _ = try TranslatedSubtitles.write(translationCues, track: track)
             guard let saved = TranslatedSubtitles.cached(id: track.id) else { throw CocoaError(.fileWriteUnknown) }
-            _ = url
             available.removeAll { $0.id == saved.track.id }
             available.append(saved.track)
             translationProgress = nil
@@ -393,6 +437,33 @@ final class SubtitlesController {
         } catch {
             translationProgress = nil
             statusMessage = "Translation didn't finish. If iOS asked to download the language, allow it and try again."
+        }
+        translationCues = []
+        translationTargets = []
+    }
+
+    private func applyTranslated(_ results: [(Int, String)], total: Int) {
+        for (slot, translated) in results where slot < translationTargets.count {
+            for index in translationTargets[slot] { translationCues[index].text = translated }
+        }
+        translatedCount += results.count
+        translationProgress = total > 0 ? Double(translatedCount) / Double(total) : 1
+
+        // Once the next few minutes are done, put them on screen; the finished
+        // file replaces this when everything is translated.
+        let early = min(total, 60)
+        if !translationShownEarly, translatedCount >= early, translatedCount < total,
+           let track = translationTrack,
+           let partial = try? TranslatedSubtitles.writePartial(translationCues, track: track) {
+            translationShownEarly = true
+            // Listed with the partial file, so picking it from the menu shows this too.
+            let listed = SubtitleTrack(id: track.id, languageCode: track.languageCode, url: partial,
+                                       fileName: track.fileName, encoding: track.encoding, fps: track.fps,
+                                       provider: track.provider, downloads: 0,
+                                       isHearingImpaired: track.isHearingImpaired, isMachineTranslated: true)
+            available.removeAll { $0.id == track.id }
+            available.append(listed)
+            show(listed, original: partial)
         }
     }
     #endif

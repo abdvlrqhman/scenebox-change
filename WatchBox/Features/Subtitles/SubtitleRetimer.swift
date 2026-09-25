@@ -131,6 +131,14 @@ nonisolated struct SubtitleCue: Sendable {
     var end: String
     var text: String
 
+    /// "00:01:02,345" → 62345.
+    var startMilliseconds: Int {
+        let pieces = start.replacingOccurrences(of: ",", with: ".").split(separator: ":")
+        guard pieces.count == 3, let h = Int(pieces[0]), let m = Int(pieces[1]) else { return 0 }
+        let seconds = Double(pieces[2]) ?? 0
+        return (h * 3600 + m * 60) * 1000 + Int(seconds * 1000)
+    }
+
     /// The words only: formatting tags confuse a translator.
     var plainText: String {
         text.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)

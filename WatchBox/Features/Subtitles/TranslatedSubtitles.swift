@@ -43,6 +43,15 @@ nonisolated enum TranslatedSubtitles {
         return srt
     }
 
+    /// What's translated so far (the rest still in English), shown while the
+    /// translation finishes. Not kept.
+    static func writePartial(_ cues: [SubtitleCue], track: SubtitleTrack) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(digest(track.id) + "-partial").appendingPathExtension("srt")
+        try Data(SubtitleCues.srt(cues).utf8).write(to: url, options: .atomic)
+        return url
+    }
+
     /// A translation made earlier, by its version id.
     static func cached(id: String) -> (track: SubtitleTrack, file: URL)? {
         let base = directory.appendingPathComponent(digest(id))

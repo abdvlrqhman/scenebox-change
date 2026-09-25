@@ -100,12 +100,11 @@ final class AppSettings {
 
     // MARK: Subtitle sources
 
-    /// Wyzie search key. A build can ship one (Info.plist `SBWyzieAPIKey`,
-    /// filled from a CI secret); a key typed in Settings wins.
+    /// Subtitle source keys are the viewer's own, entered in Settings and kept
+    /// in the Keychain. Nothing is bundled with the app.
     var wyzieAPIKey: String = "" {
         didSet {
-            KeychainStore.setString(wyzieAPIKey == Self.bundledWyzieKey ? "" : wyzieAPIKey,
-                                    for: Key.wyzieAPIKey.rawValue)
+            KeychainStore.setString(wyzieAPIKey, for: Key.wyzieAPIKey.rawValue)
             Task { await SubtitlesProvider.shared.reset() }
         }
     }
@@ -123,11 +122,6 @@ final class AppSettings {
             Task { await SubtitlesProvider.shared.reset() }
         }
     }
-
-    nonisolated static let bundledWyzieKey: String = {
-        let value = (Bundle.main.object(forInfoDictionaryKey: "SBWyzieAPIKey") as? String) ?? ""
-        return value.hasPrefix("$(") ? "" : value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }()
 
     // MARK: Cast metadata
 
@@ -324,7 +318,7 @@ final class AppSettings {
         }
         defaults.removeObject(forKey: Key.debridAPIKeys.rawValue)
         defaults.removeObject(forKey: Key.debridAPIKey.rawValue)
-        wyzieAPIKey = KeychainStore.string(for: Key.wyzieAPIKey.rawValue) ?? Self.bundledWyzieKey
+        wyzieAPIKey = KeychainStore.string(for: Key.wyzieAPIKey.rawValue) ?? ""
         subdlAPIKey = KeychainStore.string(for: Key.subdlAPIKey.rawValue) ?? ""
         subsourceAPIKey = KeychainStore.string(for: Key.subsourceAPIKey.rawValue) ?? ""
         if let stored = KeychainStore.string(for: Key.tmdbAPIKey.rawValue) {

@@ -228,3 +228,60 @@ nonisolated struct SubSourceSubtitleSource: SubtitleSource {
         }
     }
 }
+
+// MARK: - Key check
+
+/// Tries a key once against its service, for the Save button in Settings.
+nonisolated enum SubtitleKeyCheck {
+    enum Provider: Hashable, Sendable {
+        case wyzie, subdl, subsource
+
+        var title: String {
+            switch self {
+            case .wyzie: "Wyzie"
+            case .subdl: "SubDL"
+            case .subsource: "SubSource"
+            }
+        }
+    }
+
+    enum Result: Sendable {
+        case works, rejected, unreachable
+    }
+
+    static func check(_ provider: Provider, key: String) async -> Result {
+        var request: URLRequest
+        switch provider {
+        case .wyzie:
+            var components = URLComponents(string: "https://sub.wyzie.io/search")
+            components?.queryItems = [URLQueryItem(name: "id", value: "tt1375666"),
+                                      URLQueryItem(name: "key", value: key)]
+            guard let url = components?.url else { return .unreachable }
+            request = URLRequest(url: url)
+        case .subdl:
+            var components = URLComponents(string: "https://api.subdl.com/api/v1/subtitles")
+            components?.queryItems = [URLQueryItem(name: "api_key", value: key),
+                                      URLQueryItem(name: "imdb_id", value: "tt1375666"),
+                                      URLQueryItem(name: "type", value: "movie")]
+            guard let url = components?.url else { return .unreachable }
+            request = URLRequest(url: url)
+        case .subsource:
+            var components = URLComponents(string: "https://api.subsource.net/api/v1/movies/search")
+            components?.queryItems = [URLQueryItem(name: "query", value: "inception")]
+            guard let url = components?.url else { return .unreachable }
+            request = URLRequest(url: url)
+            request.setValue(key, forHTTPHeaderField: "X-API-Key")
+        }
+        request.timeoutInterval = 15
+        request.setValue(TorrentSearch.userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let status = (response as? HTTPURLResponse)?.statusCode else { return .unreachable }
+        if status == 401 || status == 403 { return .rejected }
+        if provider == .subdl,
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           (json["status"] as? Bool) == false {
+            return .rejected                       // SubDL answers 200 with status:false
+        }
+        return (200..<500).contains(status) ? .works : .unreachable
+    }
+}

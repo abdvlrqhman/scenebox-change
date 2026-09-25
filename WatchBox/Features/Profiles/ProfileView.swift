@@ -156,15 +156,7 @@ struct ProfileView: View {
                     Text("A free TMDB key adds cast photos and filmographies.")
                 }
 
-                Section {
-                    keyField("Wyzie key", text: $settings.wyzieAPIKey)
-                    keyField("SubDL key", text: $settings.subdlAPIKey)
-                    keyField("SubSource key", text: $settings.subsourceAPIKey)
-                } header: {
-                    Text("Subtitle sources")
-                } footer: {
-                    Text("OpenSubtitles is always searched. Each key adds another catalogue, and all of them are searched together, so there are more versions to pick from. Free keys: wyzie.io, subdl.com (Profile › API key) and subsource.net (My Profile).")
-                }
+                SubtitleKeysSection()
 
                 Section {
                     Picker("Default audio", selection: $settings.preferredAudioLanguage) {
@@ -388,15 +380,6 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .padding(.bottom, 24)
-    }
-
-    private func keyField(_ title: String, text: Binding<String>) -> some View {
-        SecureField(title, text: text)
-            .autocorrectionDisabled()
-            .tint(.white)
-            #if os(iOS)
-            .textInputAutocapitalization(.never)
-            #endif
     }
 
     private var portBinding: Binding<Int> {

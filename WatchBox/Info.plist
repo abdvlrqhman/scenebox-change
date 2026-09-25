@@ -19,8 +19,6 @@
 		<string>audio</string>
 		<string>processing</string>
 	</array>
-	<key>SBWyzieAPIKey</key>
-	<string>$(WYZIE_API_KEY)</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).downloads.*</string>

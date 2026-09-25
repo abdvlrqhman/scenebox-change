@@ -465,6 +465,60 @@ final class DownloadStore {
         return nil
     }
 
+    // MARK: - Keeping finished streams
+
+    /// A streamed video that finished downloading becomes a download, so it
+    /// plays offline and isn't lost when the stream cache is pruned. The file
+    /// is cloned in (instant, and no extra space on the phone's file system);
+    /// the caller removes the cache copy once nothing is reading it.
+    @discardableResult
+    func adoptStreamedFile(at file: URL, relativePath: String, stream: TorrentStream,
+                           title: String, mediaID: String, mediaType: MediaType,
+                           posterURL: URL?, episodeLabel: String?) -> Bool {
+        guard !stream.isDebrid, download(mediaID: mediaID, episodeLabel: episodeLabel) == nil,
+              let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0 else {
+            return false
+        }
+        let cap = settings.storageCapBytes
+        guard cap <= 0 || diskUsage + Int64(size) <= cap else { return false }
+
+        let id = DownloadRecord.makeID(infoHash: stream.id, episodeLabel: episodeLabel)
+        let destination = folder(for: id).appendingPathComponent(relativePath)
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+            try fm.copyItem(at: file, to: destination)
+        } catch {
+            try? fm.removeItem(at: folder(for: id))
+            return false
+        }
+
+        let record = DownloadRecord(
+            id: id,
+            title: title,
+            releaseName: stream.displayName,
+            mediaID: mediaID,
+            mediaType: mediaType.rawValue,
+            posterURLString: posterURL?.absoluteString,
+            episodeLabel: episodeLabel,
+            magnetURI: stream.magnet.magnetURI,
+            fileIndex: stream.fileIndex,
+            totalBytes: Int64(size),
+            isComplete: true,
+            addedAt: Date(),
+            debridURLString: nil,
+            debridFileName: nil,
+            localRelativePath: relativePath,
+            infoHash: stream.id.lowercased(),
+            wantsRunning: false
+        )
+        downloads.insert(Download(record: record, phase: .completed), at: 0)
+        save()
+        refreshDiskUsage()
+        return true
+    }
+
     // MARK: - Streaming handoff
 
     /// libtorrent runs one engine per torrent, so streaming an episode from a

@@ -173,6 +173,11 @@ final class AppSettings {
 
     var streamCacheLimitBytes: Int64 { Int64(streamCacheLimitGB) * 1_073_741_824 }
 
+    /// A streamed video that finished downloading moves to Downloads.
+    var keepFinishedStreams = true {
+        didSet { persist(keepFinishedStreams, .keepFinishedStreams) }
+    }
+
     static let streamCacheOptions = [0, 2, 4, 8, 16]
 
     // MARK: Downloads
@@ -284,6 +289,9 @@ final class AppSettings {
         if defaults.object(forKey: Key.streamCacheLimit.rawValue) != nil {
             streamCacheLimitGB = defaults.integer(forKey: Key.streamCacheLimit.rawValue)
         }
+        if defaults.object(forKey: Key.keepFinishedStreams.rawValue) != nil {
+            keepFinishedStreams = defaults.bool(forKey: Key.keepFinishedStreams.rawValue)
+        }
         if defaults.object(forKey: Key.maxPeers.rawValue) != nil {
             maxPeers = defaults.integer(forKey: Key.maxPeers.rawValue)
         }
@@ -342,7 +350,7 @@ final class AppSettings {
         case excludedQualities, releaseSort, preferredResolution, accentColor
         case subtitleScale, preferredSubtitleLanguage, preferredAudioLanguage
         case networkCache, fillScreen
-        case storageCap, streamCacheLimit
+        case storageCap, streamCacheLimit, keepFinishedStreams
         case maxPeers, streamingPort, wifiOnly, customTrackers
         case maxSimultaneousDownloads, backgroundDownloadMode, downloadLiveActivity
         case debridProvider, debridAPIKey, debridAPIKeys

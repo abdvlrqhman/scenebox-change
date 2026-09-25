@@ -52,6 +52,9 @@ final class StreamCoordinator {
     @ObservationIgnored private var startNowRequested = false
     @ObservationIgnored private var reservedTorrent: String?
     @ObservationIgnored private var currentStreamID: String?
+    /// What's streaming now, to keep it as a download if it finishes.
+    @ObservationIgnored private var currentStream: TorrentStream?
+    @ObservationIgnored private var currentProgress: WatchProgressContext?
     @ObservationIgnored private var switchToNextSource: (() -> Void)?
     @ObservationIgnored private var offerTask: Task<Void, Never>?
     @ObservationIgnored private let settings: AppSettings
@@ -130,8 +133,12 @@ final class StreamCoordinator {
         }
         let previousSession = session
         let previousDirectory = streamDirectory
+        let previousStream = currentStream
+        let previousProgress = currentProgress
         session = nil
         streamDirectory = nil
+        currentStream = stream
+        currentProgress = progress
 
         self.title = title
         self.backdropURL = backdropURL
@@ -144,12 +151,16 @@ final class StreamCoordinator {
         self.isPresenting = true
 
         prepareTask = Task { [settings] in
-            await previousSession?.stop()
             let cacheLimit = settings.streamCacheLimitBytes
             let directory = Self.streamCacheRoot
                 .appendingPathComponent(stream.id, isDirectory: true)
-            if cacheLimit <= 0 || previousDirectory == directory {
-                await previousSession?.waitForTeardown()
+            if let previousSession {
+                // The next episode of the same pack keeps using the folder, so
+                // the finished file's cache copy stays until later.
+                await Self.endSession(previousSession, stream: previousStream, progress: previousProgress,
+                                      directory: previousDirectory, keepFolder: previousDirectory == directory,
+                                      waitForEngine: cacheLimit <= 0 || previousDirectory == directory,
+                                      settings: settings)
             }
             if cacheLimit <= 0, let previousDirectory {
                 try? FileManager.default.removeItem(at: previousDirectory)
@@ -366,13 +377,20 @@ final class StreamCoordinator {
         let directory = streamDirectory
         let cacheLimit = settings.streamCacheLimitBytes
         let reserved = reservedTorrent
+        let finishedStream = currentStream
+        let finishedProgress = currentProgress
         session = nil
         streamDirectory = nil
         reservedTorrent = nil
+        currentStream = nil
+        currentProgress = nil
         canStartNow = false
-        Task {
-            await finished?.stop()
-            await finished?.waitForTeardown()       // don't delete, or restart a download, under the engine
+        Task { [settings] in
+            if let finished {
+                await Self.endSession(finished, stream: finishedStream, progress: finishedProgress,
+                                      directory: directory, keepFolder: false, waitForEngine: true,
+                                      settings: settings)
+            }
             if cacheLimit <= 0 {
                 if let directory { try? FileManager.default.removeItem(at: directory) }
             } else {
@@ -380,6 +398,43 @@ final class StreamCoordinator {
             }
             if let reserved { DownloadStore.shared.endStreaming(infoHash: reserved) }
         }
+    }
+
+    // MARK: Ending a stream
+
+    /// Stops the engine (waiting until it lets go of the files). If the whole
+    /// video had arrived, it becomes a download and leaves the cache.
+    private static func endSession(_ session: LibtorrentSession, stream: TorrentStream?,
+                                   progress: WatchProgressContext?, directory: URL?,
+                                   keepFolder: Bool, waitForEngine: Bool, settings: AppSettings) async {
+        let complete = await session.currentStats().isComplete
+        let file = await session.localFileURL()
+        let relativePath = await session.localRelativePath()
+        await session.stop()
+        let keeping = complete && settings.keepFinishedStreams && stream != nil && progress != nil
+        // Don't read, delete or reuse files the engine may still hold.
+        if keeping || waitForEngine { await session.waitForTeardown() }
+        guard keeping, let stream, let progress, let relativePath,
+              FileManager.default.fileExists(atPath: file.path) else { return }
+        let episodeLabel: String? = {
+            guard let season = progress.season, let episode = progress.episode else { return nil }
+            return "S\(season)E\(episode)"
+        }()
+        let kept = DownloadStore.shared.adoptStreamedFile(
+            at: file, relativePath: relativePath, stream: stream, title: progress.title,
+            mediaID: progress.mediaID, mediaType: progress.mediaType,
+            posterURL: progress.posterURL, episodeLabel: episodeLabel)
+        guard kept, !keepFolder, let directory else { return }
+        // Out of the cache. Other files of a season pack may stay, so the
+        // engine's saved state (which still lists this file) is dropped and
+        // rebuilt from what's on disk next time.
+        let fm = FileManager.default
+        try? fm.removeItem(at: file)
+        try? fm.removeItem(at: directory.appendingPathComponent(".ltresume"))
+        let remaining = (fm.enumerator(at: directory, includingPropertiesForKeys: [.fileSizeKey])?
+            .compactMap { ($0 as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } }
+            .reduce(0, +)) ?? 0
+        if remaining < 32 * 1_048_576 { try? fm.removeItem(at: directory) }
     }
 
     // MARK: Coming back from the lock screen

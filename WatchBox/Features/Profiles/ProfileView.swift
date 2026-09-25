@@ -218,10 +218,11 @@ struct ProfileView: View {
                         confirmClearStreamCache = true
                     }
                     .disabled(streamCacheBytes == 0)
+                    Toggle("Keep fully streamed videos", isOn: $settings.keepFinishedStreams)
                 } header: {
                     Text("Storage")
                 } footer: {
-                    Text("New downloads won't start past the download limit. The cache keeps recently streamed video (so re-opening starts instantly; the oldest goes past the stream cache limit) plus downloaded and translated subtitles. Clearing it keeps your downloads and your saved subtitle choices.")
+                    Text("New downloads won't start past the download limit. The cache keeps recently streamed video (so re-opening starts instantly; the oldest goes past the stream cache limit) plus downloaded and translated subtitles. Clearing it keeps your downloads and your saved subtitle choices. With \"Keep fully streamed videos\" on, a video that finished downloading while you watched moves from the cache to Downloads, to play offline.")
                 }
 
                 Section {

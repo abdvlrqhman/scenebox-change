@@ -127,8 +127,17 @@ final class TranslationCenter {
         runningProgress = Self.loadWork(id: next.id)?.progress ?? 0
         pendingStart = next.startAt
         #if canImport(Translation) && os(iOS)
-        configuration = TranslationSession.Configuration(source: Locale.Language(identifier: "en"),
-                                                         target: Locale.Language(identifier: next.code))
+        // A configuration equal to the last one wouldn't re-run the task;
+        // invalidate() bumps it so back-to-back jobs always start.
+        let target = Locale.Language(identifier: next.code)
+        if var reused = lastConfiguration, reused.target == target {
+            reused.invalidate()
+            lastConfiguration = reused
+        } else {
+            lastConfiguration = TranslationSession.Configuration(source: Locale.Language(identifier: "en"),
+                                                                 target: target)
+        }
+        configuration = lastConfiguration
         #endif
     }
 
@@ -139,6 +148,7 @@ final class TranslationCenter {
     #if canImport(Translation) && os(iOS)
     /// Watched by `.translationTask` at the root of the app.
     private(set) var configuration: TranslationSession.Configuration?
+    @ObservationIgnored private var lastConfiguration: TranslationSession.Configuration?
 
     func run(_ session: TranslationSession) async {
         guard let id = runningID, let current = Self.loadWork(id: id) else { finishRun(); return }

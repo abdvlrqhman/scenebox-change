@@ -9,8 +9,8 @@ import Kingfisher
 
 // MARK: - Picking a screen
 
-/// "Play on another screen": TVs and players found on the Wi-Fi, a way to add
-/// one by address, and the address to open on a computer.
+/// "Play on another screen": TVs and players found on the Wi-Fi first; adding
+/// one by address and the computer link fold away until asked for.
 struct CastSheet: View {
     let discovery: CastDiscovery
     let computerPageURL: URL?
@@ -20,18 +20,27 @@ struct CastSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
     @State private var copied = false
+    @State private var showManual = false
+    @State private var showComputer = false
     @FocusState private var addressFocused: Bool
 
     var body: some View {
         NavigationStack {
-            List {
-                devicesSection
-                manualSection
-                if let computerPageURL { computerSection(computerPageURL) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    devicesSection
+                    VStack(spacing: 10) {
+                        manualSection
+                        if let computerPageURL { computerSection(computerPageURL) }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
             }
-            .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
-            .navigationTitle("Play on another screen")
+            .navigationTitle("Cast")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -40,49 +49,77 @@ struct CastSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
         .onAppear { discovery.startScanning() }
         .onDisappear { discovery.stopScanning() }
     }
 
+    // MARK: Devices
+
     private var devicesSection: some View {
-        Section {
-            if discovery.network == nil {
-                Label("Connect to Wi-Fi (or turn on Personal Hotspot for the TV) to cast.", systemImage: "wifi.slash")
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Nearby screens")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .textCase(.uppercase)
+                Spacer()
+                if discovery.isScanning {
+                    ProgressView().controlSize(.mini)
+                    Text("Searching").font(.caption).foregroundStyle(Theme.textTertiary)
+                }
             }
+
+            if discovery.network == nil {
+                notice("wifi.slash", "Join a Wi-Fi network (or turn on Personal Hotspot for the TV) to cast.")
+            } else if discovery.found.isEmpty {
+                notice("tv.badge.wifi", discovery.isScanning
+                       ? "Looking on your Wi-Fi…"
+                       : "No screens yet. Turn the TV on and it shows up here by itself.")
+            }
+
             ForEach(discovery.found) { item in
-                Button {
-                    onPick(item.device)
-                } label: {
+                Button { onPick(item.device) } label: {
                     DeviceRow(device: item.device, isReachable: item.isReachable)
                 }
+                .buttonStyle(.plain)
                 .disabled(!item.isReachable)
-                .swipeActions {
-                    Button("Forget", role: .destructive) { discovery.forget(item.device) }
+                .contextMenu {
+                    Button("Forget", systemImage: "trash", role: .destructive) { discovery.forget(item.device) }
                 }
             }
-            if discovery.isScanning {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Looking on your Wi-Fi…").foregroundStyle(.secondary)
-                }
-            } else if discovery.found.isEmpty, discovery.network != nil {
-                Text("No TVs found yet. Turn the TV on; the list updates by itself.")
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("TVs and players")
-        } footer: {
+
             Text(hasSubtitles
-                 ? "Samsung, LG, Sony, Philips and most smart TVs, plus Kodi. The subtitles showing now go with the video, with their sync."
-                 : "Samsung, LG, Sony, Philips and most smart TVs, plus Kodi.")
+                 ? "Smart TVs (Samsung, LG, Sony, Philips…) and Kodi. Your current subtitles go along, in sync."
+                 : "Smart TVs (Samsung, LG, Sony, Philips…) and Kodi.")
+                .font(.caption)
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.horizontal, 4)
         }
+        .animation(Theme.smooth, value: discovery.found)
     }
 
+    private func notice(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(Theme.textTertiary)
+                .frame(width: 32)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner))
+    }
+
+    // MARK: Folded options
+
     private var manualSection: some View {
-        Section {
-            HStack {
+        Foldout(title: "TV not listed?", symbol: "keyboard", isOpen: $showManual) {
+            HStack(spacing: 10) {
                 TextField("TV's IP address, e.g. 192.168.1.20", text: $address)
                     .keyboardType(.numbersAndPunctuation)
                     .textInputAutocapitalization(.never)
@@ -90,46 +127,54 @@ struct CastSheet: View {
                     .focused($addressFocused)
                     .submitLabel(.go)
                     .onSubmit(addManually)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 10))
                 if discovery.isAddingManually {
-                    ProgressView()
+                    ProgressView().frame(width: 56)
                 } else {
                     Button("Add", action: addManually)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Theme.accent)
+                        .foregroundStyle(Theme.onAccent)
                         .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             if let message = discovery.manualMessage {
-                Text(message).font(.footnote).foregroundStyle(.secondary)
+                Text(message).font(.footnote).foregroundStyle(Theme.textSecondary)
             }
-        } header: {
-            Text("TV not listed?")
-        } footer: {
-            Text("The TV's address is in its network settings. Windows laptop: install Kodi, then in Settings › Services › UPnP/DLNA turn on \"Enable UPnP support\" and \"Allow remote control via UPnP\".")
+            Text("The address is in the TV's network settings. Windows laptop: install Kodi, then in Settings › Services › UPnP/DLNA turn on \"Enable UPnP support\" and \"Allow remote control via UPnP\".")
+                .font(.caption)
+                .foregroundStyle(Theme.textTertiary)
         }
     }
 
     private func computerSection(_ url: URL) -> some View {
-        Section {
+        Foldout(title: "Watch on a computer", symbol: "laptopcomputer", isOpen: $showComputer) {
             Text(url.absoluteString)
-                .font(.body.monospaced())
+                .font(.callout.monospaced())
                 .textSelection(.enabled)
-            HStack {
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 10))
+            HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = url.absoluteString
                     copied = true
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderless)
-                Spacer()
                 ShareLink(item: url) {
                     Label("Share", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderless)
             }
-        } header: {
-            Text("On a computer")
-        } footer: {
-            Text("Open this address in a browser on a computer on the same Wi-Fi: play it right there, or open it in VLC and add the subtitles file. Keep SceneBox open meanwhile.")
+            .buttonStyle(.bordered)
+            .tint(.white)
+            Text("Open it in a browser on the same Wi-Fi, or in VLC with the subtitles file. Keep SceneBox open meanwhile.")
+                .font(.caption)
+                .foregroundStyle(Theme.textTertiary)
         }
         .sensoryFeedback(.success, trigger: copied) { _, new in new }
     }
@@ -141,6 +186,39 @@ struct CastSheet: View {
     }
 }
 
+/// A row that opens to show more.
+private struct Foldout<Content: View>: View {
+    let title: String
+    let symbol: String
+    @Binding var isOpen: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(Theme.smooth) { isOpen.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: symbol)
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 32)
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(isOpen ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if isOpen { content }
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner))
+    }
+}
+
 private struct DeviceRow: View {
     let device: RendererDescription
     let isReachable: Bool
@@ -149,32 +227,43 @@ private struct DeviceRow: View {
         HStack(spacing: 14) {
             Image(systemName: device.isComputer ? "laptopcomputer" : "tv")
                 .font(.title3)
-                .foregroundStyle(isReachable ? Theme.accent : .secondary)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
+                .foregroundStyle(isReachable ? Theme.onAccent : Theme.textTertiary)
+                .frame(width: 44, height: 44)
+                .background(isReachable ? Theme.accent : Theme.elevated,
+                            in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
                 Text(device.name)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(isReachable ? .primary : .secondary)
+                    .foregroundStyle(isReachable ? .white : Theme.textSecondary)
+                    .lineLimit(1)
                 Text(isReachable ? detail : "Not answering: off or on another Wi-Fi")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            if isReachable {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Theme.textTertiary)
+            }
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        .padding(12)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.rowCorner))
     }
 
     private var detail: String {
-        [device.manufacturer, device.model].filter { !$0.isEmpty }.joined(separator: " · ")
+        let text = [device.manufacturer, device.model].filter { !$0.isEmpty }.joined(separator: " · ")
+        return text.isEmpty ? "Ready" : text
     }
 }
 
 // MARK: - While casting
 
-/// Takes over the player screen while a TV plays: where it's playing, its
-/// state, and the controls, which act on the TV.
+/// Takes over the player screen while a TV plays: the artwork "on the TV",
+/// what it's doing, and the controls, which act on the TV. Side by side in
+/// landscape, stacked in portrait.
 struct CastingOverlay: View {
     let cast: CastSession
     let title: String
@@ -189,17 +278,34 @@ struct CastingOverlay: View {
     @State private var scrub: Double?
 
     var body: some View {
-        ZStack {
-            backdrop
-            VStack(spacing: 0) {
-                topBar
-                Spacer(minLength: 12)
-                status
-                Spacer(minLength: 12)
-                controls
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            ZStack {
+                backdrop
+                VStack(spacing: 0) {
+                    topBar
+                    if landscape {
+                        HStack(spacing: 32) {
+                            screen.frame(maxWidth: geo.size.width * 0.42)
+                            VStack(spacing: 22) {
+                                info
+                                controls
+                            }
+                            .frame(maxWidth: 460)
+                        }
+                        .frame(maxHeight: .infinity)
+                    } else {
+                        Spacer(minLength: 16)
+                        screen.frame(maxWidth: 520)
+                        Spacer(minLength: 20)
+                        info
+                        Spacer(minLength: 20)
+                        controls.frame(maxWidth: 560)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
         }
         .foregroundStyle(.white)
     }
@@ -211,19 +317,19 @@ struct CastingOverlay: View {
                 KFImage(artworkURL)
                     .resizable()
                     .scaledToFill()
-                    .blur(radius: 40)
-                    .opacity(0.35)
+                    .blur(radius: 50)
+                    .opacity(0.5)
             }
+            LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.85)],
+                           startPoint: .top, endPoint: .bottom)
         }
         .ignoresSafeArea()
     }
 
     private var topBar: some View {
-        HStack(spacing: 14) {
-            Button(action: onClose) { circleIcon("xmark") }
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
+        HStack(spacing: 12) {
+            Button(action: onClose) { circleIcon("chevron.down") }
+                .accessibilityLabel("Close")
             Spacer(minLength: 0)
             Button(action: onSubtitles) { circleIcon("captions.bubble") }
                 .accessibilityLabel("Subtitles")
@@ -231,71 +337,97 @@ struct CastingOverlay: View {
         .buttonStyle(.plain)
     }
 
-    private var status: some View {
-        VStack(spacing: 10) {
+    /// The artwork framed like the screen it's playing on.
+    private var screen: some View {
+        ZStack {
+            Theme.surface
+            if let artworkURL {
+                KFImage(artworkURL)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "film")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            if cast.phase == .connecting || cast.phase == .buffering || cast.phase == .idle {
+                Color.black.opacity(0.45)
+                ProgressView().controlSize(.large).tint(.white)
+            }
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardCorner))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardCorner).strokeBorder(Theme.hairline))
+        .overlay(alignment: .bottomLeading) { deviceBadge.padding(10) }
+        .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
+    }
+
+    private var deviceBadge: some View {
+        HStack(spacing: 6) {
             Image(systemName: cast.device?.isComputer == true ? "laptopcomputer" : "tv")
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(Theme.accent)
                 .symbolEffect(.pulse, isActive: cast.phase == .connecting || cast.phase == .buffering)
-            Text("Playing on \(cast.device?.name ?? "TV")")
-                .font(.headline)
+            Text(cast.device?.name ?? "TV").lineLimit(1)
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    private var info: some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.display(26, weight: .bold))
                 .multilineTextAlignment(.center)
-            Text(statusText)
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.7))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+            HStack(spacing: 6) {
+                Circle().fill(statusColor).frame(width: 7, height: 7)
+                Text(statusText)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if subtitlesChanged || cast.isSendingSubtitles {
                 Button(action: onSendSubtitles) {
-                    Label(cast.isSendingSubtitles ? "Sending subtitles…" : "Send the new subtitles to the TV",
+                    Label(cast.isSendingSubtitles ? "Sending subtitles…" : "Send new subtitles to the TV",
                           systemImage: "captions.bubble.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Theme.accent.opacity(0.16), in: Capsule())
+                        .foregroundStyle(Theme.accent)
                 }
-                .buttonStyle(.bordered)
-                .tint(Theme.accent)
+                .buttonStyle(.plain)
                 .disabled(cast.isSendingSubtitles)
                 .padding(.top, 4)
             }
         }
-        .frame(maxWidth: 420)
     }
 
     private var statusText: String {
         switch cast.phase {
-        case .idle, .connecting: "Connecting…"
+        case .idle, .connecting: "Connecting to \(cast.device?.name ?? "the TV")…"
         case .buffering: "Loading on the TV…"
-        case .playing: "Playing"
+        case .playing: "Playing on \(cast.device?.name ?? "the TV")"
         case .paused: "Paused"
         case .finished: "Finished"
         case .failed(let message): message
         }
     }
 
-    private var controls: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 44) {
-                Button { cast.skip(by: -10) } label: {
-                    Image(systemName: "gobackward.10").font(.system(size: 26))
-                }
-                Button { cast.togglePause() } label: {
-                    Image(systemName: cast.phase == .playing || cast.phase == .buffering ? "pause.fill" : "play.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .frame(width: 64, height: 64)
-                        .background(.white.opacity(0.16), in: Circle())
-                }
-                Button { cast.skip(by: 10) } label: {
-                    Image(systemName: "goforward.10").font(.system(size: 26))
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(!isControllable)
-            .opacity(isControllable ? 1 : 0.4)
+    private var statusColor: Color {
+        switch cast.phase {
+        case .playing: Theme.success
+        case .failed: Theme.danger
+        case .paused, .finished: Theme.textTertiary
+        default: Theme.warning
+        }
+    }
 
-            HStack(spacing: 12) {
-                Text(timecode(.seconds(scrub ?? cast.position)))
-                    .font(.caption.monospacedDigit())
+    private var controls: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
                 Slider(value: Binding(get: { scrub ?? cast.position }, set: { scrub = $0 }),
                        in: 0...max(1, cast.duration),
                        onEditingChanged: { editing in
@@ -303,23 +435,46 @@ struct CastingOverlay: View {
                            cast.seek(to: target)
                            scrub = nil
                        })
-                    .tint(.white)
+                    .tint(Theme.accent)
                     .disabled(!isControllable || cast.duration <= 0)
-                Text(timecode(.seconds(cast.duration)))
-                    .font(.caption.monospacedDigit())
+                HStack {
+                    Text(timecode(.seconds(scrub ?? cast.position)))
+                    Spacer()
+                    Text("-" + timecode(.seconds(max(0, cast.duration - (scrub ?? cast.position)))))
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Theme.textSecondary)
             }
 
+            HStack(spacing: 48) {
+                Button { cast.skip(by: -10) } label: {
+                    Image(systemName: "gobackward.10").font(.system(size: 28))
+                }
+                Button { cast.togglePause() } label: {
+                    Image(systemName: cast.phase == .playing || cast.phase == .buffering ? "pause.fill" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace))
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(width: 72, height: 72)
+                        .background(Theme.accent, in: Circle())
+                }
+                Button { cast.skip(by: 10) } label: {
+                    Image(systemName: "goforward.10").font(.system(size: 28))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!isControllable)
+            .opacity(isControllable ? 1 : 0.4)
+
             Button(action: onStop) {
-                Label("Stop casting and watch here", systemImage: "iphone")
+                Label("Stop casting · watch on phone", systemImage: "iphone")
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 11)
+                    .background(.white.opacity(0.12), in: Capsule())
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
-            .foregroundStyle(Theme.onAccent)
+            .buttonStyle(.plain)
         }
-        .frame(maxWidth: 560)
     }
 
     private var isControllable: Bool {

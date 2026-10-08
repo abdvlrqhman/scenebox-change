@@ -695,7 +695,8 @@ struct PlaybackScreen: View {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
-            if player.isPlaying { recordProgress() }
+            // While casting the phone's player sits paused; the TV's position counts.
+            if player.isPlaying || cast.phase == .playing { recordProgress() }
         }
     }
 

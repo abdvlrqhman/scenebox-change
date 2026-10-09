@@ -55,6 +55,14 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
             season: parts.season, episode: parts.episode, episodeID: parts.id)
     }
 
+    /// The episode for the player's episode list (no name or artwork offline).
+    var episode: Episode? {
+        let parts = episodeParts
+        guard let season = parts.season, let number = parts.episode, let id = parts.id else { return nil }
+        return Episode(id: id, season: season, episode: number, name: "Episode \(number)",
+                       overview: nil, thumbnailURL: nil, released: nil)
+    }
+
     private var episodeParts: (season: Int?, episode: Int?, id: String?) {
         guard let label = episodeLabel else { return (nil, nil, nil) }
         let numbers = label.dropFirst().split(separator: "E").compactMap { Int($0) }

@@ -323,15 +323,13 @@ final class StreamCoordinator {
     }
 
     func playLocalFile(at url: URL, title: String, subtitleContext: SubtitleContext? = nil,
+                       episodes: EpisodePlaylist? = nil,
                        startAt: Duration = .zero, progress: WatchProgressContext? = nil,
                        originalAudioLanguage: String? = nil) {
+        stop()   // a streamed episode may be playing before this downloaded one
         prefetchSubtitles(subtitleContext)
-        episodePlaylist = nil
+        episodePlaylist = episodes
         self.title = title
-        self.backdropURL = nil
-        self.logoURL = nil
-        self.errorMessage = nil
-        self.preparing = nil
         self.isPresenting = true
         self.target = Target(url: url, title: title, showsTorrentStats: false,
                              subtitleContext: subtitleContext,

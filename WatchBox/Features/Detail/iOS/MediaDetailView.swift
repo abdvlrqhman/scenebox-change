@@ -416,6 +416,7 @@ struct MediaDetailView: View {
                 mediaID: mediaID, mediaType: type, title: name, posterURL: detail?.posterURL,
                 season: episode?.season, episode: episode?.episode, episodeID: episode?.id)
             streamer.playLocalFile(at: url, title: label, subtitleContext: subtitleContext,
+                                   episodes: makeEpisodePlaylist(current: episode, detail: detail),
                                    startAt: startAt, progress: progressContext,
                                    originalAudioLanguage: model.originalLanguage)
         }
@@ -530,10 +531,7 @@ struct MediaDetailView: View {
             .withRelease(stream.title)
             .withSource(SourceKey.make(stream))
 
-        let playlist: EpisodePlaylist? = {
-            guard let episode, let detail, !detail.episodes.isEmpty else { return nil }
-            return makeEpisodePlaylist(current: episode, detail: detail)
-        }()
+        let playlist = makeEpisodePlaylist(current: episode, detail: detail)
 
         let startAt = resumeAt
         resumeAt = .zero
@@ -633,13 +631,18 @@ struct MediaDetailView: View {
             episode: episode)
     }
 
-    private func makeEpisodePlaylist(current: Episode, detail: MediaDetail) -> EpisodePlaylist {
-        EpisodePlaylist(current: current, all: detail.episodes, mediaID: mediaID) { episode in
+    private func makeEpisodePlaylist(current: Episode?, detail: MediaDetail?) -> EpisodePlaylist? {
+        guard let current, let detail, !detail.episodes.isEmpty else { return nil }
+        return EpisodePlaylist(current: current, all: detail.episodes, mediaID: mediaID) { episode in
             playEpisode(episode)
         }
     }
 
     private func playEpisode(_ episode: Episode) {
+        if let download = downloads.completedDownload(mediaID: mediaID, episodeLabel: episode.label) {
+            playOffline(download, episode: episode)
+            return
+        }
         Task {
             let ranked = await model.rankedStreams(for: episode)
             if let stream = ranked.first {

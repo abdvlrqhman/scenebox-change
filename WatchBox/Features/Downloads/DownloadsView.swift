@@ -107,13 +107,9 @@ struct DownloadsView: View {
         .onAppear {
             if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.map(\.id)) }
         }
-        .fullScreenCover(item: Binding(get: { streamer.target },
-                                       set: { if $0 == nil { streamer.stop() } })) { target in
-            PlaybackScreen(url: target.url, title: target.title,
-                           stats: nil, subtitleContext: target.subtitleContext,
-                           startAt: target.startPosition,
-                           progress: target.progress,
-                           onClose: streamer.stop)
+        .fullScreenCover(isPresented: Binding(get: { streamer.isPresenting },
+                                              set: { if !$0 { streamer.stop() } })) {
+            StreamPlayerContainer(streamer: streamer)
                 .environment(settings)
         }
         .alert(deleteTitle, isPresented: Binding(get: { pendingDelete != nil },
@@ -280,20 +276,38 @@ struct DownloadsView: View {
     private func primaryAction(for download: Download) {
         switch download.phase {
         case .completed:
-            Task {
-                guard let url = await store.localFileURL(for: download) else { return }
-                let title = [download.record.title, download.record.episodeLabel]
-                    .compactMap { $0 }.joined(separator: " · ")
-                let context = download.record.watchProgressContext
-                streamer.playLocalFile(at: url, title: title,
-                                       subtitleContext: download.record.subtitleContext,
-                                       startAt: resumePosition(for: context),
-                                       progress: context)
-            }
+            play(download)
         case .downloading, .resolving, .queued:
             store.pause(download)
         case .paused, .failed:
             store.resume(download)
+        }
+    }
+
+    private func play(_ download: Download) {
+        Task {
+            guard let url = await store.localFileURL(for: download) else { return }
+            let title = [download.record.title, download.record.episodeLabel]
+                .compactMap { $0 }.joined(separator: " · ")
+            let context = download.record.watchProgressContext
+            streamer.playLocalFile(at: url, title: title,
+                                   subtitleContext: download.record.subtitleContext,
+                                   episodes: playlist(for: download),
+                                   startAt: resumePosition(for: context),
+                                   progress: context)
+        }
+    }
+
+    /// The show's other finished downloads, so the player offers the next one.
+    private func playlist(for download: Download) -> EpisodePlaylist? {
+        let finished = store.downloads.filter {
+            $0.record.mediaID == download.record.mediaID && $0.record.episode != nil
+                && ($0.phase == .completed || $0.record.isComplete)
+        }
+        guard let current = download.record.episode, finished.count > 1 else { return nil }
+        return EpisodePlaylist(current: current, all: finished.compactMap(\.record.episode),
+                               mediaID: download.record.mediaID) { episode in
+            if let next = finished.first(where: { $0.record.episode == episode }) { play(next) }
         }
     }
 

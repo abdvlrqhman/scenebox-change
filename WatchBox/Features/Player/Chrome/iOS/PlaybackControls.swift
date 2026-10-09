@@ -227,7 +227,7 @@ private struct SeekRow: View {
             Text(timecode(knownDuration))
                 .font(Platform.isMac ? .subheadline.monospacedDigit() : .caption.monospacedDigit())
         }
-        .onChange(of: player.duration) { _, new in
+        .onChange(of: player.duration, initial: true) { _, new in
             if let new, new > .zero { knownDuration = new }
         }
         .onChange(of: player.position) { _, position in

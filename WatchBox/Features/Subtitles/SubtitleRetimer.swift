@@ -184,6 +184,27 @@ nonisolated enum SubtitleCues {
         return kept.count == blocks.count ? text : kept.joined(separator: "\n\n")
     }
 
+    /// Keeps every line centred: drops what pins a line to the left or right.
+    /// SRT `{\an1}`…`{\an9}`, `{\pos(…)}` tags and X1/Y1 coordinates, WebVTT
+    /// `position`/`align`/`size`/`region` settings. A line placed at the top stays
+    /// at the top. ASS is left alone: it positions signs on purpose.
+    static func centered(_ text: String, fileExtension ext: String) -> String {
+        guard ext == "srt" || ext == "vtt" else { return text }
+        let tags = text
+            .replacingOccurrences(of: #"\{[^}]*\\an[789][^}]*\}"#, with: #"{\\an8}"#, options: .regularExpression)
+            .replacingOccurrences(of: #"\{[^}]*\\an[1-6][^}]*\}"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\{[^}]*\\(pos|move)\([^}]*\}"#, with: "", options: .regularExpression)
+        return tags.components(separatedBy: "\n").map { line in
+            guard let timing = line.range(of: #"^\s*(\d+:)?\d{2}:\d{2}[,.]\d{3}\s*-->"#,
+                                          options: .regularExpression) else { return line }
+            let words = line[timing.upperBound...].split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\r" })
+            guard let end = words.first else { return line }
+            // Only `line:` survives: it moves a cue up or down, never sideways.
+            let kept = [end] + words.dropFirst().filter { $0.hasPrefix("line:") }
+            return String(line[..<timing.upperBound]) + " " + kept.joined(separator: " ") + (line.hasSuffix("\r") ? "\r" : "")
+        }.joined(separator: "\n")
+    }
+
     static func srt(_ cues: [SubtitleCue]) -> String {
         cues.enumerated().map { index, cue in
             "\(index + 1)\n\(cue.start) --> \(cue.end)\n\(cue.text)\n"

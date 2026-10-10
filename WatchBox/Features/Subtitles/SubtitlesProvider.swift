@@ -176,8 +176,9 @@ actor SubtitlesProvider {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         pruneOnce(dir)
 
-        let file = dir.appendingPathComponent(
-            "\(track.languageCode)-\(digest(track.id)).\(fileExtension(for: track))")
+        let ext = fileExtension(for: track)
+        // "-c": saved centred; older copies still carry their left/right placement.
+        let file = dir.appendingPathComponent("\(track.languageCode)-\(digest(track.id))-c.\(ext)")
         if let cached = try? Data(contentsOf: file), looksLikeSubtitles(cached) { return file }
         try? FileManager.default.removeItem(at: file)   // an old broken download
 
@@ -204,6 +205,9 @@ actor SubtitlesProvider {
                     text = Data(SubtitleCues.removingCues(containing: "wyzie", from: raw).utf8)
                 }
                 guard looksLikeSubtitles(text) else { throw Failure.notSubtitles }
+                if let raw = String(data: text, encoding: .utf8) {
+                    text = Data(SubtitleCues.centered(raw, fileExtension: ext).utf8)
+                }
                 try text.write(to: file, options: .atomic)
                 return file
             } catch {

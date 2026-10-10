@@ -60,6 +60,17 @@ let advert = "1\r\n00:00:00,000 --> 00:00:06,000\r\nYou're on the free plan. Unl
 let cleaned = SubtitleCues.removingCues(containing: "wyzie", from: advert)
 check(!cleaned.contains("free plan") && cleaned.contains("00:00:00,130 --> 00:00:05,320"), "advert cue removed, real cue kept")
 
+// Placement: left/right pins removed, top kept, timing and styling untouched.
+let pinnedSRT = "1\r\n00:00:01,000 --> 00:00:02,000 X1:40 X2:200 Y1:400 Y2:450\r\n{\\an1}Left\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\n{\\an9\\pos(600,20)}Sign\r\n\r\n3\r\n00:00:05,000 --> 00:00:06,000\r\n{\\i1}Italic{\\i0} -->\r\n"
+let centredSRT = SubtitleCues.centered(pinnedSRT, fileExtension: "srt")
+check(centredSRT.contains("00:00:01,000 --> 00:00:02,000\r\nLeft\r\n"), "SRT \\an1 and X/Y coordinates dropped")
+check(centredSRT.contains("\r\n{\\an8}Sign\r\n"), "SRT top-right becomes top-centre")
+check(centredSRT.contains("{\\i1}Italic{\\i0} -->"), "styling tags and a text arrow kept")
+let pinnedVTT = "WEBVTT\n\n00:01.000 --> 00:02.000 position:10% align:start line:85% size:40%\nLeft\n"
+check(SubtitleCues.centered(pinnedVTT, fileExtension: "vtt").contains("00:01.000 --> 00:02.000 line:85%\nLeft"),
+      "VTT keeps line: only")
+check(SubtitleCues.centered("{\\an1}x", fileExtension: "ass") == "{\\an1}x", "ASS untouched")
+
 // Sentences split across cues are joined for translation, then spread back.
 let dialogue = SubtitleCues.parse("""
 1

@@ -16,9 +16,9 @@ struct CatalogListView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.horizontalSizeClass) private var sizeClass
 
-    init(type: MediaType, feed: CatalogFeed, autoFocusSearch: Bool = false) {
+    init(type: MediaType, feed: CatalogFeed, genre: String? = nil, autoFocusSearch: Bool = false) {
         self.type = type
-        _model = State(initialValue: CatalogModel(type: type, feed: feed))
+        _model = State(initialValue: CatalogModel(type: type, feed: feed, genre: genre))
         _searchPresented = State(initialValue: autoFocusSearch)
     }
 

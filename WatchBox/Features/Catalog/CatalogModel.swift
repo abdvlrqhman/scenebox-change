@@ -28,9 +28,10 @@ final class CatalogModel {
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var reachedEnd = false
 
-    init(type: MediaType, feed: CatalogFeed = .popular, settings: AppSettings? = nil) {
+    init(type: MediaType, feed: CatalogFeed = .popular, genre: String? = nil, settings: AppSettings? = nil) {
         self.type = type
         self.feed = feed
+        self.genre = genre
         let settings = settings ?? .shared
         self.search = TorrentSearch(sourceBases: settings.streamSourceBases)
     }

@@ -14,8 +14,8 @@ struct TVCatalogView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 260, maximum: 300), spacing: 44)]
 
-    init(type: MediaType, feed: CatalogFeed) {
-        _model = State(initialValue: CatalogModel(type: type, feed: feed))
+    init(type: MediaType, feed: CatalogFeed, genre: String? = nil) {
+        _model = State(initialValue: CatalogModel(type: type, feed: feed, genre: genre))
     }
 
     var body: some View {

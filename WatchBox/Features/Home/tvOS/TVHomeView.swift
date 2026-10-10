@@ -32,7 +32,7 @@ struct TVHomeView: View {
             }
             .mediaNavigationDestinations()
             .navigationDestination(for: CatalogDestination.self) { dest in
-                TVCatalogView(type: dest.type, feed: dest.feed)
+                TVCatalogView(type: dest.type, feed: dest.feed, genre: dest.genre)
             }
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -54,8 +54,14 @@ struct TVHomeView: View {
                     TVPosterShelf(title: "Your Watchlist", items: unwatchedWatchlist)
                 }
                 ForEach(model.shelves) { shelf in
-                    TVPosterShelf(title: shelf.title, items: shelf.items,
-                                  destination: CatalogDestination(type: shelf.type, feed: shelf.feed))
+                    TVPosterShelf(title: shelf.title, items: shelf.shown, destination: shelf.destination)
+                }
+                ForEach(model.genreShelves) { shelf in
+                    if shelf.items.isEmpty {
+                        Color.clear.frame(height: 1).task { model.loadGenreShelf(shelf.id) }
+                    } else {
+                        TVPosterShelf(title: shelf.title, items: shelf.items, destination: shelf.destination)
+                    }
                 }
             }
             .padding(.bottom, 60)

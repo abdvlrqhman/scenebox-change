@@ -10,6 +10,7 @@ import SwiftUI
 struct CatalogDestination: Hashable {
     let type: MediaType
     let feed: CatalogFeed
+    var genre: String? = nil
 }
 
 extension View {

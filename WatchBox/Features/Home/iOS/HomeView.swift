@@ -34,11 +34,14 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .mediaNavigationDestinations()
             .navigationDestination(for: CatalogDestination.self) { dest in
-                CatalogListView(type: dest.type, feed: dest.feed)
+                CatalogListView(type: dest.type, feed: dest.feed, genre: dest.genre)
             }
         }
         .task { model.loadIfNeeded() }
         .onAppear { progress.refresh() }
+        .onChange(of: progress.items.first?.id, initial: true) { _, _ in
+            model.loadBecauseYouWatched(progress.items.first)
+        }
         .onChange(of: settings.streamSourceBases) { _, _ in
             model.applySettings(settings)
         }
@@ -66,13 +69,23 @@ struct HomeView: View {
                 if !unwatchedWatchlist.isEmpty {
                     PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist)
                 }
+                if let because = model.becauseYouWatched {
+                    PosterShelf(title: because.title, items: because.items, seeAll: because.destination)
+                }
                 if model.shelves.isEmpty {
                     // Placeholders keep the layout still while the catalog loads.
                     ForEach(0..<3, id: \.self) { _ in PlaceholderShelf() }
                 } else {
                     ForEach(model.shelves) { shelf in
-                        PosterShelf(title: shelf.title, items: shelf.items,
-                                    seeAll: CatalogDestination(type: shelf.type, feed: shelf.feed))
+                        PosterShelf(title: shelf.title, items: shelf.shown,
+                                    seeAll: shelf.destination, ranked: shelf.isRanked)
+                    }
+                    ForEach(model.genreShelves) { shelf in
+                        if shelf.items.isEmpty {
+                            PlaceholderShelf().task { model.loadGenreShelf(shelf.id) }
+                        } else {
+                            PosterShelf(title: shelf.title, items: shelf.items, seeAll: shelf.destination)
+                        }
                     }
                 }
             }
@@ -88,7 +101,7 @@ struct HomeView: View {
 
     /// A few popular movies and shows, alternating, for the marquee.
     private var featured: [MediaResult] {
-        let pools = model.shelves.prefix(2).map { shelf in
+        let pools = model.shelves.filter(\.isRanked).map { shelf in
             Array(shelf.items.filter { $0.backdropURL != nil }.prefix(3))
         }
         var picks: [MediaResult] = []
@@ -270,6 +283,7 @@ private struct PosterShelf: View {
     let title: String
     let items: [MediaResult]
     var seeAll: CatalogDestination?
+    var ranked = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -288,15 +302,47 @@ private struct PosterShelf: View {
 
             HorizontalShelfScroller {
                 LazyHStack(alignment: .top, spacing: 12) {
-                    ForEach(items) { item in
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         PosterLink(item: item) {
-                            PosterCard(item: item).frame(width: PosterMetrics.shelfWidth(sizeClass))
+                            if ranked {
+                                RankedCard(rank: index + 1, item: item, width: PosterMetrics.shelfWidth(sizeClass))
+                            } else {
+                                PosterCard(item: item).frame(width: PosterMetrics.shelfWidth(sizeClass))
+                            }
                         }
                     }
                 }
                 .padding(.horizontal, 16)
             }
         }
+    }
+}
+
+/// A "Top 10" entry: the rank in tall condensed type with the poster
+/// overlapping its right edge.
+private struct RankedCard: View {
+    let rank: Int
+    let item: MediaResult
+    let width: CGFloat
+
+    var body: some View {
+        let size = width * 1.7
+        let metrics = UIFont.systemFont(ofSize: size, weight: .black)
+        HStack(alignment: .bottom, spacing: -width * 0.16) {
+            Text(String(rank))   // Western digits in every locale, like the posters
+                .font(.display(size, weight: .black))
+                .foregroundStyle(.linearGradient(colors: [.white.opacity(0.92), .white.opacity(0.1)],
+                                                 startPoint: .top, endPoint: .bottom))
+                .fixedSize()
+                // Trim the line box to the digits so they stand on the poster's bottom edge.
+                .padding(.top, metrics.capHeight - metrics.ascender)
+                .padding(.bottom, metrics.descender)
+            PosterCard(item: item)
+                .frame(width: width)
+                .shadow(color: .black.opacity(0.6), radius: 8, x: -3)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Number \(rank), \(item.name)")
     }
 }
 

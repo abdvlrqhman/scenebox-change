@@ -41,4 +41,5 @@ launch -SBInitialTab profile;             shot 05-profile 6
 launch -SBOpenDetail series/tt0903747;    shot 06-detail-series 16
 launch -SBOpenDetail movie/tt1375666;     shot 07-detail-movie 16
 launch -SBInitialTab library -SBExpandAll YES -SBOpenDetail series/tt0903747; shot 08-detail-over-library 16
+launch -SBHomeRow series-top;             shot 09-home-top10 18
 ls -la "$OUT"

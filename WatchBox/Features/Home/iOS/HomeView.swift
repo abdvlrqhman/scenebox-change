@@ -56,46 +56,55 @@ struct HomeView: View {
     }
 
     private var feed: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: Platform.isMac ? 34 : 28) {
-                header
-                    .padding(.bottom, -12)          // the marquee sits close under the title
-                if !featured.isEmpty {
-                    FeaturedMarquee(items: featured)
-                }
-                if !progress.continueItems.isEmpty {
-                    ContinueWatchingShelf(items: progress.continueItems)
-                }
-                if !unwatchedWatchlist.isEmpty {
-                    PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist)
-                }
-                if let because = model.becauseYouWatched {
-                    PosterShelf(title: because.title, items: because.items, seeAll: because.destination)
-                }
-                if model.shelves.isEmpty {
-                    // Placeholders keep the layout still while the catalog loads.
-                    ForEach(0..<3, id: \.self) { _ in PlaceholderShelf() }
-                } else {
-                    ForEach(model.shelves) { shelf in
-                        PosterShelf(title: shelf.title, items: shelf.shown,
-                                    seeAll: shelf.destination, ranked: shelf.isRanked)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Platform.isMac ? 34 : 28) {
+                    header
+                        .padding(.bottom, -12)          // the marquee sits close under the title
+                    if !featured.isEmpty {
+                        FeaturedMarquee(items: featured)
                     }
-                    ForEach(model.genreShelves) { shelf in
-                        if shelf.items.isEmpty {
-                            PlaceholderShelf().task { model.loadGenreShelf(shelf.id) }
-                        } else {
-                            PosterShelf(title: shelf.title, items: shelf.items, seeAll: shelf.destination)
+                    if !progress.continueItems.isEmpty {
+                        ContinueWatchingShelf(items: progress.continueItems)
+                    }
+                    if !unwatchedWatchlist.isEmpty {
+                        PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist)
+                    }
+                    if let because = model.becauseYouWatched {
+                        PosterShelf(title: because.title, items: because.items, seeAll: because.destination)
+                    }
+                    if model.shelves.isEmpty {
+                        // Placeholders keep the layout still while the catalog loads.
+                        ForEach(0..<3, id: \.self) { _ in PlaceholderShelf() }
+                    } else {
+                        ForEach(model.shelves) { shelf in
+                            PosterShelf(title: shelf.title, items: shelf.shown,
+                                        seeAll: shelf.destination, ranked: shelf.isRanked)
+                                .id(shelf.id)
+                        }
+                        ForEach(model.genreShelves) { shelf in
+                            if shelf.items.isEmpty {
+                                PlaceholderShelf().task { model.loadGenreShelf(shelf.id) }
+                            } else {
+                                PosterShelf(title: shelf.title, items: shelf.items, seeAll: shelf.destination)
+                            }
                         }
                     }
                 }
+                .padding(.bottom, 28)
             }
-            .padding(.bottom, 28)
-        }
-        .refreshable {
-            progress.refresh()
-            async let catalog: () = model.refresh()
-            async let saved: () = watchlist.refresh()
-            _ = await (catalog, saved)
+            .refreshable {
+                progress.refresh()
+                async let catalog: () = model.refresh()
+                async let saved: () = watchlist.refresh()
+                _ = await (catalog, saved)
+            }
+            .onChange(of: model.shelves.isEmpty) { _, empty in
+                // `-SBHomeRow series-top` opens Home at that row (screenshots, debugging).
+                if !empty, let row = UserDefaults.standard.string(forKey: "SBHomeRow") {
+                    proxy.scrollTo(row, anchor: .top)
+                }
+            }
         }
     }
 
@@ -128,6 +137,7 @@ private struct FeaturedMarquee: View {
     let items: [MediaResult]
     @State private var current: String?
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 12) {
@@ -141,6 +151,12 @@ private struct FeaturedMarquee: View {
                         .containerRelativeFrame(.horizontal) { width, _ in
                             sizeClass == .regular ? min(width * 0.62, 760) : width - 32
                         }
+                        // Cards leaving the centre recede while the finger drags them.
+                        .scrollTransition(axis: .horizontal) { content, phase in
+                            content
+                                .scaleEffect(phase.isIdentity || reduceMotion ? 1 : 0.94)
+                                .opacity(phase.isIdentity ? 1 : 0.55)
+                        }
                         .id(item.id)
                     }
                 }
@@ -150,6 +166,7 @@ private struct FeaturedMarquee: View {
             .scrollTargetBehavior(.viewAligned)
             .scrollPosition(id: $current)
             .scrollClipDisabled()
+            .sensoryFeedback(.selection, trigger: current)
 
             if items.count > 1 {
                 PageDots(count: items.count,

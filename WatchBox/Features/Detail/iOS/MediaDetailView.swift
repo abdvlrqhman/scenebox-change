@@ -656,6 +656,9 @@ struct MediaDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    if let place = HomeModel.topTenPlaces[mediaID] {
+                        Chip(text: place, systemImage: "flame.fill")
+                    }
                     if detail.type == .movie, progressStore.isMovieWatched(mediaID) {
                         Chip(text: "Watched", systemImage: "checkmark", tint: .white)
                     }

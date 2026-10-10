@@ -37,6 +37,26 @@ struct PosterCard: View {
                 }
             }
             .accessibilityLabel(item.name)
+            .contentShape(.contextMenuPreview,
+                          RoundedRectangle(cornerRadius: Theme.posterCorner, style: .continuous))
+            .contextMenu { menu }
+    }
+
+    @ViewBuilder private var menu: some View {
+        if let watchlist {
+            let saved = watchlist.contains(item.id)
+            Button {
+                watchlist.toggle(id: item.id, mediaType: item.type, title: item.name, posterURL: item.posterURL)
+            } label: {
+                Label(saved ? "Remove from Watchlist" : "Add to Watchlist",
+                      systemImage: saved ? "bookmark.slash" : "bookmark")
+            }
+        }
+        if item.id.hasPrefix("tt"), let url = URL(string: "https://www.imdb.com/title/\(item.id)/") {
+            ShareLink(item: url, subject: Text(item.name)) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
     }
 }
 #endif

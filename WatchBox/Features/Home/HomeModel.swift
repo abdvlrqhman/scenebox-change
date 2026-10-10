@@ -69,6 +69,9 @@ final class HomeModel {
         Shelf(title: "Romantic Movies", type: .movie, feed: .popular, genre: "Romance"),
     ]
 
+    /// Each title's place in the Top 10 rows ("#3 in Shows"), for its page.
+    private(set) static var topTenPlaces: [String: String] = [:]
+
     private(set) var shelves: [Shelf] = []
     private(set) var genreShelves: [Shelf] = HomeModel.genreSpecs
     private(set) var becauseYouWatched: Shelf?
@@ -134,7 +137,7 @@ final class HomeModel {
             guard let genre = known.first(where: { $0 != "Drama" }) ?? known.first,
                   let items = try? await search.catalog(type: recent.mediaType, feed: .popular, genre: genre),
                   becauseSourceID == recent.id else { return }
-            let shelf = Shelf(title: "Because you watched \(recent.title)", type: recent.mediaType,
+            let shelf = Shelf(title: "Because You Watched \(recent.title)", type: recent.mediaType,
                               feed: .popular, genre: genre, minRating: 7)
                 .filled(with: items.filter { $0.id != recent.id })
             becauseYouWatched = shelf.items.isEmpty ? nil : shelf
@@ -169,6 +172,13 @@ final class HomeModel {
                 if !shelf.items.isEmpty { built.append(shelf) }
             }
             shelves = built
+            var places: [String: String] = [:]
+            for shelf in built where shelf.isRanked {
+                for (index, item) in shelf.shown.enumerated() where places[item.id] == nil {
+                    places[item.id] = "#\(index + 1) in \(shelf.type == .series ? "Shows" : "Movies")"
+                }
+            }
+            Self.topTenPlaces = places
             errorMessage = built.isEmpty ? "Couldn’t load the catalog." : nil
             isLoading = false
 

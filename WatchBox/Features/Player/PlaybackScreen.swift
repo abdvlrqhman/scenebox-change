@@ -59,12 +59,12 @@ struct PlaybackScreen: View {
     @State private var upNextCancelled = false
     @State private var didAutoAdvance = false
     @State private var originalAudioSatisfied = false
-    #if os(iOS)
-    @State private var isLandscape = false
-    @State private var levels = SwipeLevels()
     @State private var cast = CastSession()
     @State private var showCastPicker = false
     @State private var showCastSubtitles = false
+    #if os(iOS)
+    @State private var isLandscape = false
+    @State private var levels = SwipeLevels()
     @FocusState private var hasKeyboardFocus: Bool
     @State private var lastHoverReveal = Date.distantPast
     #endif

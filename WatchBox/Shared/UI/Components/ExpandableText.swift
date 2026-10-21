@@ -32,7 +32,7 @@ struct ExpandableText: View {
                     withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
                 }
                 .font(font.weight(.semibold))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(.white)
                 .buttonStyle(.plain)
             }
         }

@@ -133,7 +133,7 @@ struct EpisodeSection: View {
                 } label: {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(.white)
                         .frame(minWidth: 32, minHeight: 32)
                         .contentShape(Rectangle())
                 }
@@ -145,7 +145,7 @@ struct EpisodeSection: View {
                 }
             }
             .pickerStyle(.menu)
-            .tint(Theme.accent)
+            .tint(.white)
         }
     }
 
@@ -229,19 +229,21 @@ enum EpisodeDownloadState: Equatable {
 private struct EpisodeDownloadGlyph: View {
     let state: EpisodeDownloadState
     let size: CGFloat
-    var idleColor: Color = .white.opacity(0.6)
+    var idleColor: Color = .white.opacity(0.7)
     var download: Download? = nil
 
     var body: some View {
         switch state {
         case .idle:
-            Image(systemName: "arrow.down.circle.fill")
+            Image(systemName: "arrow.down.circle")
                 .font(.system(size: size))
                 .foregroundStyle(idleColor)
         case .completed:
-            Image(systemName: "checkmark.circle.fill")
+            // The download badge's look; the check on the still already means "watched".
+            Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: size))
-                .foregroundStyle(Theme.success)
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.black, Theme.success)
         case .pending:
             PendingRing(progress: download?.progress ?? 0, size: size)
         }
@@ -337,7 +339,7 @@ private struct EpisodeRow: View {
                 .frame(width: 44, height: 44)
             } else {
                 Button(action: onDownload) {
-                    EpisodeDownloadGlyph(state: downloadState, size: 30, download: download)
+                    EpisodeDownloadGlyph(state: downloadState, size: 26, download: download)
                         .frame(width: 44, height: 63)           // centred on the still
                         .contentShape(Rectangle())
                 }

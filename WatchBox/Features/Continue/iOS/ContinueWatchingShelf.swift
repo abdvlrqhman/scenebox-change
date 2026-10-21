@@ -56,20 +56,24 @@ private struct ContinueWatchingCard: View {
                         ArtworkProgress(fraction: item.fraction).padding(6)
                     }
                 }
-                .overlay(alignment: .topTrailing) {
-                    if isDownloaded { DownloadedBadge().padding(6) }
-                }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
                     .font(Platform.isMac ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
                     .lineLimit(1)
                     .foregroundStyle(.white)
-                secondaryLine
-                    .font(Platform.isMac ? .footnote : .caption2)
-                    .monospacedDigit()
-                    .lineLimit(1, reservesSpace: true)
-                    .foregroundStyle(Theme.textSecondary)
+                HStack(spacing: 4) {
+                    // Off the artwork: a badge there sits on the title art.
+                    if isDownloaded {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(Theme.success)
+                    }
+                    secondaryLine
+                        .monospacedDigit()
+                        .lineLimit(1, reservesSpace: true)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .font(Platform.isMac ? .footnote : .caption2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -108,6 +112,7 @@ private struct ContinueWatchingCard: View {
             let time: String = Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .wide))
             parts.append("\(time) left")
         }
+        if isDownloaded { parts.append("Downloaded") }
         return parts.joined(separator: ", ")
     }
 }

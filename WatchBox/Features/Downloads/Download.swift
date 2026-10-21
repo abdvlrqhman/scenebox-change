@@ -49,7 +49,7 @@ final class Download: Identifiable {
         case .queued:
             if let failureMessage { failureMessage }   // e.g. "Starts after S1E2"
             else { progress > 0 ? "Queued · \(ByteFormat.percentDetailed(progress))" : "Queued" }
-        case .resolving: "Fetching metadata…"
+        case .resolving: "Preparing…"
         case .downloading:
             if record.isDebrid {
                 "Debrid · \(ByteFormat.rate(downloadRate))"

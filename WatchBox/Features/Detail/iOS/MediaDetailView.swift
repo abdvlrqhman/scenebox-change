@@ -288,7 +288,8 @@ struct MediaDetailView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     }
-                    if isWatchTargetDownloaded(for: detail) {
+                    // A movie's download shows beside the button already.
+                    if detail.type != .movie, isWatchTargetDownloaded(for: detail) {
                         Image(systemName: "arrow.down.circle.fill").font(.caption)
                     }
                 }
@@ -706,7 +707,7 @@ struct MediaDetailView: View {
                     }
                     if let trailer = detail.trailerURL {
                         Button { openURL(trailer) } label: {
-                            Chip(text: "Trailer", systemImage: "play.rectangle.fill", tint: Theme.accent)
+                            Chip(text: "Trailer", systemImage: "play.rectangle.fill")
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Play trailer on YouTube")
@@ -824,7 +825,7 @@ private struct BannerHeader: View {
                     .resizable()
                     .placeholder { titleText }
                     .scaledToFit()
-                    .frame(maxWidth: Platform.isMac ? 360 : 260, maxHeight: Platform.isMac ? 130 : 90, alignment: .leading)
+                    .frame(maxWidth: Platform.isMac ? 360 : 260, maxHeight: Platform.isMac ? 130 : 90, alignment: .bottomLeading)
             } else {
                 titleText
             }

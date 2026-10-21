@@ -60,7 +60,7 @@ struct EpisodeSection: View {
                                     Label(watched ? "Mark as Unwatched" : "Mark as Watched",
                                           systemImage: watched ? "eye.slash" : "checkmark.circle")
                                 }
-                                if state == .idle {
+                                if state == .idle, !episode.isUnaired {
                                     Button { onDownload(episode) } label: {
                                         Label("Download", systemImage: "arrow.down.circle")
                                     }
@@ -72,7 +72,7 @@ struct EpisodeSection: View {
                     .padding(.vertical, 6)
                 }
             } else {
-                VStack(spacing: 0) {
+                LazyVStack(spacing: 0) {
                     ForEach(episodes) { episode in
                         let watched = watchedEpisodes.contains(episode.label)
                         let state = downloadState(for: episode)
@@ -199,12 +199,7 @@ struct EpisodeSection: View {
 
     /// Released episodes that aren't downloaded or already on their way.
     private func downloadable(in episodes: [Episode]) -> [Episode] {
-        let now = Date()
-        return episodes.filter { episode in
-            guard downloadState(for: episode) == .idle else { return false }
-            if let released = episode.released, released > now { return false }
-            return true
-        }
+        episodes.filter { downloadState(for: $0) == .idle && !$0.isUnaired }
     }
 
     private func selectionState(for episode: Episode, state: EpisodeDownloadState) -> Bool? {
@@ -216,6 +211,10 @@ struct EpisodeSection: View {
         guard isSelecting, state == .idle else { return }
         if selection.contains(episode.id) { selection.remove(episode.id) } else { selection.insert(episode.id) }
     }
+}
+
+private extension Episode {
+    var isUnaired: Bool { (released ?? .distantPast) > Date() }
 }
 
 enum EpisodeDownloadState: Equatable {
@@ -242,7 +241,7 @@ private struct EpisodeDownloadGlyph: View {
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: size))
-                .foregroundStyle(.green)
+                .foregroundStyle(Theme.success)
         case .pending:
             PendingRing(progress: download?.progress ?? 0, size: size)
         }
@@ -314,7 +313,8 @@ private struct EpisodeRow: View {
                 }
 
                 if let released = episode.released {
-                    Text(released.formatted(date: .abbreviated, time: .omitted))
+                    let date = released.formatted(date: .abbreviated, time: .omitted)
+                    Text(episode.isUnaired ? "Airs \(date)" : date)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -349,6 +349,8 @@ private struct EpisodeRow: View {
                     .accessibilityLabel(downloadState.isDownloaded ? "Downloaded" : "Download")
                 }
                 .buttonStyle(.plain)
+                .disabled(episode.isUnaired)
+                .opacity(episode.isUnaired ? 0.4 : 1)
             }
         }
         .padding(.horizontal, 20)
@@ -356,7 +358,7 @@ private struct EpisodeRow: View {
         .contentShape(Rectangle())
         .opacity(selection != nil && downloadState != .idle ? 0.55 : 1)
         .onTapGesture {
-            if selection != nil { onToggleSelection() }
+            if selection != nil { onToggleSelection() } else if !episode.isUnaired { onWatch() }
         }
     }
 
@@ -409,6 +411,7 @@ private struct EpisodeCard: View {
                 still
             }
             .buttonStyle(.plain)
+            .disabled(episode.isUnaired)
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("\(episode.episode). \(episode.name)")
@@ -423,7 +426,8 @@ private struct EpisodeCard: View {
                     .lineLimit(2, reservesSpace: true)
             }
             if let released = episode.released {
-                Text(released.formatted(date: .abbreviated, time: .omitted))
+                let date = released.formatted(date: .abbreviated, time: .omitted)
+                Text(episode.isUnaired ? "Airs \(date)" : date)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -459,7 +463,7 @@ private struct EpisodeCard: View {
                 if isWatched { WatchedBadge(size: 22).padding(8) }
             }
             .overlay {
-                if selection == nil {
+                if selection == nil, !episode.isUnaired {
                     Image(systemName: "play.fill")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(.white)
@@ -481,10 +485,12 @@ private struct EpisodeCard: View {
                             .frame(width: 26, height: 26)
                             .padding(6)
                             .background(.black.opacity(0.45), in: Circle())
+                            .frame(width: 44, height: 44)       // tap target; the circle stays 38
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(downloadState != .idle || selection != nil)
-                    .padding(8)
+                    .disabled(downloadState != .idle || selection != nil || episode.isUnaired)
+                    .padding(5)
                     .accessibilityLabel(downloadState.isDownloaded ? "Downloaded" : "Download")
                 }
             }

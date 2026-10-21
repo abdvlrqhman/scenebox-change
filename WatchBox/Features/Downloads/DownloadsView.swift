@@ -61,15 +61,21 @@ struct DownloadsView: View {
     @State private var streamer = StreamCoordinator()
     @State private var pendingDelete: DeleteRequest?
     @State private var expanded: Set<String> = []
+    #if !os(tvOS)
+    @State private var openedTitle: MediaResult?
+    @Environment(\.openMediaDetail) private var openMediaDetail
+    #endif
 
     private enum DeleteRequest: Identifiable {
         case one(Download)
         case group(DownloadGroup)
+        case missing(Download)      // finished, but the file is gone
 
         var id: String {
             switch self {
             case .one(let download): "one-\(download.id)"
             case .group(let group): "group-\(group.id)"
+            case .missing(let download): "missing-\(download.id)"
             }
         }
     }
@@ -104,6 +110,11 @@ struct DownloadsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
+        #if !os(tvOS)
+        .navigationDestination(item: $openedTitle) { item in
+            MediaDetailView(mediaID: item.id, type: item.type, fallbackTitle: item.name)
+        }
+        #endif
         .onAppear {
             if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.map(\.id)) }
         }
@@ -116,7 +127,7 @@ struct DownloadsView: View {
                                                  set: { if !$0 { pendingDelete = nil } })) {
             Button("Delete", role: .destructive) {
                 switch pendingDelete {
-                case .one(let download): store.remove(download)
+                case .one(let download), .missing(let download): store.remove(download)
                 case .group(let group): group.items.forEach { store.remove($0) }
                 case nil: break
                 }
@@ -145,6 +156,8 @@ struct DownloadsView: View {
                     DownloadItemRow(download: download, style: .standalone,
                                     watched: isWatched(download), watchFraction: watchFraction(download),
                                     onPrimary: { primaryAction(for: download) })
+                        .contentShape(Rectangle())
+                        .onTapGesture { if download.phase == .completed { play(download) } }
                         .listRowBackground(Theme.background)
                         .listRowSeparatorTint(Theme.hairline)
                         .swipeActions { deleteButton { pendingDelete = .one(download) } }
@@ -210,6 +223,7 @@ struct DownloadsView: View {
         case .paused, .failed:
             Button { store.resume(download) } label: { Label("Resume", systemImage: "arrow.down") }
         }
+        Button { openTitle(download) } label: { Label("Go to title", systemImage: "info.circle") }
         Button(role: .destructive) { pendingDelete = .one(download) } label: {
             Label("Delete", systemImage: "trash")
         }
@@ -227,9 +241,20 @@ struct DownloadsView: View {
                 group.items.filter(\.phase.isPending).forEach { store.pause($0) }
             } label: { Label("Pause All", systemImage: "pause.fill") }
         }
+        if let first = group.items.first {
+            Button { openTitle(first) } label: { Label("Go to title", systemImage: "info.circle") }
+        }
         Button(role: .destructive) { pendingDelete = .group(group) } label: {
             Label("Delete All Episodes", systemImage: "trash")
         }
+    }
+
+    private func openTitle(_ download: Download) {
+        let record = download.record
+        guard let type = MediaType(rawValue: record.mediaType) else { return }
+        let item = MediaResult(id: record.mediaID, type: type, name: record.title,
+                               year: nil, posterURL: record.posterURL, description: nil)
+        if let openMediaDetail { openMediaDetail(item) } else { openedTitle = item }
     }
     #endif
 
@@ -257,6 +282,7 @@ struct DownloadsView: View {
     private var deleteTitle: String {
         switch pendingDelete {
         case .group(let group): "Delete \(group.items.count) episodes?"
+        case .missing: "Download missing"
         default: "Delete download?"
         }
     }
@@ -266,6 +292,9 @@ struct DownloadsView: View {
         case .one(let download):
             let name = [download.record.title, download.record.episodeLabel].compactMap { $0 }.joined(separator: " ")
             return "\(name) will be removed from this device."
+        case .missing(let download):
+            let name = [download.record.title, download.record.episodeLabel].compactMap { $0 }.joined(separator: " ")
+            return "The file for \(name) is no longer on this device. Delete it, then download it again from its page."
         case .group(let group):
             return "Every downloaded episode of \(group.title) will be removed from this device."
         case nil:
@@ -286,7 +315,10 @@ struct DownloadsView: View {
 
     private func play(_ download: Download) {
         Task {
-            guard let url = await store.localFileURL(for: download) else { return }
+            guard let url = await store.localFileURL(for: download) else {
+                pendingDelete = .missing(download)
+                return
+            }
             let title = [download.record.title, download.record.episodeLabel]
                 .compactMap { $0 }.joined(separator: " · ")
             let context = download.record.watchProgressContext
@@ -480,7 +512,7 @@ private struct DownloadItemRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.pressable)
-            .accessibilityLabel(primaryLabel)
+            .accessibilityLabel(download.phase.actionLabel)
         }
         .padding(.vertical, style == .standalone ? 6 : 2)
         .padding(.leading, style == .episode ? 4 : 0)
@@ -569,9 +601,13 @@ private struct DownloadItemRow: View {
         case .paused, .failed: "arrow.down.circle.fill"
         }
     }
+}
+#endif
 
-    private var primaryLabel: String {
-        switch download.phase {
+private extension Download.Phase {
+    /// What the row's main button does now, for VoiceOver.
+    var actionLabel: String {
+        switch self {
         case .completed: "Play"
         case .downloading, .resolving, .queued: "Pause"
         case .paused: "Resume"
@@ -579,7 +615,6 @@ private struct DownloadItemRow: View {
         }
     }
 }
-#endif
 
 // MARK: - Row (tvOS)
 
@@ -603,13 +638,13 @@ private struct DownloadRow: View {
                     .lineLimit(1)
                 if download.phase != .completed {
                     ProgressView(value: download.progress)
-                        .tint(download.phase == .failed ? .red : Theme.accent)
+                        .tint(download.phase == .failed ? Theme.danger : Theme.accent)
                 }
                 if let size = download.sizeProgressText {
                     Text(size).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Text(download.statusText)
-                    .foregroundStyle(download.phase == .failed ? .red : .secondary)
+                    .foregroundStyle(download.phase == .failed ? Theme.danger : .secondary)
                     .lineLimit(1)
             }
             .font(.callout.monospacedDigit())
@@ -618,8 +653,10 @@ private struct DownloadRow: View {
             HStack(spacing: 16) {
                 Button(action: onPrimary) { Image(systemName: primaryIcon) }
                     .tint(Theme.accent)
+                    .accessibilityLabel(download.phase.actionLabel)
                 Button(action: onDelete) { Image(systemName: "trash") }
-                    .tint(.red)
+                    .tint(Theme.danger)
+                    .accessibilityLabel("Delete")
             }
             .buttonStyle(.bordered)
             .font(.title3)

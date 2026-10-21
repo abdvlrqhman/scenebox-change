@@ -22,7 +22,7 @@ struct Chip: View {
         .lineLimit(1)
         .fixedSize()
         .font(font)
-        .foregroundStyle(isFocused && tint == .white ? .black : tint)
+        .foregroundStyle(isFocused ? .black : tint)     // a focused row turns white
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)
         .background(isFocused ? Color.black.opacity(0.08) : Color.white.opacity(0.12), in: Capsule())

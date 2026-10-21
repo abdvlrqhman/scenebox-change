@@ -14,7 +14,9 @@ struct LibraryView: View {
         var id: String { rawValue }
     }
 
-    @State private var section: Section = .downloads
+    // Nothing downloaded but titles saved: open on those instead of an empty page.
+    @State private var section: Section =
+        DownloadStore.shared.downloads.isEmpty && !WatchlistStore.shared.items.isEmpty ? .watchlist : .downloads
     @Namespace private var switcher
 
     var body: some View {

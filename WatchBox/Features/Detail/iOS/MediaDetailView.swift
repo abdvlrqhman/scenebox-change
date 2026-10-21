@@ -17,6 +17,7 @@ struct MediaDetailView: View {
     @State private var streamer = StreamCoordinator()
     @State private var pendingPlay: (() -> Void)?
     @State private var isAutoResolving = false
+    @State private var resolveTask: Task<Void, Never>?
     @State private var batchStatus: String?
     @State private var batchMessage: String?
     @State private var toast: ToastMessage?
@@ -80,6 +81,7 @@ struct MediaDetailView: View {
             #endif
             .task { model.load() }
             .onDisappear {
+                cancelAutoResolve()
                 if !streamer.isPresenting { streamer.stop() }
             }
             #if os(tvOS)
@@ -105,7 +107,8 @@ struct MediaDetailView: View {
             }
             #endif
             .fullScreenCover(isPresented: Binding(get: { streamer.isPresenting },
-                                                  set: { if !$0 { streamer.stop() } })) {
+                                                  set: { if !$0 { streamer.stop() } }),
+                             onDismiss: runPendingPlay) {
                 StreamPlayerContainer(streamer: streamer)
                     .environment(settings)
                     .environment(downloads)
@@ -130,6 +133,12 @@ struct MediaDetailView: View {
         action?()
     }
 
+    private func cancelAutoResolve() {
+        resolveTask?.cancel()
+        resolveTask = nil
+        isAutoResolving = false
+    }
+
     private var resolvingOverlay: some View {
         ZStack {
             Color.black.opacity(0.45).ignoresSafeArea()
@@ -139,6 +148,11 @@ struct MediaDetailView: View {
                     .font(.callout)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                if isAutoResolving {
+                    Button("Cancel") { cancelAutoResolve() }
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                }
             }
             .padding(24)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -300,7 +314,7 @@ struct MediaDetailView: View {
                         Label(model.selectedSeason == 0 ? "Download All Specials" : "Download Season \(model.selectedSeason)",
                               systemImage: "square.and.arrow.down.on.square")
                     }
-                    .disabled(season.isEmpty)
+                    .disabled(downloadableEpisodes(season).isEmpty)
                 } label: {
                     Image(systemName: "arrow.down.circle")
                         .frame(minHeight: labelHeight)
@@ -384,9 +398,10 @@ struct MediaDetailView: View {
             model.requestReleases(intent: .watch, episode: episode)
             return
         }
-        Task {
+        resolveTask = Task {
             isAutoResolving = true
             let ranked = await model.rankedStreams(for: episode)
+            guard !Task.isCancelled else { return }
             isAutoResolving = false
             if let stream = ranked.first {
                 startWatch(stream: stream, episode: episode,
@@ -432,9 +447,10 @@ struct MediaDetailView: View {
             model.requestReleases(intent: .download, episode: episode)
             return
         }
-        Task {
+        resolveTask = Task {
             isAutoResolving = true
             let stream = await model.bestStream(for: episode)
+            guard !Task.isCancelled else { return }
             isAutoResolving = false
             if let stream { download(stream: stream, episode: episode) }
             else { model.requestReleases(intent: .download, episode: episode) }
@@ -445,13 +461,7 @@ struct MediaDetailView: View {
     /// few lookups at a time) and queues them in episode order. Episodes that
     /// already have a download, or haven't aired yet, are skipped.
     private func downloadEpisodes(_ episodes: [Episode]) {
-        let now = Date()
-        let wanted = episodes
-            .filter { episode in
-                if let released = episode.released, released > now { return false }
-                guard let existing = downloads.download(mediaID: mediaID, episodeLabel: episode.label) else { return true }
-                return existing.phase == .failed || existing.phase == .paused
-            }
+        let wanted = downloadableEpisodes(episodes)
             .sorted { ($0.season, $0.episode) < ($1.season, $1.episode) }
         guard !wanted.isEmpty, batchStatus == nil else { return }
 
@@ -504,6 +514,16 @@ struct MediaDetailView: View {
             if !missing.isEmpty {
                 batchMessage = "No sources found for \(missing.joined(separator: ", ")). Try them one by one or check your source settings."
             }
+        }
+    }
+
+    /// Aired episodes with no download yet, or one that's paused or failed.
+    private func downloadableEpisodes(_ episodes: [Episode]) -> [Episode] {
+        let now = Date()
+        return episodes.filter { episode in
+            if let released = episode.released, released > now { return false }
+            guard let existing = downloads.download(mediaID: mediaID, episodeLabel: episode.label) else { return true }
+            return existing.phase == .failed || existing.phase == .paused
         }
     }
 
@@ -639,15 +659,21 @@ struct MediaDetailView: View {
     }
 
     private func playEpisode(_ episode: Episode) {
+        resumeAt = startPosition(for: episode)
         if let download = downloads.completedDownload(mediaID: mediaID, episodeLabel: episode.label) {
             playOffline(download, episode: episode)
             return
         }
         Task {
             let ranked = await model.rankedStreams(for: episode)
+            guard streamer.isPresenting else { return }     // the viewer closed the player meanwhile
             if let stream = ranked.first {
                 startWatch(stream: stream, episode: episode,
                            fallbacks: Array(ranked.dropFirst().filter { !$0.isDebrid }))
+            } else {
+                // Close the player first; the source list opens once it's gone.
+                pendingPlay = { model.requestReleases(intent: .watch, episode: episode) }
+                streamer.stop()
             }
         }
     }
@@ -745,6 +771,7 @@ struct MediaDetailView: View {
 private struct BannerHeader: View {
     let detail: MediaDetail?
     let fallbackTitle: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let height: CGFloat = Platform.isMac ? 460 : 420
 
@@ -752,6 +779,7 @@ private struct BannerHeader: View {
         ZStack(alignment: .bottomLeading) {
             if !Platform.isMac {
                 let height = self.height
+                let reduceMotion = self.reduceMotion
                 // The image sits in an overlay so its fill size can never widen
                 // the page; the clear frame alone decides the layout.
                 Color.clear
@@ -781,7 +809,7 @@ private struct BannerHeader: View {
                     // Runs at render time, so scrolling doesn't re-evaluate the view:
                     // pull down to stretch, scroll up for a gentle parallax.
                     .visualEffect { content, proxy in
-                        let minY = proxy.frame(in: .scrollView).minY
+                        let minY = reduceMotion ? 0 : proxy.frame(in: .scrollView).minY
                         return content
                             .scaleEffect(minY > 0 ? 1 + minY / height : 1, anchor: .bottom)
                             .offset(y: minY > 0 ? 0 : -minY * 0.4)
@@ -879,6 +907,14 @@ private struct CastRow: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .frame(width: 80)
+            if let role, !role.isEmpty {
+                Text(role)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .frame(width: 80)
+            }
         }
     }
 
@@ -896,12 +932,13 @@ private struct CastRow: View {
 private struct CreditLine: View {
     let label: String
     let value: String
+    @ScaledMetric(relativeTo: .subheadline) private var labelWidth: CGFloat = 78
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 78, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             Text(value)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

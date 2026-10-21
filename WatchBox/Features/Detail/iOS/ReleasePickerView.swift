@@ -13,6 +13,7 @@ struct ReleasePickerView: View {
     let onSelect: (TorrentStream) -> Void
 
     @Environment(DownloadStore.self) private var downloads
+    @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     /// The source that played last time for this episode, pinned first so the
@@ -47,6 +48,15 @@ struct ReleasePickerView: View {
             season: request.episode?.season, episode: request.episode?.episode))
     }
 
+    /// Settings that narrow the search, so an empty list isn't a dead end.
+    private var settingsHint: String? {
+        var hints: [String] = []
+        // CAM and screener rips are hidden out of the box; only more than that narrows things.
+        if !settings.excludedQualities.isSubset(of: [.cam, .scr]) { hints.append("Some qualities are hidden in Settings.") }
+        if settings.enabledSources.count < 2 { hints.append("Only one stream source is on.") }
+        return hints.isEmpty ? nil : hints.joined(separator: " ")
+    }
+
     private var navigationTitle: String {
         let action = request.intent == .watch ? "Watch" : "Download"
         if let episode = request.episode {
@@ -70,9 +80,20 @@ struct ReleasePickerView: View {
                     ProgressView(model.releaseStage)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = model.releaseError {
-                    EmptyStateView(systemImage: "magnifyingglass",
-                                   title: "No sources", message: error)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 0) {
+                        EmptyStateView(systemImage: "magnifyingglass", title: "No sources",
+                                       message: [error, settingsHint].compactMap { $0 }.joined(separator: " "),
+                                       actionTitle: "Try again") {
+                            model.requestReleases(intent: request.intent, episode: request.episode)
+                        }
+                        Button("Source settings") {
+                            dismiss()
+                            TabRouter.shared.tab = .profile
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
                         let lastKey = lastWatchedKey
@@ -176,7 +197,7 @@ private struct ReleaseRow: View {
                     .lineLimit(2)
                 if isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.success)
                         .font(.caption)
                 }
             }
@@ -190,13 +211,13 @@ private struct ReleaseRow: View {
                     Chip(text: "Last watched", systemImage: "clock.arrow.circlepath", tint: Theme.accent)
                 }
                 if assessment?.failedBefore == true {
-                    Chip(text: "Didn't start", systemImage: "exclamationmark.triangle.fill", tint: .red)
+                    Chip(text: "Didn't start", systemImage: "exclamationmark.triangle.fill", tint: Theme.danger)
                 }
                 if hasSavedSubtitles {
                     Chip(text: "Subtitles saved", systemImage: "captions.bubble.fill")
                 }
                 if stream.isDebrid {
-                    Chip(text: "Debrid", systemImage: "bolt.fill", tint: .green)
+                    Chip(text: "Debrid", systemImage: "bolt.fill", tint: Theme.success)
                 }
                 if let resolution = stream.resolution {
                     Chip(text: resolution.uppercased())
@@ -206,7 +227,7 @@ private struct ReleaseRow: View {
                 }
                 seedersChip
                 if assessment?.isHeavy == true {
-                    Chip(text: "May buffer", systemImage: "tortoise.fill", tint: .orange)
+                    Chip(text: "May buffer", systemImage: "tortoise.fill", tint: Theme.warning)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -223,17 +244,17 @@ private struct ReleaseRow: View {
         if let assessment, assessment.isLive, let seeders = assessment.seeders {
             switch assessment.health {
             case .dead:
-                Chip(text: "No seeders", systemImage: "person.2.slash", tint: .red)
+                Chip(text: "No seeders", systemImage: "person.2.slash", tint: Theme.danger)
             case .strong:
-                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: .green)
+                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: Theme.success)
             case .fair:
-                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: .yellow)
+                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right")
             default:
-                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: .orange)
+                Chip(text: "\(seeders) seeding", systemImage: "dot.radiowaves.left.and.right", tint: Theme.warning)
             }
         } else if let seeders = stream.seeders {
             Chip(text: "\(seeders)", systemImage: "person.2.fill",
-                 tint: seeders > 20 ? .green : .orange)
+                 tint: seeders > 20 ? Theme.success : Theme.warning)
         }
     }
 }

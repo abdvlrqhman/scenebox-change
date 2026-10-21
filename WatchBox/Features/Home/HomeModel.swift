@@ -84,6 +84,8 @@ final class HomeModel {
     @ObservationIgnored private var loaded = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var requestedGenres: Set<String> = []
+    /// Bumped on every load so a genre row from before a refresh can't land in the new list.
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var becauseSourceID: String?
 
     init(settings: AppSettings? = nil) {
@@ -117,11 +119,18 @@ final class HomeModel {
     func loadGenreShelf(_ id: String) {
         guard requestedGenres.insert(id).inserted,
               let spec = genreShelves.first(where: { $0.id == id }) else { return }
+        let current = generation
         Task { [search] in
-            let items = (try? await search.catalog(type: spec.type, feed: spec.feed, genre: spec.genre)) ?? []
-            let shelf = spec.filled(with: items)
-            guard let index = genreShelves.firstIndex(where: { $0.id == id }) else { return }
-            if shelf.items.isEmpty { genreShelves.remove(at: index) } else { genreShelves[index] = shelf }
+            let items = try? await search.catalog(type: spec.type, feed: spec.feed, genre: spec.genre)
+            guard current == generation,
+                  let index = genreShelves.firstIndex(where: { $0.id == id }) else { return }
+            let shelf = spec.filled(with: items ?? [])
+            // A failed refresh keeps the row already on screen.
+            if !shelf.items.isEmpty {
+                genreShelves[index] = shelf
+            } else if items != nil || genreShelves[index].items.isEmpty {
+                genreShelves.remove(at: index)
+            }
         }
     }
 
@@ -147,8 +156,13 @@ final class HomeModel {
     private func load() {
         isLoading = true
         errorMessage = nil
-        genreShelves = Self.genreSpecs
+        generation += 1
+        // Loaded rows stay in place and are replaced as they reload.
+        let requested = requestedGenres
         requestedGenres = []
+        let previous = genreShelves
+        genreShelves = Self.genreSpecs.map { spec in previous.first(where: { $0.id == spec.id }) ?? spec }
+        for id in requested { loadGenreShelf(id) }
         loadTask?.cancel()
         loadTask = Task { [search] in
             let specs = Self.specs

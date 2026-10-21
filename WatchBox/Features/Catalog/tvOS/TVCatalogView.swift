@@ -92,6 +92,10 @@ struct TVCatalogView: View {
                                title: "Couldn’t load", message: message,
                                actionTitle: "Try again") { model.reload() }
             }
+        } else if model.items.isEmpty, model.isFeedEmpty {
+            centered {
+                EmptyStateView(systemImage: "tray", title: "Nothing here yet", message: "Try another feed or genre.")
+            }
         } else {
             LazyVGrid(columns: columns, spacing: 56) {
                 ForEach(model.items) { item in

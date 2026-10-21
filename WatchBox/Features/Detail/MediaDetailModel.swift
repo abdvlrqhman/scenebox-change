@@ -117,14 +117,20 @@ final class MediaDetailModel {
         similar = Array(items.filter { $0.id != detail.id }.prefix(20))
     }
 
+    /// Waits for the images or 1.5 s, whichever is first: a slow image host shouldn't hold up a loaded page.
     private static func prefetch(_ urls: [URL?]) async {
         let targets = urls.compactMap { $0 }
         guard !targets.isEmpty else { return }
-        await withCheckedContinuation { continuation in
-            ImagePrefetcher(urls: targets, completionHandler: { _, _, _ in
-                continuation.resume()
-            }).start()
+        let (done, signal) = AsyncStream.makeStream(of: Void.self)
+        ImagePrefetcher(urls: targets, completionHandler: { _, _, _ in
+            signal.yield()
+        }).start()
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            signal.yield()
         }
+        for await _ in done { break }
+        signal.finish()
     }
 
     // MARK: - Releases

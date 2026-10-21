@@ -197,12 +197,16 @@ struct SearchResults: View {
     var body: some View {
         if model.isLoading && model.results.isEmpty {
             placeholderGrid
+        } else if model.results.isEmpty, let message = model.errorMessage {
+            EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load", message: message,
+                           actionTitle: "Try again") { model.run(immediate: true) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.results.isEmpty {
             EmptyStateView(systemImage: "magnifyingglass",
-                           title: model.isSearching ? "Nothing found" : "Search",
-                           message: model.errorMessage ?? (model.isSearching
+                           title: model.isSearching ? "Nothing found" : "Nothing here yet",
+                           message: model.isSearching
                                ? "Check the spelling, or try the original title."
-                               : "Search by name, or browse by type, feed and genre."))
+                               : "Try another type, feed or genre.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             grid

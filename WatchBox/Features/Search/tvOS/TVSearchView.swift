@@ -67,6 +67,11 @@ struct TVSearchView: View {
     private var content: some View {
         if model.isLoading && model.results.isEmpty {
             centered { ProgressView().tint(.white).controlSize(.large) }
+        } else if model.results.isEmpty, let message = model.errorMessage {
+            centered {
+                EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load", message: message,
+                               actionTitle: "Try again") { model.run(immediate: true) }
+            }
         } else if !model.isSearching {
             centered {
                 EmptyStateView(systemImage: "magnifyingglass",
@@ -77,7 +82,7 @@ struct TVSearchView: View {
             centered {
                 EmptyStateView(systemImage: "magnifyingglass",
                                title: "No results",
-                               message: model.errorMessage ?? "Nothing matched your search.")
+                               message: "Nothing matched your search.")
             }
         } else {
             LazyVGrid(columns: columns, spacing: 56) {

@@ -155,8 +155,10 @@ struct CatalogListView: View {
             } else {
                 EmptyStateView(systemImage: "exclamationmark.triangle",
                                title: "Couldn’t load", message: message,
-                               actionTitle: "Retry") { model.reload() }
+                               actionTitle: "Try again") { model.reload() }
             }
+        } else if model.items.isEmpty, model.isFeedEmpty {
+            EmptyStateView(systemImage: "tray", title: "Nothing here yet", message: "Try another feed or genre.")
         }
     }
 }

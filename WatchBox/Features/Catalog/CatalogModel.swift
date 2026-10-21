@@ -21,11 +21,14 @@ final class CatalogModel {
     private(set) var isLoading = false
     private(set) var isPaging = false
     private(set) var errorMessage: String?
+    /// The feed loaded fine but has no titles (not an error, nothing to retry).
+    private(set) var isFeedEmpty = false
     private(set) var isShowingSearchResults = false
 
     @ObservationIgnored private var search: TorrentSearch
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var pageTask: Task<Void, Never>?
     @ObservationIgnored private var reachedEnd = false
 
     init(type: MediaType, feed: CatalogFeed = .popular, genre: String? = nil, settings: AppSettings? = nil) {
@@ -39,6 +42,7 @@ final class CatalogModel {
     deinit {
         loadTask?.cancel()
         searchTask?.cancel()
+        pageTask?.cancel()
     }
 
     // MARK: - Feed
@@ -51,8 +55,11 @@ final class CatalogModel {
     func reload() {
         guard !isShowingSearchResults else { return }
         loadTask?.cancel()
+        pageTask?.cancel()
+        isPaging = false
         reachedEnd = false
         isLoading = true
+        isFeedEmpty = false
         errorMessage = nil
 
         loadTask = Task { [feed, genre, type, search] in
@@ -60,7 +67,7 @@ final class CatalogModel {
                 let page = try await search.catalog(type: type, feed: feed, genre: genre)
                 guard !Task.isCancelled else { return }
                 items = page
-                errorMessage = page.isEmpty ? "Nothing in this feed right now." : nil
+                isFeedEmpty = page.isEmpty
             } catch {
                 guard !Task.isCancelled else { return }
                 items = []
@@ -77,11 +84,12 @@ final class CatalogModel {
 
         isPaging = true
         let skip = items.count
-        Task { [feed, genre, type, search] in
-            defer { isPaging = false }
-            guard let page = try? await search.catalog(type: type, feed: feed, genre: genre, skip: skip),
-                  !Task.isCancelled
-            else { return }
+        pageTask = Task { [feed, genre, type, search] in
+            let page = try? await search.catalog(type: type, feed: feed, genre: genre, skip: skip)
+            // Cancelled by reload() or runSearch(): the grid now belongs to another feed.
+            guard !Task.isCancelled else { return }
+            isPaging = false
+            guard let page else { return }
 
             guard !page.isEmpty else { reachedEnd = true; return }
             let known = Set(items.map(\.id))
@@ -97,7 +105,10 @@ final class CatalogModel {
 
         searchTask?.cancel()
         loadTask?.cancel()
+        pageTask?.cancel()
+        isPaging = false
         isShowingSearchResults = true
+        isFeedEmpty = false
         errorMessage = nil
         if items.isEmpty { isLoading = true }   // spinner only when nothing's shown yet
 

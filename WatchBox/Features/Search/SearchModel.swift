@@ -88,20 +88,22 @@ final class SearchModel {
             isLoading = true
 
             var rows = [[MediaResult]](repeating: [], count: types.count)
-            await withTaskGroup(of: (Int, [MediaResult]).self) { group in
+            var failed = false
+            await withTaskGroup(of: (Int, [MediaResult]?).self) { group in
                 for (i, type) in types.enumerated() {
                     group.addTask {
-                        let items: [MediaResult]
+                        let items: [MediaResult]?
                         if searching {
-                            items = (try? await search.search(trimmed, type: type)) ?? []
+                            items = try? await search.search(trimmed, type: type)
                         } else {
-                            items = (try? await search.catalog(type: type, feed: feed, genre: genre)) ?? []
+                            items = try? await search.catalog(type: type, feed: feed, genre: genre)
                         }
                         return (i, items)
                     }
                 }
                 for await (i, items) in group {
                     guard !Task.isCancelled else { return }
+                    guard let items else { failed = true; continue }
                     rows[i] = items
                     let partial = searching ? Self.rankedBySearchRelevance(rows, query: trimmed)
                                             : (rows.first ?? [])
@@ -117,8 +119,9 @@ final class SearchModel {
             }
             results = searching ? Self.rankedBySearchRelevance(rows, query: trimmed)
                                  : (rows.first ?? [])
-            errorMessage = results.isEmpty
-                ? (searching ? "Nothing matched your search." : "Nothing to show here.")
+            // Only a real failure is an error; no results falls to the view's empty state.
+            errorMessage = results.isEmpty && failed
+                ? "Couldn’t reach the catalog. Check your connection."
                 : nil
             isLoading = false
         }

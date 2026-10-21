@@ -143,9 +143,11 @@ nonisolated private struct TrackList {
             }
             at = end
         }
-        let isDefault = flag.map { range in b[range].contains { $0 != 0 } } ?? true
-        let track = Audio(child: child, language: tag.flatMap { $0.isEmpty ? nil : $0 } ?? language,
-                          name: name.flatMap { $0.isEmpty ? nil : $0 }, flag: flag, isDefault: isDefault)
+        var isDefault = true                                    // a missing flag means default
+        if let flag { isDefault = b[flag].contains { $0 != 0 } }
+        if let found = tag, !found.isEmpty { language = found }
+        let track = Audio(child: child, language: language, name: name?.isEmpty == false ? name : nil,
+                          flag: flag, isDefault: isDefault)
         return (type, track)
     }
 

@@ -346,6 +346,17 @@ if let url = await fileServer.videoURL {
     let (relayedTail, _) = try await URLSession.shared.data(for: fromMiddle)
     check(relayedTail == expected[40...], "cast server: relayed range rewritten at the right offset")
     await audioRelay.stop()
+    let audioRemote = CastServer()
+    try await audioRemote.start(host: "127.0.0.1")
+    await audioRemote.update(.init(source: .remote(await plainServer.videoURL!), fileExtension: "mkv", title: "Debrid", subtitles: nil, audioPatch: patch))
+    let remoteURL = await audioRemote.videoURL!
+    let (proxied, _) = try await URLSession.shared.data(from: remoteURL)
+    check(remoteURL.host == "127.0.0.1" && proxied == expected, "cast server: remote link proxied with the rewritten track list")
+    var past = URLRequest(url: remoteURL)
+    past.setValue("bytes=4000-", forHTTPHeaderField: "Range")
+    let (pastBody, _) = try await URLSession.shared.data(for: past)
+    check(pastBody == expected[4000...], "cast server: past the track list the TV goes to the remote link itself")
+    await audioRemote.stop()
     await plainServer.stop()
 }
 } catch {

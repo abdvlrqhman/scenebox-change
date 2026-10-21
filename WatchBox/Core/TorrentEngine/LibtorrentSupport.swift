@@ -14,11 +14,20 @@ extension TorrentEngine: @retroactive @unchecked Sendable {}
 
 extension TKSwarmDiag: @retroactive @unchecked Sendable {}
 
-enum TorrentEngineError: Error {
+nonisolated enum TorrentEngineError: Error, LocalizedError {
     case failedToStart
     case metadataTimeout
     case noPlayableFile
     case bufferTimeout
+
+    var errorDescription: String? {
+        switch self {
+        case .failedToStart: "This torrent couldn’t be started. Try a different release."
+        case .metadataTimeout: "No peers answered for this release. Try again later, or pick one with more seeders."
+        case .noPlayableFile: "This release has no playable video file."
+        case .bufferTimeout: "This release isn’t sending any data. No seeders are reachable right now."
+        }
+    }
 }
 
 private final class OneShotData: @unchecked Sendable {

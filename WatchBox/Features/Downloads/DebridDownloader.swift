@@ -13,6 +13,18 @@ nonisolated final class DebridDownloader: NSObject, @unchecked Sendable {
         let totalBytes: Int64
     }
 
+    nonisolated enum Failure: LocalizedError {
+        case refused(status: Int)
+        case sizeMismatch
+
+        var errorDescription: String? {
+            switch self {
+            case .refused(let status): "The debrid server answered with error \(status) instead of the video."
+            case .sizeMismatch: "The downloaded file doesn’t match the server’s copy. Delete it and download again."
+            }
+        }
+    }
+
     private let destination: URL
     private let onProgress: @Sendable (Progress) -> Void
     private let onComplete: @Sendable (Result<URL, Error>) -> Void
@@ -29,6 +41,7 @@ nonisolated final class DebridDownloader: NSObject, @unchecked Sendable {
     private var attempt = 0
     private var isDone = false
     private var isCancelled = false
+    private var refusal: Error?                 // the last response was an HTTP error
     private var lastReportAt = Date.distantPast
 
     private var watchdog: Task<Void, Never>?
@@ -147,7 +160,22 @@ extension DebridDownloader: URLSessionDataDelegate {
 
         if status == 416 {
             completionHandler(.cancel)
-            finish(.success(destination))
+            // Nothing left to fetch, which is only "done" if the server's length is what's on disk.
+            lock.lock(); let have = downloaded, known = expectedTotal; lock.unlock()
+            let range = http?.value(forHTTPHeaderField: "Content-Range")   // "bytes */<length>"
+            let total = range?.split(separator: "/").last.flatMap({ Int64($0) }) ?? known
+            if total > 0, total == have {
+                finish(.success(destination))
+            } else {
+                finish(.failure(Failure.sizeMismatch))
+            }
+            return
+        }
+
+        guard status == 200 || status == 206 else {
+            // An error page, not the file: keep it out and let didCompleteWithError retry.
+            lock.lock(); refusal = Failure.refused(status: status); lock.unlock()
+            completionHandler(.cancel)
             return
         }
 
@@ -192,6 +220,8 @@ extension DebridDownloader: URLSessionDataDelegate {
         let cancelled = isCancelled
         let done = isDone
         let d = downloaded, t = expectedTotal
+        let refused = refusal
+        refusal = nil
         lock.unlock()
 
         if done { return }
@@ -207,6 +237,6 @@ extension DebridDownloader: URLSessionDataDelegate {
             return
         }
 
-        scheduleResume(after: error)
+        scheduleResume(after: refused ?? error)
     }
 }

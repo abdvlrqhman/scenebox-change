@@ -22,6 +22,8 @@ final class DownloadStore {
     @ObservationIgnored private var startTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private var lastDiskSample = Date.distantPast
+    @ObservationIgnored private var isMeasuringDisk = false
+    @ObservationIgnored private var measureDiskAgain = false
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
     private(set) var isOnCellular = false
     @ObservationIgnored private var waitingForWiFi: Set<String> = []
@@ -40,7 +42,8 @@ final class DownloadStore {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         BackupExclusion.exclude(root)
         load()
-        refreshDiskUsage()
+        diskUsage = Self.allocatedSize(under: root)   // before the queue starts below
+        lastDiskSample = Date()
         pollTask = Task { await pollForever() }
         startPathMonitor()
         startQueuedDownloads()
@@ -60,8 +63,13 @@ final class DownloadStore {
     private func pathChanged(isCellular: Bool) {
         guard isCellular != isOnCellular else { return }
         isOnCellular = isCellular
-        guard settings.wifiOnly else { return }
-        if isCellular {
+        applyWiFiOnly()
+    }
+
+    /// Pauses downloads on cellular while Wi-Fi only is on, and resumes the
+    /// ones that waited once it no longer applies. Also runs when the setting flips.
+    func applyWiFiOnly() {
+        if blockedByWiFiOnly {
             for download in downloads where download.phase.isPending {
                 waitingForWiFi.insert(download.id)
                 stopTransfer(download, phase: .paused)
@@ -134,7 +142,8 @@ final class DownloadStore {
             addedAt: Date(),
             debridURLString: stream.url?.absoluteString,
             debridFileName: stream.url.map { Self.fileName(from: $0, title: title) },
-            infoHash: stream.id.lowercased()
+            infoHash: stream.id.lowercased(),
+            episodeID: episode?.id
         )
         let download = Download(record: record, phase: .paused)
         downloads.insert(download, at: 0)
@@ -216,7 +225,7 @@ final class DownloadStore {
         if let busy = downloads.first(where: {
             $0.id != download.id && !$0.record.isDebrid && $0.record.torrentKey == key && $0.phase.isActive
         }) {
-            return "Queued · after \(busy.record.episodeLabel ?? busy.record.title) (same torrent)"
+            return "Starts after \(busy.record.episodeLabel ?? busy.record.title)"
         }
         if retiringTorrents[key] != nil { return "Queued · starting soon" }
         return nil
@@ -224,10 +233,7 @@ final class DownloadStore {
 
     private func start(_ download: Download) {
         guard hasRoomForMoreDownloads else {
-            download.phase = .failed
-            download.record.wantsRunning = false
-            download.failureMessage = DownloadError.storageCapReached.errorDescription
-            save()
+            failForStorageCap(download)
             return
         }
 
@@ -245,8 +251,8 @@ final class DownloadStore {
             defer { self.startTasks[download.id] = nil }
             do {
                 let session = try await self.makeSession(for: download)
-                guard download.phase == .resolving else {
-                    self.retire(session, key: download.record.torrentKey)   // paused while resolving
+                guard download.phase == .resolving, !Task.isCancelled else {
+                    self.retire(session, key: download.record.torrentKey)   // paused or deleted while resolving
                     return
                 }
                 download.session = session
@@ -259,6 +265,13 @@ final class DownloadStore {
                 self.handleStartFailure(download, error: error)
             }
         }
+    }
+
+    private func failForStorageCap(_ download: Download) {
+        stopTransfer(download, phase: .failed)
+        download.record.wantsRunning = false
+        download.failureMessage = DownloadError.storageCapReached.errorDescription
+        save()
     }
 
     /// Metadata lookups time out now and then (few peers, or iOS briefly cut
@@ -425,6 +438,7 @@ final class DownloadStore {
     func remove(_ download: Download) {
         waitingForWiFi.remove(download.id)
         metadataRetries[download.id] = nil
+        download.phase = .paused         // a lookup still in flight must not attach its engine
         download.debridDownloader?.cancel()
         download.debridDownloader = nil
         startTasks[download.id]?.cancel()
@@ -474,7 +488,7 @@ final class DownloadStore {
     @discardableResult
     func adoptStreamedFile(at file: URL, relativePath: String, stream: TorrentStream,
                            title: String, mediaID: String, mediaType: MediaType,
-                           posterURL: URL?, episodeLabel: String?) -> Bool {
+                           posterURL: URL?, episodeLabel: String?, episodeID: String? = nil) -> Bool {
         guard !stream.isDebrid, download(mediaID: mediaID, episodeLabel: episodeLabel) == nil,
               let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0 else {
             return false
@@ -511,7 +525,8 @@ final class DownloadStore {
             debridFileName: nil,
             localRelativePath: relativePath,
             infoHash: stream.id.lowercased(),
-            wantsRunning: false
+            wantsRunning: false,
+            episodeID: episodeID
         )
         downloads.insert(Download(record: record, phase: .completed), at: 0)
         save()
@@ -577,41 +592,45 @@ final class DownloadStore {
 
     // MARK: - Storage accounting
 
+    /// Measures in the background; a request during a walk runs one more after it.
     func refreshDiskUsage() {
         lastDiskSample = Date()
+        guard !isMeasuringDisk else { measureDiskAgain = true; return }
+        isMeasuringDisk = true
+        let root = self.root
+        Task {
+            let total = await Task.detached(priority: .utility) { Self.allocatedSize(under: root) }.value
+            diskUsage = total
+            isMeasuringDisk = false
+            if measureDiskAgain {
+                measureDiskAgain = false
+                refreshDiskUsage()
+            }
+        }
+    }
+
+    private nonisolated static func allocatedSize(under root: URL) -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
             at: root, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: []
-        ) else { diskUsage = 0; return }
+        ) else { return 0 }
 
         var total: Int64 = 0
         for case let url as URL in enumerator {
             let allocated = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize
             total += Int64(allocated ?? 0)
         }
-        diskUsage = total
+        return total
     }
 
     var hasRoomForMoreDownloads: Bool {
         settings.storageCapBytes <= 0 || diskUsage < settings.storageCapBytes
     }
 
+    /// Each folder goes once its engine has let go, so late pieces can't recreate it.
     func removeAll() {
-        for download in downloads {
-            startTasks[download.id]?.cancel()
-            download.debridDownloader?.cancel()
-            download.debridDownloader = nil
-            let session = download.session
-            download.session = nil
-            Task { await session?.stop() }
-        }
-        startTasks.removeAll()
-        waitingForWiFi.removeAll()
-        metadataRetries.removeAll()
-        downloads.removeAll()
-        try? FileManager.default.removeItem(at: root)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        save()
-        refreshDiskUsage()
+        let all = downloads
+        for download in all { download.phase = .paused }   // nothing queued starts while the list empties
+        for download in all { remove(download) }
     }
 
     // MARK: - Sessions
@@ -622,6 +641,7 @@ final class DownloadStore {
 
     private func makeSession(for download: Download) async throws -> LibtorrentSession {
         let directory = folder(for: download.id)
+        try Task.checkCancellation()     // deleted before the lookup began
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard let magnet = download.record.magnet else { throw DownloadError.badMagnet }
         return try await LibtorrentSession.resolve(
@@ -644,8 +664,9 @@ final class DownloadStore {
                 let stats = await session.currentStats()
                 guard download.phase == .downloading, download.session != nil else { continue }
 
-                if download.record.totalBytes == 0 {
-                    download.record.totalBytes = await session.streamFileLength()
+                let length = await session.streamFileLength()   // the listing's size is only an estimate
+                if length > 0, download.record.totalBytes != length {
+                    download.record.totalBytes = length
                     needsSave = true
                 }
                 if download.record.localRelativePath == nil {
@@ -676,6 +697,9 @@ final class DownloadStore {
 
             if downloads.contains(where: { $0.phase.isActive }) {
                 if Date().timeIntervalSince(lastDiskSample) >= 2 { refreshDiskUsage() }
+                if !hasRoomForMoreDownloads {
+                    for download in downloads where download.phase.isActive { failForStorageCap(download) }
+                }
                 if Date().timeIntervalSince(lastCheckpoint) >= 120 {
                     Task { await checkpointAll() }
                 }
@@ -697,12 +721,21 @@ final class DownloadStore {
         // it) go straight back into the queue.
         downloads = records.map {
             let phase: Download.Phase = $0.isComplete ? .completed : ($0.wantsRunning == true ? .queued : .paused)
-            return Download(record: $0, phase: phase)
+            let download = Download(record: $0, phase: phase)
+            if phase != .completed, let progress = $0.lastProgress {
+                download.progress = progress
+                download.downloadedBytes = Int64(progress * Double($0.totalBytes))
+            }
+            return download
         }
     }
 
     private func save() {
-        let records = downloads.map(\.record)
+        let records = downloads.map { download -> DownloadRecord in
+            var record = download.record
+            record.lastProgress = download.progress.isFinite ? download.progress : nil   // NaN would fail the whole encode
+            return record
+        }
         guard let data = try? JSONEncoder().encode(records) else { return }
         try? data.write(to: indexURL, options: .atomic)
     }

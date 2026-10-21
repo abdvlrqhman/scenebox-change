@@ -35,7 +35,9 @@ actor LibtorrentStreamServer {
 
     private let topPriority = 7
     private let readaheadPriority = 5
-    private let backgroundPriority = 0
+    /// The file's baseline (low). 0 would drop pieces from "wanted", so a file
+    /// with holes could count as complete.
+    private let backgroundPriority = 1
 
     private var playbackConnection: NWConnection?
     private var playbackGeneration = 0
@@ -416,7 +418,8 @@ actor LibtorrentStreamServer {
         var position = start
         while position <= end {
             try Task.checkCancellation()
-            if let generation, generation != playbackGeneration { return }
+            // Another connection took over playback; this body would end short of its Content-Length.
+            if let generation, generation != playbackGeneration { throw CancellationError() }
             let absolute = fileOffset + position
             let pieceIndex = Int(absolute / pieceLength)
 

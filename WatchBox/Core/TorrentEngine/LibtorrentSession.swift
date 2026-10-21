@@ -98,10 +98,13 @@ actor LibtorrentSession {
 
     func startStreaming(port: UInt16 = 8888, resumeFraction: Double? = nil) async throws -> URL {
         guard let file = streamFile else { throw TorrentEngineError.noPlayableFile }
+        // 0 once the engine has stopped; the server divides by it.
+        let pieceLength = engine.pieceLength
+        guard pieceLength > 0 else { throw TorrentEngineError.failedToStart }
         engine.prepareStreaming(forFile: file.index)
         let server = LibtorrentStreamServer(engine: engine, filePath: file.path,
                                             fileOffset: file.offset, fileLength: file.length,
-                                            waiters: waiters, pieceLength: engine.pieceLength, port: port)
+                                            waiters: waiters, pieceLength: pieceLength, port: port)
         await server.primeHeadAndTail()
         if let fraction = resumeFraction, fraction > 0, fraction < 1 {
             await server.updatePlayhead(absoluteOffset: file.offset + Int64(Double(file.length) * fraction))

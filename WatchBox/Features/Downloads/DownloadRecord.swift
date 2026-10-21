@@ -25,6 +25,8 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
     var localRelativePath: String?
     var infoHash: String?       // nil on records made before episode ids existed (id == hash)
     var wantsRunning: Bool?     // queued or downloading when last saved; resumes on launch
+    var episodeID: String?      // the catalog's id ("tt…:1:3", "kitsu:…:3"); nil on older records
+    var lastProgress: Double?   // fraction done when last saved, so a paused row keeps its percentage
 
     var posterURL: URL? { posterURLString.flatMap(URL.init(string:)) }
     var magnet: MagnetLink? { MagnetLink(string: magnetURI) }
@@ -67,7 +69,7 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
         guard let label = episodeLabel else { return (nil, nil, nil) }
         let numbers = label.dropFirst().split(separator: "E").compactMap { Int($0) }
         guard numbers.count == 2 else { return (nil, nil, nil) }
-        return (numbers[0], numbers[1], "\(mediaID):\(numbers[0]):\(numbers[1])")
+        return (numbers[0], numbers[1], episodeID ?? "\(mediaID):\(numbers[0]):\(numbers[1])")
     }
 
     var subtitleContext: SubtitleContext? {

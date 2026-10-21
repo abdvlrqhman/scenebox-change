@@ -82,12 +82,13 @@ final class BackgroundDownloads {
         guard DownloadStore.shared.hasPendingWork else { return }
         // Save resume data while we still have time, in case iOS ends the app.
         endCheckpointTask()
-        checkpointTask = UIApplication.shared.beginBackgroundTask(withName: "SceneBox.checkpoint") {
+        let id = UIApplication.shared.beginBackgroundTask(withName: "SceneBox.checkpoint") {
             MainActor.assumeIsolated { BackgroundDownloads.shared.endCheckpointTask() }
         }
+        checkpointTask = id
         Task {
             await DownloadStore.shared.checkpointAll()
-            endCheckpointTask()
+            if checkpointTask == id { endCheckpointTask() }   // a later trip to the background owns it otherwise
         }
     }
 
@@ -99,6 +100,7 @@ final class BackgroundDownloads {
     // System callbacks arrive on the main queue; they're routed through the
     // singleton so no closure has to capture an object across isolation.
     fileprivate func keepAliveNeedsRestart() { keepAlive?.restart() }
+    fileprivate func keepAliveTaskExpired() { keepAlive?.backgroundTaskExpired() }
     fileprivate func audioServicesReset() { keepAlive?.reset() }
 
     @available(iOS 26.0, *)
@@ -215,6 +217,12 @@ private final class AudioKeepAlive {
         activatedSession = false
     }
 
+    /// iOS ends the app if an expired task is still open when the handler returns.
+    func backgroundTaskExpired() {
+        endBackgroundTask()
+        restart()
+    }
+
     func restart() {
         guard !stopped else { return }
         loop?.cancel()
@@ -240,7 +248,7 @@ private final class AudioKeepAlive {
 
             let previous = backgroundTask
             backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "SceneBox.downloads") {
-                MainActor.assumeIsolated { BackgroundDownloads.shared.keepAliveNeedsRestart() }
+                MainActor.assumeIsolated { BackgroundDownloads.shared.keepAliveTaskExpired() }
             }
             if previous != .invalid { UIApplication.shared.endBackgroundTask(previous) }
 

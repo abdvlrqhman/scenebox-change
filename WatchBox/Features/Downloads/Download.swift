@@ -47,7 +47,7 @@ final class Download: Identifiable {
     var statusText: String {
         switch phase {
         case .queued:
-            if let failureMessage { failureMessage }   // e.g. "Waits for S1E2 (same torrent)"
+            if let failureMessage { failureMessage }   // e.g. "Starts after S1E2"
             else { progress > 0 ? "Queued · \(ByteFormat.percentDetailed(progress))" : "Queued" }
         case .resolving: "Fetching metadata…"
         case .downloading:

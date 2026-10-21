@@ -220,7 +220,11 @@ final class AppSettings {
     nonisolated static let streamingPortRange = 1024...65535
 
     var wifiOnly = false {
-        didSet { persist(wifiOnly, .wifiOnly) }
+        didSet {
+            persist(wifiOnly, .wifiOnly)
+            // Not from init: DownloadStore.shared's init reads AppSettings.shared.
+            if isLoaded, wifiOnly != oldValue { DownloadStore.shared.applyWiFiOnly() }
+        }
     }
 
     var customTrackers: String = "" {
@@ -256,6 +260,7 @@ final class AppSettings {
     // MARK: Persistence
 
     private let defaults: UserDefaults
+    @ObservationIgnored private var isLoaded = false
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -344,6 +349,7 @@ final class AppSettings {
         if let raw = defaults.array(forKey: Key.enabledSources.rawValue) as? [String] {
             enabledSources = Set(raw.compactMap(StreamProvider.init(rawValue:)))
         }
+        isLoaded = true
     }
 
     private enum Key: String {

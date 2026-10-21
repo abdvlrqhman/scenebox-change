@@ -53,15 +53,22 @@ nonisolated public struct MagnetLink: Sendable, Equatable {
 
     public var magnetURI: String {
         var uri = "magnet:?xt=urn:btih:\(infoHash.hexString)"
-        if let displayName, let enc = displayName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+        if let displayName, let enc = displayName.addingPercentEncoding(withAllowedCharacters: Self.valueAllowed) {
             uri += "&dn=\(enc)"
         }
         for t in trackers {
-            guard let enc = t.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { continue }
+            guard let enc = t.absoluteString.addingPercentEncoding(withAllowedCharacters: Self.valueAllowed) else { continue }
             uri += "&tr=\(enc)"
         }
         return uri
     }
+
+    /// A query value: `&`, `=` and `+` would otherwise split or change it.
+    private static let valueAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return allowed
+    }()
 }
 
 nonisolated extension Data {

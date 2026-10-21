@@ -80,7 +80,8 @@ jobs:
             -skipMacroValidation \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee build.log | xcbeautify --renderer github-actions
+            build 2>&1 | tee build.log | xcbeautify --renderer github-actions \
+            || { grep -E "error:" build.log | sort -u | head -40; exit 1; }
 
       - name: Package IPA
         run: |
@@ -150,4 +151,5 @@ jobs:
             -derivedDataPath build/tv -clonedSourcePackagesDirPath "$PACKAGES" \
             -skipPackagePluginValidation -skipMacroValidation \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee build-tv.log | xcbeautify --renderer github-actions
+            build 2>&1 | tee build-tv.log | xcbeautify --renderer github-actions \
+            || { grep -E "error:" build-tv.log | sort -u | head -40; exit 1; }

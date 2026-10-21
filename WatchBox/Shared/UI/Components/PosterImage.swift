@@ -33,5 +33,7 @@ struct PosterImage: View {
                     .scaledToFill()
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            // Dark posters keep an edge on the ink.
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(Theme.hairline))
     }
 }

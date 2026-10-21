@@ -53,6 +53,7 @@ jobs:
             WatchBox/Features/Cast/CastServer.swift \
             WatchBox/Features/Cast/MatroskaAudio.swift \
             WatchBox/Features/Player/OriginalAudio.swift \
+            WatchBox/Shared/Formatting/OpaqueBounds.swift \
             scripts/selftest/main.swift
           build/selftest build/fixtures
 

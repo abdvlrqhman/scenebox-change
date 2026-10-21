@@ -29,7 +29,9 @@ struct EmptyStateView: View {
             }
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.accent)
+                    .foregroundStyle(Theme.onAccent)
                     .padding(.top, 4)
             }
         }

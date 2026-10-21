@@ -236,6 +236,13 @@ check(castSubs?.srt.prefix(3) == Data([0xEF, 0xBB, 0xBF]) && castSRT.contains("0
       "ASS → SRT for TVs, with the UTF-8 mark and CRLF")
 check(castSubs.map { String(decoding: $0.vtt, as: UTF8.self) }?.contains("WEBVTT\n\n00:00:01.500 --> 00:00:03.000") == true, "and WebVTT for browsers")
 
+// Title logos: the see-through margins around the art.
+var canvas = [UInt8](repeating: 0, count: 100)
+for y in 5..<7 { for x in 3..<7 { canvas[y * 10 + x] = 255 } }
+canvas[0] = 6                                                   // faint dust below the threshold
+check(OpaqueBounds.rect(alpha: canvas, width: 10, height: 10) == CGRect(x: 3, y: 5, width: 4, height: 2), "logo bounds: 4×2 block found")
+check(OpaqueBounds.rect(alpha: [UInt8](repeating: 0, count: 100), width: 10, height: 10) == nil, "logo bounds: empty canvas")
+
 // Cast audio: a Matroska track list rewritten so TVs play the wanted language.
 func ebmlElement(_ id: [UInt8], _ body: [UInt8]) -> [UInt8] { id + [0x40 | UInt8(body.count >> 8), UInt8(body.count & 0xFF)] + body }
 func ebmlNumber(_ id: [UInt8], _ value: UInt8) -> [UInt8] { id + [0x81, value] }

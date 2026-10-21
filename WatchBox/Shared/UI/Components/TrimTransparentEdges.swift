@@ -3,6 +3,7 @@
 //  SceneBox
 //
 
+import CoreGraphics
 import Kingfisher
 import UIKit
 

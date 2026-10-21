@@ -3,6 +3,7 @@
 //  SceneBox
 //
 
+import CoreGraphics
 import Foundation
 
 nonisolated enum OpaqueBounds {
@@ -21,6 +22,8 @@ nonisolated enum OpaqueBounds {
             }
         }
         guard maxX >= 0 else { return nil }
-        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        let boxWidth: Int = maxX - minX + 1
+        let boxHeight: Int = maxY - minY + 1
+        return CGRect(x: minX, y: minY, width: boxWidth, height: boxHeight)
     }
 }

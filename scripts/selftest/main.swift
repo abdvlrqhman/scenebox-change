@@ -1,6 +1,7 @@
 // Checks the subtitle helpers on real bytes (compiled with swiftc in CI):
 // zip extraction, timestamp shifting both ways, frame-rate stretching and
 // cue parsing. Exits non-zero on the first failure.
+import CoreGraphics
 import Foundation
 
 var failures = 0

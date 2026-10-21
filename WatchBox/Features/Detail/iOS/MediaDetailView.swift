@@ -235,7 +235,9 @@ struct MediaDetailView: View {
                 actions(for: detail)
                 metadata(for: detail)
                 if let synopsis = detail.description, !synopsis.isEmpty {
-                    Section("Synopsis") { Text(synopsis).font(.callout) }
+                    ExpandableText(text: synopsis, lineLimit: 3, font: .callout, color: Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
                 }
                 if !model.castMembers.isEmpty || !detail.cast.isEmpty {
                     CastRow(members: model.castMembers, names: detail.cast)
@@ -263,39 +265,41 @@ struct MediaDetailView: View {
 
     private func actions(for detail: MediaDetail) -> some View {
         let watchFraction = watchProgressFraction(for: detail)
-        let labelHeight: CGFloat = 32
+        let busy = streamer.isPreparing || isAutoResolving || batchStatus != nil
         return HStack(spacing: 12) {
             Button {
                 watch(episode: resumeEpisode(for: detail))
             } label: {
-                VStack(spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.fill")
-                        ViewThatFits(in: .horizontal) {
-                            Text(resumeLabel(for: detail) ?? "Watch")
-                                .lineLimit(1)
-                            Text(resumeLabel(for: detail, compact: true) ?? "Watch")
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.75)
-                        }
-                        if isWatchTargetDownloaded(for: detail) {
-                            Image(systemName: "arrow.down.circle.fill").font(.caption)
-                        }
+                HStack(spacing: 8) {
+                    Image(systemName: "play.fill")
+                    ViewThatFits(in: .horizontal) {
+                        Text(resumeLabel(for: detail) ?? "Watch")
+                            .lineLimit(1)
+                        Text(resumeLabel(for: detail, compact: true) ?? "Watch")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
-                    if let watchFraction {
-                        WatchProgressBar(fraction: watchFraction)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 3)
-                            .padding(.horizontal, 4)
+                    if isWatchTargetDownloaded(for: detail) {
+                        Image(systemName: "arrow.down.circle.fill").font(.caption)
                     }
                 }
-                .fontWeight(.semibold)
+                .font(.headline)
                 .foregroundStyle(Theme.onAccent)
-                .frame(maxWidth: .infinity, minHeight: labelHeight)
-                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .overlay(alignment: .bottom) {
+                    if let watchFraction {
+                        WatchProgressBar(fraction: watchFraction)
+                            .foregroundStyle(Theme.onAccent)
+                            .frame(height: 3)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 8)
+                    }
+                }
+                .background(Theme.accent, in: Capsule())
+                .contentShape(Capsule())
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
+            .buttonStyle(.pressable)
             .layoutPriority(1)          // the main action keeps its label; the rest are icons
 
             if detail.type == .series {
@@ -316,24 +320,19 @@ struct MediaDetailView: View {
                     }
                     .disabled(downloadableEpisodes(season).isEmpty)
                 } label: {
-                    Image(systemName: "arrow.down.circle")
-                        .frame(minHeight: labelHeight)
-                        .padding(.vertical, 4)
+                    actionIcon("arrow.down.circle", tint: .white)
                 }
-                .buttonStyle(.bordered)
-                .tint(.white)
                 .accessibilityLabel("Download")
             } else {
+                let downloaded = downloads.isDownloaded(mediaID: mediaID)
                 Button {
                     requestDownload(episode: firstEpisode(of: detail))
                 } label: {
-                    Image(systemName: downloads.isDownloaded(mediaID: mediaID) ? "arrow.down.circle.fill" : "arrow.down.circle")
-                        .frame(minHeight: labelHeight)
-                        .padding(.vertical, 4)
+                    actionIcon(downloaded ? "arrow.down.circle.fill" : "arrow.down.circle",
+                               tint: downloaded ? Theme.success : .white)
                 }
-                .buttonStyle(.bordered)
-                .tint(downloads.isDownloaded(mediaID: mediaID) ? Theme.success : .white)
-                .accessibilityLabel("Download")
+                .buttonStyle(.pressable)
+                .accessibilityLabel(downloaded ? "Downloaded" : "Download")
             }
 
             Button {
@@ -341,12 +340,9 @@ struct MediaDetailView: View {
                                  title: detail.name.isEmpty ? fallbackTitle : detail.name,
                                  posterURL: detail.posterURL)
             } label: {
-                Image(systemName: isInWatchlist ? "bookmark.fill" : "bookmark")
-                    .frame(minHeight: labelHeight)
-                    .padding(.vertical, 4)
+                actionIcon(isInWatchlist ? "bookmark.fill" : "bookmark", tint: isInWatchlist ? Theme.accent : .white)
             }
-            .buttonStyle(.bordered)
-            .tint(isInWatchlist ? Theme.accent : .white)
+            .buttonStyle(.pressable)
             .sensoryFeedback(.selection, trigger: isInWatchlist)
             .accessibilityLabel(isInWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
 
@@ -359,20 +355,28 @@ struct MediaDetailView: View {
                     toast = ToastMessage(text: watched ? "Marked as unwatched" : "Marked as watched",
                                          systemImage: watched ? "eye.slash" : "checkmark.circle.fill")
                 } label: {
-                    Image(systemName: watched ? "checkmark.circle.fill" : "checkmark.circle")
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(minHeight: labelHeight)
-                        .padding(.vertical, 4)
+                    actionIcon(watched ? "checkmark.circle.fill" : "checkmark.circle", tint: watched ? Theme.accent : .white)
                 }
-                .buttonStyle(.bordered)
-                .tint(watched ? Theme.accent : .white)
+                .buttonStyle(.pressable)
                 .accessibilityLabel(watched ? "Mark as unwatched" : "Mark as watched")
             }
         }
-        .controlSize(.large)
         .frame(maxWidth: Platform.isMac ? 480 : .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .disabled(streamer.isPreparing || isAutoResolving || batchStatus != nil)
+        .padding(.horizontal, 16)
+        .disabled(busy)
+        .opacity(busy ? 0.6 : 1)
+    }
+
+    /// The round companions to the play button: same height, quiet surface.
+    private func actionIcon(_ name: String, tint: Color) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 19, weight: .semibold))
+            .foregroundStyle(tint)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: 52, height: 52)
+            .background(Theme.surface, in: Circle())
+            .overlay(Circle().strokeBorder(Theme.hairline))
+            .contentShape(Circle())
     }
 
     private var isInWatchlist: Bool { watchlist.contains(mediaID) }
@@ -678,21 +682,18 @@ struct MediaDetailView: View {
         }
     }
 
+    /// What the line under the title doesn't say: Top 10 place, watched, trailer.
+    @ViewBuilder
     private func metadata(for detail: MediaDetail) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let watchedMovie = detail.type == .movie && progressStore.isMovieWatched(mediaID)
+        if HomeModel.topTenPlaces[mediaID] != nil || watchedMovie || detail.trailerURL != nil {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     if let place = HomeModel.topTenPlaces[mediaID] {
                         Chip(text: place, systemImage: "flame.fill")
                     }
-                    if detail.type == .movie, progressStore.isMovieWatched(mediaID) {
+                    if watchedMovie {
                         Chip(text: "Watched", systemImage: "checkmark", tint: .white)
-                    }
-                    if let rating = detail.imdbRating {
-                        Chip(text: String(format: "%.1f", rating), systemImage: "star.fill", tint: .yellow)
-                    }
-                    if let runtime = detail.runtime {
-                        Chip(text: runtime, systemImage: "clock")
                     }
                     if let trailer = detail.trailerURL {
                         Button { openURL(trailer) } label: {
@@ -701,11 +702,8 @@ struct MediaDetailView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Play trailer on YouTube")
                     }
-                    ForEach(detail.genres, id: \.self) { genre in
-                        Chip(text: genre)
-                    }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -716,9 +714,8 @@ struct MediaDetailView: View {
         if !model.similar.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("More Like This")
-                    .font(.display(22, weight: .bold))
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.horizontal, 20)
+                    .sectionTitleStyle()
+                    .padding(.horizontal, 16)
                 HorizontalShelfScroller {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(model.similar) { item in
@@ -727,7 +724,7 @@ struct MediaDetailView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 16)
                 }
             }
         }
@@ -751,20 +748,7 @@ struct MediaDetailView: View {
                 CreditLine(label: "Awards", value: awards)
             }
         }
-        .padding(.horizontal, 20)
-    }
-
-    @ViewBuilder
-    private func Section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.display(22, weight: .bold))
-                .accessibilityAddTraits(.isHeader)
-            content()
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
     }
 }
 
@@ -817,7 +801,7 @@ private struct BannerHeader: View {
             }
 
             titleTreatment
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 4)
         }
         .frame(height: height, alignment: .bottomLeading)
@@ -827,6 +811,7 @@ private struct BannerHeader: View {
         VStack(alignment: .leading, spacing: 8) {
             if let logoURL = detail?.logoURL {
                 KFImage(logoURL)
+                    .setProcessor(TrimTransparentEdges())
                     .resizable()
                     .placeholder { titleText }
                     .scaledToFit()
@@ -835,10 +820,18 @@ private struct BannerHeader: View {
                 titleText
             }
 
-            if let summary = detail?.summaryLine, !summary.isEmpty {
-                Text(summary)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.75))
+            let summary = detail?.summaryLine ?? ""
+            if detail?.imdbRating != nil || !summary.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if let rating = detail?.imdbRating {
+                        Label(String(format: "%.1f", rating), systemImage: "star.fill")
+                            .labelStyle(.titleAndIcon)
+                            .accessibilityLabel(String(format: "Rated %.1f", rating))
+                    }
+                    if !summary.isEmpty { Text(summary).lineLimit(2) }
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.8))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -860,9 +853,8 @@ private struct CastRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Cast")
-                .font(.display(22, weight: .bold))
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, 20)
+                .sectionTitleStyle()
+                .padding(.horizontal, 16)
 
             HorizontalShelfScroller {
                 LazyHStack(alignment: .top, spacing: 12) {
@@ -879,7 +871,7 @@ private struct CastRow: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
             }
         }
     }

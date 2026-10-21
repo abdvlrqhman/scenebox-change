@@ -10,6 +10,7 @@ import SwiftUI
 
 struct PosterCard: View {
     let item: MediaResult
+    var showsSavedBadge = true
     @Environment(WatchlistStore.self) private var watchlist: WatchlistStore?
     @Environment(WatchProgressStore.self) private var progress: WatchProgressStore?
 
@@ -21,7 +22,7 @@ struct PosterCard: View {
                 if watchedMovie {
                     WatchedBadge()
                         .padding(6)
-                } else if watchlist?.contains(item.id) == true {
+                } else if showsSavedBadge, watchlist?.contains(item.id) == true {
                     Image(systemName: "bookmark.fill")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white)

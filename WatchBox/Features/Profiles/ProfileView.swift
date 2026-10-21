@@ -368,13 +368,11 @@ struct ProfileView: View {
         .accessibilityLabel("Profiles")
     }
 
+    @ViewBuilder
     private func profileHeader(_ profile: Profile) -> some View {
+        #if os(tvOS)
         VStack(spacing: 14) {
-            #if os(tvOS)
             ProfileAvatar(profile: profile, size: 180)
-            #else
-            ProfileAvatar(profile: profile, size: 110)
-            #endif
             VStack(spacing: 6) {
                 Text(profile.name)
                     .font(.title2.weight(.semibold))
@@ -383,23 +381,40 @@ struct ProfileView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            HStack(spacing: 12) {
-                Button {
-                    editing = .edit(profile)
-                } label: {
-                    Label("Edit Profile", systemImage: "pencil")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.bordered)
-                .tint(.white)
+            Button {
+                editing = .edit(profile)
+            } label: {
+                Label("Edit Profile", systemImage: "pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
             }
+            .buttonStyle(.bordered)
+            .tint(.white)
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .padding(.bottom, 24)
+        #else
+        // One left-aligned row, like every other screen; the settings start higher.
+        HStack(spacing: 14) {
+            ProfileAvatar(profile: profile, size: 64)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.name)
+                    .font(.display(28))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text("Progress is saved on this device")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer(minLength: 8)
+            HeaderIconButton(systemImage: "pencil", label: "Edit profile") { editing = .edit(profile) }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 20)
+        #endif
     }
 
     private var portBinding: Binding<Int> {

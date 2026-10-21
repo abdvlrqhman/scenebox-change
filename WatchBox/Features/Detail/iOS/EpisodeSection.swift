@@ -28,19 +28,19 @@ struct EpisodeSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
 
             let episodes = detail.episodes(inSeason: selectedSeason)
             if isSelecting, !episodes.isEmpty {
                 selectionBar(for: episodes)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 16)
             }
 
             if episodes.isEmpty {
                 Text("No episodes listed for this season.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 16)
             } else if usesCards {
                 HorizontalShelfScroller {
                     LazyHStack(alignment: .top, spacing: 16) {
@@ -68,7 +68,7 @@ struct EpisodeSection: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 6)
                 }
             } else {
@@ -94,7 +94,7 @@ struct EpisodeSection: View {
                             }
                         }
                         if episode.id != episodes.last?.id {
-                            Divider().overlay(.white.opacity(0.08)).padding(.leading, 20)
+                            Divider().overlay(.white.opacity(0.08)).padding(.leading, 16)
                         }
                     }
                 }
@@ -106,7 +106,7 @@ struct EpisodeSection: View {
     private var header: some View {
         HStack(spacing: 12) {
             Text("Episodes")
-                .font(.headline)
+                .sectionTitleStyle()
             Spacer()
             if isSelecting {
                 Button("Cancel") {
@@ -297,7 +297,11 @@ private struct EpisodeRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            thumbnail
+            // The still is the play button, like the row around it.
+            Button(action: selection != nil ? onToggleSelection : onWatch) { thumbnail }
+                .buttonStyle(.pressable)
+                .disabled(selection == nil && episode.isUnaired)
+                .accessibilityLabel("Play episode \(episode.episode)")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -332,28 +336,18 @@ private struct EpisodeRow: View {
                 }
                 .frame(width: 44, height: 44)
             } else {
-                VStack(spacing: 8) {
-                    Button(action: onWatch) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 34))
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    Button(action: onDownload) {
-                        EpisodeDownloadGlyph(state: downloadState, size: 30, download: download)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .disabled(downloadState != .idle)
-                    .accessibilityLabel(downloadState.isDownloaded ? "Downloaded" : "Download")
+                Button(action: onDownload) {
+                    EpisodeDownloadGlyph(state: downloadState, size: 30, download: download)
+                        .frame(width: 44, height: 63)           // centred on the still
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(episode.isUnaired)
+                .disabled(downloadState != .idle || episode.isUnaired)
                 .opacity(episode.isUnaired ? 0.4 : 1)
+                .accessibilityLabel(downloadState.isDownloaded ? "Downloaded" : "Download")
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .opacity(selection != nil && downloadState != .idle ? 0.55 : 1)
@@ -386,6 +380,15 @@ private struct EpisodeRow: View {
             }
             .overlay(alignment: .topTrailing) {
                 if isWatched { WatchedBadge(size: 18).padding(4) }
+            }
+            .overlay {
+                if selection == nil, !episode.isUnaired {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.black.opacity(0.45), in: Circle())
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }

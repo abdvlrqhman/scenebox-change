@@ -64,7 +64,7 @@ struct HomeView: View {
                         ContinueWatchingShelf(items: progress.continueItems)
                     }
                     if !unwatchedWatchlist.isEmpty {
-                        PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist)
+                        PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist, showsSavedBadge: false)
                     }
                     if let because = model.becauseYouWatched {
                         PosterShelf(title: because.title, items: because.items, seeAll: because.destination)
@@ -208,7 +208,7 @@ private struct FeaturedCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if let logo = item.logoURL {
                 KFImage(logo)
-                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 600, height: 240)))
+                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 600, height: 240)) |> TrimTransparentEdges())
                     .cancelOnDisappear(true)
                     .placeholder { titleText }
                     .resizable()
@@ -223,14 +223,13 @@ private struct FeaturedCard: View {
                 if let rating = item.imdbRating, !rating.isEmpty {
                     Label(rating, systemImage: "star.fill")
                         .labelStyle(.titleAndIcon)
-                        .foregroundStyle(.yellow)
                 }
                 if !item.genres.isEmpty {
                     Text(item.genres.prefix(2).joined(separator: ", "))
                         .lineLimit(1)
                 }
             }
-            .font(.caption.weight(.semibold))
+            .font(.footnote.weight(.semibold))
             .foregroundStyle(.white.opacity(0.8))
         }
         .padding(18)
@@ -299,18 +298,31 @@ private struct PosterShelf: View {
     let items: [MediaResult]
     var seeAll: CatalogDestination?
     var ranked = false
+    /// Off in the Watchlist row, where every poster is saved.
+    var showsSavedBadge = true
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         VStack(alignment: .leading, spacing: Platform.isMac ? 14 : 12) {
-            SectionHeader(title: title) {
+            Group {
                 if let seeAll {
+                    // The title itself opens the full list; no extra link to compete with the posters.
                     NavigationLink(value: seeAll) {
-                        Text("See all")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.accent)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(title)
+                                .sectionTitleStyle()
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 15, weight: .heavy))
+                                .foregroundStyle(Theme.textTertiary)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.pressable)
+                    .accessibilityHint("Shows the full list")
+                } else {
+                    SectionHeader(title)
                 }
             }
             .padding(.horizontal, 16)
@@ -322,7 +334,8 @@ private struct PosterShelf: View {
                             if ranked {
                                 RankedCard(rank: index + 1, item: item, width: PosterMetrics.shelfWidth(sizeClass))
                             } else {
-                                PosterCard(item: item).frame(width: PosterMetrics.shelfWidth(sizeClass))
+                                PosterCard(item: item, showsSavedBadge: showsSavedBadge)
+                                    .frame(width: PosterMetrics.shelfWidth(sizeClass))
                             }
                         }
                     }

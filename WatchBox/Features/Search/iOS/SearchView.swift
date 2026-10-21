@@ -47,9 +47,7 @@ struct SearchScreen: View {
 
     private var phoneHeader: some View {
         VStack(spacing: 10) {
-            RootHeader(title: "Search") {
-                if !model.isSearching { filterMenu }
-            }
+            RootHeader("Search")
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Theme.textSecondary)
@@ -79,8 +77,32 @@ struct SearchScreen: View {
             .overlay(Capsule().strokeBorder(macFieldFocused ? Theme.accent.opacity(0.6) : Theme.hairline))
             .animation(Theme.snappy, value: macFieldFocused)
             .padding(.horizontal, 16)
+
+            if !model.isSearching {
+                // What the grid shows is its title, and tapping it changes the filters.
+                filterMenu {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(browseTitle)
+                            .sectionTitleStyle()
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(filtersActive ? Theme.accent : Theme.textTertiary)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("\(browseTitle), change filters")
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+            }
         }
         .padding(.bottom, 12)
+    }
+
+    /// "Popular Movies", "New Drama TV Shows".
+    private var browseTitle: String {
+        [model.feed.title, model.genre, model.scope.title].compactMap { $0 }.joined(separator: " ")
     }
 
     /// Home's search button lands here with the keyboard up.
@@ -118,7 +140,13 @@ struct SearchScreen: View {
             .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .frame(maxWidth: 520)
 
-            if !model.isSearching { filterMenu }
+            if !model.isSearching {
+                filterMenu {
+                    Label("Filters", systemImage: filtersActive
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                }
+            }
             Spacer(minLength: 0)
             if model.isLoading { ProgressView().controlSize(.small) }
         }
@@ -130,7 +158,7 @@ struct SearchScreen: View {
 
     // MARK: - Filters
 
-    private var filterMenu: some View {
+    private func filterMenu<MenuLabel: View>(@ViewBuilder label: () -> MenuLabel) -> some View {
         Menu {
             if filtersActive {
                 Button { resetFilters() } label: {
@@ -155,22 +183,7 @@ struct SearchScreen: View {
                 }
             }
         } label: {
-            let label = Label("Filters", systemImage: filtersActive
-                              ? "line.3.horizontal.decrease.circle.fill"
-                              : "line.3.horizontal.decrease.circle")
-            if Platform.isMac {
-                label
-            } else {
-                // Styled inside the label so the whole 44pt square opens the menu.
-                label
-                    .labelStyle(.iconOnly)
-                    .font(.headline.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(Theme.surface, in: Circle())
-                    .overlay(Circle().strokeBorder(Theme.hairline))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
+            label()
         }
         .tint(filtersActive ? Theme.accent : .white)
         .onChange(of: model.scope) { _, _ in model.run() }
@@ -216,7 +229,7 @@ struct SearchResults: View {
     /// Poster-shaped placeholders while the first page loads.
     private var placeholderGrid: some View {
         ScrollView {
-            LazyVGrid(columns: PosterMetrics.gridColumns(sizeClass), spacing: 16) {
+            LazyVGrid(columns: PosterMetrics.gridColumns(sizeClass), spacing: 12) {
                 ForEach(0..<12, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: Theme.posterCorner, style: .continuous)
                         .fill(Theme.surface)
@@ -231,7 +244,7 @@ struct SearchResults: View {
 
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: PosterMetrics.gridColumns(sizeClass), spacing: 16) {
+            LazyVGrid(columns: PosterMetrics.gridColumns(sizeClass), spacing: 12) {
                 ForEach(model.results) { item in
                     PosterLink(item: item) {
                         PosterCard(item: item)

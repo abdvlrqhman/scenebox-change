@@ -505,8 +505,10 @@ private struct DownloadItemRow: View {
             Button(action: onPrimary) {
                 Image(systemName: primaryIcon)
                     .font(.system(size: 30))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(download.phase == .completed ? Theme.accent : .white)
+                    .symbolRenderingMode(.palette)
+                    // Play is the yellow "do this" disc; pause and resume stay quiet.
+                    .foregroundStyle(download.phase == .completed ? Theme.onAccent : .white,
+                                     download.phase == .completed ? Theme.accent : Theme.elevated)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
@@ -540,7 +542,7 @@ private struct DownloadItemRow: View {
         switch style {
         case .standalone: download.record.title
         case .episode: download.phase == .completed
-            ? ByteFormat.size(download.record.totalBytes)
+            ? (watched ? "Watched" : "Ready to watch")
             : download.statusText
         }
     }
@@ -553,19 +555,17 @@ private struct DownloadItemRow: View {
                 Text(ByteFormat.size(download.record.totalBytes))
                     .font(.caption).monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
-            } else if let watchFraction {
-                ProgressView(value: watchFraction)
-                    .tint(.white.opacity(0.7))
-                    .frame(maxWidth: 140)
-            } else if watched {
-                Label("Watched", systemImage: "checkmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.textSecondary)
             } else {
-                Text(download.record.releaseName)
-                    .font(.caption)
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    if let watchFraction {
+                        ProgressView(value: watchFraction)
+                            .tint(.white.opacity(0.7))
+                            .frame(maxWidth: 140)
+                    }
+                    Text(ByteFormat.size(download.record.totalBytes))
+                        .font(.caption).monospacedDigit()
+                        .foregroundStyle(Theme.textTertiary)
+                }
             }
         default:
             VStack(alignment: .leading, spacing: 4) {

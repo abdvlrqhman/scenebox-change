@@ -51,6 +51,8 @@ jobs:
             WatchBox/Features/Cast/DLNA.swift \
             WatchBox/Features/Cast/LocalNetwork.swift \
             WatchBox/Features/Cast/CastServer.swift \
+            WatchBox/Features/Cast/MatroskaAudio.swift \
+            WatchBox/Features/Player/OriginalAudio.swift \
             scripts/selftest/main.swift
           build/selftest build/fixtures
 

@@ -331,10 +331,35 @@ struct CastingOverlay: View {
             Button(action: onClose) { circleIcon("chevron.down") }
                 .accessibilityLabel("Close")
             Spacer(minLength: 0)
+            if cast.audioTracks.count > 1 {
+                Menu {
+                    Picker("Audio on the TV", selection: Binding(
+                        get: { cast.audioTrack },
+                        set: { index in Task { await cast.chooseAudioTrack(index) } })) {
+                        ForEach(Array(cast.audioTracks.enumerated()), id: \.offset) { index, track in
+                            Text(Self.label(track, index)).tag(index)
+                        }
+                    }
+                } label: { circleIcon("waveform") }
+                    .accessibilityLabel("Audio")
+            }
             Button(action: onSubtitles) { circleIcon("captions.bubble") }
                 .accessibilityLabel("Subtitles")
         }
         .buttonStyle(.plain)
+    }
+
+    /// "English · Dolby 5.1", or "Track 2" when the file names nothing.
+    private static func label(_ track: MatroskaAudio.Track, _ index: Int) -> String {
+        let code = track.language.split(separator: "-").first.map(String.init) ?? track.language
+        let language = ["und", "zxx", "mul"].contains(code) ? nil
+            : Locale.current.localizedString(forLanguageCode: code)
+        switch (language, track.name) {
+        case let (language?, name?): return name.localizedCaseInsensitiveContains(language) ? name : "\(language) · \(name)"
+        case let (language?, nil): return language
+        case let (nil, name?): return name
+        case (nil, nil): return "Track \(index + 1)"
+        }
     }
 
     /// The artwork framed like the screen it's playing on.
@@ -489,6 +514,8 @@ struct CastingOverlay: View {
             .font(.subheadline.weight(.bold))
             .frame(width: 40, height: 40)
             .background(.ultraThinMaterial, in: Circle())
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 }
 #endif

@@ -529,13 +529,22 @@ struct PlaybackScreen: View {
         guard tracks.count > 1 else { return }   // more may still be discovered
 
         if let selected = player.selectedAudioTrack,
-           OriginalAudio.matches(selected, language: code) {
+           speaks(selected, code) {
             originalAudioSatisfied = true
             return
         }
-        guard let match = tracks.first(where: { OriginalAudio.matches($0, language: code) }) else { return }
+        guard let match = tracks.first(where: { speaks($0, code) }) else { return }
         player.selectedAudioTrack = match
         originalAudioSatisfied = true
+    }
+
+    private func speaks(_ track: Track, _ code: String) -> Bool {
+        OriginalAudio.matches(language: track.language, labels: [track.name, track.trackDescription ?? ""], code: code)
+    }
+
+    /// What the TV should speak, best first: the track playing here, then the one this player would pick.
+    private var castAudioLanguages: [String] {
+        [player.selectedAudioTrack?.language, targetAudioLanguage].compactMap { $0 }.filter { !$0.isEmpty }
     }
 
     #if DEBUG
@@ -719,7 +728,8 @@ struct PlaybackScreen: View {
     private func openCastPicker() {
         showCastPicker = true
         let media = CastSession.Media(source: sourceURL, title: title,
-                                      durationSeconds: knownDuration.asSeconds)
+                                      durationSeconds: knownDuration.asSeconds,
+                                      audioLanguages: castAudioLanguages)
         let subtitleFile = subs.fileOnScreen
         Task { await cast.prepare(media, subtitleFile: subtitleFile) }
     }
@@ -731,11 +741,12 @@ struct PlaybackScreen: View {
         lastGoodPosition = from
         recordProgress()
         upNextRemaining = nil
+        let media = CastSession.Media(source: sourceURL, title: title,
+                                      durationSeconds: knownDuration.asSeconds,
+                                      audioLanguages: castAudioLanguages)
         player.stop()
         Task {
-            await cast.prepare(CastSession.Media(source: sourceURL, title: title,
-                                                 durationSeconds: knownDuration.asSeconds),
-                               subtitleFile: subs.fileOnScreen)
+            await cast.prepare(media, subtitleFile: subs.fileOnScreen)
             await cast.cast(to: device, from: from.asSeconds)
         }
     }

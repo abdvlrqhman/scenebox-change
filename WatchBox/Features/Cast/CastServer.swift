@@ -77,6 +77,8 @@ actor CastServer {
         var fileExtension: String
         var title: String
         var subtitles: (srt: Data, vtt: Data)?
+        /// The track list rewritten so the TV speaks the chosen language.
+        var audioPatch: MatroskaAudio.Patch? = nil
     }
 
     let code: String = {
@@ -211,10 +213,11 @@ actor CastServer {
                 switch content.source {
                 case .file(let file):
                     try await Self.sendFile(connection, method: method, file: file, type: type,
-                                            range: headers["range"], extra: extra)
+                                            range: headers["range"], extra: extra, patch: content.audioPatch)
                 case .upstream(let url):
                     try await Self.relay(connection, method: method, from: url, type: type,
-                                         range: headers["range"], extra: extra, queue: queue)
+                                         range: headers["range"], extra: extra, patch: content.audioPatch,
+                                         queue: queue)
                 case .remote(let url):
                     try await Self.sendHead(connection, "302 Found",
                                             ["Location": url.absoluteString, "Content-Length": "0"])
@@ -230,7 +233,8 @@ actor CastServer {
 
     /// Serves the file on disk, honouring ranges (TVs seek with them).
     private nonisolated static func sendFile(_ connection: NWConnection, method: String, file: URL,
-                                             type: String, range: String?, extra: [String: String]) async throws {
+                                             type: String, range: String?, extra: [String: String],
+                                             patch: MatroskaAudio.Patch?) async throws {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         let length = Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
@@ -249,7 +253,8 @@ actor CastServer {
         while position <= end {
             try Task.checkCancellation()
             let count = Int(min(256 * 1024, end - position + 1))
-            guard let chunk = try handle.read(upToCount: count), !chunk.isEmpty else { break }
+            guard var chunk = try handle.read(upToCount: count), !chunk.isEmpty else { break }
+            MatroskaAudio.apply(patch, to: &chunk, at: position)
             try await NetworkIO.send(connection, chunk)
             position += Int64(chunk.count)
         }
@@ -259,7 +264,7 @@ actor CastServer {
     /// pieces the TV asks for first) and the answer back, with DLNA headers.
     private nonisolated static func relay(_ client: NWConnection, method: String, from url: URL, type: String,
                                           range: String?, extra: [String: String],
-                                          queue: DispatchQueue) async throws {
+                                          patch: MatroskaAudio.Patch?, queue: DispatchQueue) async throws {
         guard let host = url.host, let port = url.port.flatMap({ NWEndpoint.Port(rawValue: UInt16($0)) }) else {
             throw NetworkIO.Failure.closed
         }
@@ -287,13 +292,16 @@ actor CastServer {
         let status = lines.first.map { String($0.split(separator: " ", maxSplits: 1).last ?? "200 OK") } ?? "200 OK"
         var headers = extra
         var contentLength: Int64?
+        var offset: Int64 = 0                           // where the body starts in the file
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = line[..<colon].trimmingCharacters(in: .whitespaces)
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             switch key.lowercased() {
             case "content-length": headers["Content-Length"] = value; contentLength = Int64(value)
-            case "content-range": headers["Content-Range"] = value
+            case "content-range":
+                headers["Content-Range"] = value
+                offset = value.split(whereSeparator: { $0 == " " || $0 == "-" }).dropFirst().first.flatMap { Int64($0) } ?? 0
             case "accept-ranges": headers["Accept-Ranges"] = value
             default: break
             }
@@ -309,6 +317,7 @@ actor CastServer {
                 if let contentLength, sent + Int64(body.count) > contentLength {
                     body = body.prefix(Int(contentLength - sent))
                 }
+                MatroskaAudio.apply(patch, to: &body, at: offset + sent)
                 try await NetworkIO.send(client, body)
                 sent += Int64(body.count)
             }

@@ -236,6 +236,53 @@ check(castSubs?.srt.prefix(3) == Data([0xEF, 0xBB, 0xBF]) && castSRT.contains("0
       "ASS → SRT for TVs, with the UTF-8 mark and CRLF")
 check(castSubs.map { String(decoding: $0.vtt, as: UTF8.self) }?.contains("WEBVTT\n\n00:00:01.500 --> 00:00:03.000") == true, "and WebVTT for browsers")
 
+// Cast audio: a Matroska track list rewritten so TVs play the wanted language.
+func ebmlElement(_ id: [UInt8], _ body: [UInt8]) -> [UInt8] { id + [0x40 | UInt8(body.count >> 8), UInt8(body.count & 0xFF)] + body }
+func ebmlNumber(_ id: [UInt8], _ value: UInt8) -> [UInt8] { id + [0x81, value] }
+func ebmlText(_ id: [UInt8], _ value: String) -> [UInt8] { ebmlElement(id, Array(value.utf8)) }
+let videoTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 1) + ebmlNumber([0x83], 1) + ebmlText([0x86], "V_MPEG4/ISO/AVC"))
+let frenchTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 2) + ebmlNumber([0x83], 2) + ebmlNumber([0x88], 1) + ebmlText([0x22, 0xB5, 0x9C], "fre") + ebmlText([0x53, 0x6E], "Français"))
+let englishTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 3) + ebmlNumber([0x83], 2) + ebmlNumber([0x88], 0) + ebmlText([0x22, 0xB5, 0x9C], "eng") + ebmlText([0x53, 0x6E], "English 5.1"))
+let undTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 4) + ebmlNumber([0x83], 2) + ebmlText([0x22, 0xB5, 0x9C], "und"))
+let trackEntries = videoTrack + frenchTrack + englishTrack + undTrack
+let trackCRC: [UInt8] = [0xBF, 0x84] + withUnsafeBytes(of: MatroskaAudio.crc32(trackEntries).littleEndian, Array.init)
+var mkvBytes = ebmlElement([0x1A, 0x45, 0xDF, 0xA3], ebmlText([0x42, 0x82], "matroska"))
+mkvBytes += [0x18, 0x53, 0x80, 0x67, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF] as [UInt8]   // segment, size unknown
+mkvBytes += ebmlElement([0x15, 0x49, 0xA9, 0x66], ebmlNumber([0x2A, 0xD7, 0xB1], 1))
+mkvBytes += ebmlElement([0x16, 0x54, 0xAE, 0x6B], trackCRC + trackEntries)
+mkvBytes += ebmlElement([0x1F, 0x43, 0xB6, 0x75], ebmlNumber([0xE7], 0))
+mkvBytes += [UInt8](repeating: 0x55, count: 5000)
+let mkv = Data(mkvBytes)
+check(MatroskaAudio.crc32(Array("123456789".utf8)) == 0xCBF4_3926, "CRC-32 check value")
+let mkvAudio = MatroskaAudio.audioTracks(in: mkv)
+check(mkvAudio == [.init(language: "fre", name: "Français", isDefault: true), .init(language: "eng", name: "English 5.1", isDefault: false),
+                   .init(language: "und", name: nil, isDefault: true)], "MKV audio tracks read (got \(mkvAudio))")
+check(MatroskaAudio.patch(head: mkv, choosing: 0) == nil, "already the TV's track: nothing to rewrite")
+check(MatroskaAudio.audioTracks(in: Data("not a video".utf8)).isEmpty && MatroskaAudio.patch(head: mkv.prefix(60), choosing: 1) == nil,
+      "not Matroska / track list cut off: left alone")
+if let patch = MatroskaAudio.patch(head: mkv, choosing: 1) {
+    var whole = mkv
+    MatroskaAudio.apply(patch, to: &whole, at: 0)
+    let after = MatroskaAudio.audioTracks(in: whole)
+    check(whole.count == mkv.count && after.first == .init(language: "eng", name: "English 5.1", isDefault: true)
+          && after[1] == .init(language: "fre", name: "Français", isDefault: false), "English made first and only explicit default (got \(after))")
+    let tracksData = whole.subdata(in: Int(patch.offset) ..< Int(patch.offset) + patch.bytes.count)
+    check(tracksData.prefix(2) == Data([0xBF, 0x84]) && Data(tracksData[2..<6]) == Data(withUnsafeBytes(of: MatroskaAudio.crc32(tracksData.dropFirst(6)).littleEndian, Array.init)),
+          "track list CRC-32 recomputed")
+    var pieces = Data()
+    for start in stride(from: 0, to: mkv.count, by: 7) {
+        var piece = mkv.subdata(in: start ..< min(start + 7, mkv.count))
+        MatroskaAudio.apply(patch, to: &piece, at: Int64(start))
+        pieces.append(piece)
+    }
+    check(pieces == whole, "patch laid over the stream piece by piece")
+    check(OriginalAudio.matches(language: "eng", labels: [], code: "en") && OriginalAudio.matches(language: "ger", labels: [], code: "de")
+          && OriginalAudio.matches(language: "und", labels: ["English 5.1"], code: "en") && !OriginalAudio.matches(language: "fre", labels: ["Français"], code: "en"),
+          "audio language matching by code, bibliographic code and label")
+} else {
+    check(false, "no patch for the second audio track")
+}
+
 // The server itself, on this machine: a file source, then a relay through a second server.
 let videoFile = work.appendingPathComponent("video.mkv")
 let videoBytes = Data((0..<300_000).map { UInt8($0 % 251) })
@@ -278,6 +325,28 @@ if let url = await fileServer.videoURL {
         check(whole == videoBytes, "cast server: relays the whole stream")
     }
     await relayServer.stop()
+
+    let mkvFile = work.appendingPathComponent("audio.mkv")
+    try mkv.write(to: mkvFile)
+    let patch = MatroskaAudio.patch(head: mkv, choosing: 1)
+    var expected = mkv
+    MatroskaAudio.apply(patch, to: &expected, at: 0)
+    await fileServer.update(.init(source: .file(mkvFile), fileExtension: "mkv", title: "Audio", subtitles: nil, audioPatch: patch))
+    let mkvURL = await fileServer.videoURL!
+    let (served, _) = try await URLSession.shared.data(from: mkvURL)
+    check(served == expected, "cast server: file sent with the rewritten track list")
+    let plainServer = CastServer()
+    try await plainServer.start(host: "127.0.0.1")
+    await plainServer.update(.init(source: .file(mkvFile), fileExtension: "mkv", title: "Plain", subtitles: nil))
+    let audioRelay = CastServer()
+    try await audioRelay.start(host: "127.0.0.1")
+    await audioRelay.update(.init(source: .upstream(await plainServer.videoURL!), fileExtension: "mkv", title: "Relay", subtitles: nil, audioPatch: patch))
+    var fromMiddle = URLRequest(url: await audioRelay.videoURL!)
+    fromMiddle.setValue("bytes=40-", forHTTPHeaderField: "Range")
+    let (relayedTail, _) = try await URLSession.shared.data(for: fromMiddle)
+    check(relayedTail == expected[40...], "cast server: relayed range rewritten at the right offset")
+    await audioRelay.stop()
+    await plainServer.stop()
 }
 } catch {
     check(false, "cast server test threw: \(error)")

@@ -203,6 +203,8 @@ final class CastSession {
         let source: URL            // torrent stream (127.0.0.1), file, or a remote address
         let title: String
         let durationSeconds: Double
+        /// Languages the TV should speak, best first (ISO 639 codes).
+        var audioLanguages: [String] = []
     }
 
     private(set) var phase: Phase = .idle
@@ -214,6 +216,9 @@ final class CastSession {
     /// The subtitle file that went to the TV (nil: none).
     private(set) var sentSubtitleFile: URL?
     private(set) var isSendingSubtitles = false
+    /// The video's audio tracks (Matroska files the phone serves) and the one the TV plays.
+    private(set) var audioTracks: [MatroskaAudio.Track] = []
+    private(set) var audioTrack = 0
     /// Goes up when a computer starts playing the video from the page, so the
     /// phone's own player can pause (two players would fight over the stream).
     private(set) var computerPlays = 0
@@ -225,6 +230,8 @@ final class CastSession {
     @ObservationIgnored private var fileExtension = "mkv"
     @ObservationIgnored private var size: Int64?
     @ObservationIgnored private var subtitles: (srt: Data, vtt: Data)?
+    @ObservationIgnored private var head: (source: URL, task: Task<Data?, Never>)?
+    @ObservationIgnored private var audioPatch: MatroskaAudio.Patch?
     @ObservationIgnored private var controller: DLNAController?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -248,6 +255,7 @@ final class CastSession {
         }
         sentSubtitleFile = subtitleFile
         subtitles = subtitleFile.flatMap(CastSubtitles.make)
+        await chooseAudio(for: media)
         do {
             try await server.start(host: network.address)
         } catch {
@@ -276,7 +284,64 @@ final class CastSession {
             }
         }
         return CastServer.Content(source: source, fileExtension: fileExtension,
-                                  title: media?.title ?? "SceneBox", subtitles: subtitles)
+                                  title: media?.title ?? "SceneBox", subtitles: subtitles,
+                                  audioPatch: audioPatch)
+    }
+
+    // MARK: Audio
+
+    /// Reads the file's audio tracks and picks the first one in a language
+    /// the viewer wants; the server then makes it the TV's default.
+    // shortcut: debrid links go to the TV directly, so their audio stays the file's default; proxying them would fix it.
+    private func chooseAudio(for media: Media) async {
+        guard ["mkv", "webm"].contains(fileExtension), media.source.isFileURL || media.source.host == "127.0.0.1",
+              let head = await head(of: media.source) else {
+            audioTracks = []
+            audioPatch = nil
+            return
+        }
+        audioTracks = MatroskaAudio.audioTracks(in: head)
+        let wanted = media.audioLanguages.lazy.compactMap { code in
+            self.audioTracks.firstIndex { OriginalAudio.matches(language: $0.language, labels: [$0.name ?? ""], code: code) }
+        }.first
+        audioTrack = wanted ?? audioTracks.firstIndex(where: \.isDefault) ?? 0
+        audioPatch = wanted.flatMap { MatroskaAudio.patch(head: head, choosing: $0) }
+    }
+
+    /// The file's first megabyte, read once per video.
+    private func head(of source: URL) async -> Data? {
+        if head?.source != source {
+            head = (source, Task.detached(priority: .userInitiated) { await Self.readHead(source) })
+        }
+        guard let task = head?.task else { return nil }
+        let data = await task.value
+        if data == nil, head?.source == source { head = nil }      // try again next time
+        return data
+    }
+
+    private nonisolated static func readHead(_ url: URL) async -> Data? {
+        let count = 1 << 20
+        if url.isFileURL {
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: count)
+        }
+        var request = URLRequest(url: url)
+        request.setValue("bytes=0-\(count - 1)", forHTTPHeaderField: "Range")
+        request.timeoutInterval = 10
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 206 else { return nil }
+        return data
+    }
+
+    /// Switches the TV to another of the file's audio tracks, at the same spot.
+    func chooseAudioTrack(_ index: Int) async {
+        guard audioTracks.indices.contains(index), index != audioTrack,
+              let source = media?.source, let head = await head(of: source) else { return }
+        audioTrack = index
+        audioPatch = MatroskaAudio.patch(head: head, choosing: index)
+        await server.update(content())
+        await reload()
     }
 
     /// The torrent stream's type and size, from its answer to a HEAD request.
@@ -416,12 +481,18 @@ final class CastSession {
 
     /// Sends the subtitles now showing on the phone, reloading at the same spot.
     func sendSubtitles(_ file: URL?) async {
-        guard let device, let media, let video = await server.videoURL, let controller else { return }
+        guard isActive else { return }
         isSendingSubtitles = true
         defer { isSendingSubtitles = false }
         sentSubtitleFile = file
         subtitles = file.flatMap(CastSubtitles.make)
         await server.update(content())
+        await reload()
+    }
+
+    /// Loads the video on the TV again (new subtitles or audio), where it was.
+    private func reload() async {
+        guard let device, let media, let video = await server.videoURL, let controller else { return }
         let resumeAt = position
         pollTask?.cancel()
         generation += 1
@@ -432,6 +503,7 @@ final class CastSession {
             guard current == generation, self.device == device else { return }
             startPolling(current)
         } catch {
+            guard current == generation else { return }
             phase = .failed(error.localizedDescription)
         }
     }

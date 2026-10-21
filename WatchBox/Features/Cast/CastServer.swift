@@ -87,6 +87,7 @@ actor CastServer {
     }()
 
     private var listener: NWListener?
+    private var starting: Task<Void, Error>?
     private var acceptTask: Task<Void, Never>?
     private let queue = DispatchQueue(label: "watchbox.cast.http")
     private var content: Content?
@@ -112,6 +113,15 @@ actor CastServer {
     func start(host: String) async throws {
         self.host = host
         if listener != nil { return }
+        // Two prepares can arrive together; the second waits for the first's listener.
+        if let starting { return try await starting.value }
+        let task = Task { try await listen() }
+        starting = task
+        defer { starting = nil }
+        try await task.value
+    }
+
+    private func listen() async throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         let listener = try NWListener(using: parameters)

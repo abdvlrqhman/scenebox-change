@@ -350,7 +350,7 @@ final class CastSession {
         guard let (_, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse else { return ("mkv", nil) }
         let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
-        let ext = type.contains("mp4") ? "mp4" : type.contains("webm") ? "webm"
+        let ext = type.contains("mp4") ? "mp4" : type.contains("webm") ? "webm" : type.contains("mp2t") ? "ts"
             : type.contains("msvideo") ? "avi" : type.contains("quicktime") ? "mov" : "mkv"
         let size = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init)
         return (ext, size)
@@ -374,7 +374,7 @@ final class CastSession {
         self.controller = controller
         BackgroundDownloads.shared.setCasting(true)
         do {
-            try await load(on: controller, video: video, media: media, at: seconds)
+            try await load(on: controller, video: video, media: media, at: seconds, generation: current)
             guard current == generation else { return }
             startPolling(current)
         } catch {
@@ -383,7 +383,9 @@ final class CastSession {
         }
     }
 
-    private func load(on controller: DLNAController, video: URL, media: Media, at seconds: Double) async throws {
+    /// Stops early (cancelled) once a stop or another load has taken over.
+    private func load(on controller: DLNAController, video: URL, media: Media, at seconds: Double,
+                      generation current: Int) async throws {
         func metadata(_ mimeType: String) async -> String {
             DLNA.didl(title: media.title, videoURL: video, mimeType: mimeType,
                       size: size, durationSeconds: media.durationSeconds > 0 ? media.durationSeconds : nil,
@@ -398,6 +400,7 @@ final class CastSession {
             // Some Samsung firmware only knows MKV by its older name.
             try await controller.load(video, metadata: await metadata("video/x-mkv"))
         }
+        guard current == generation else { throw CancellationError() }
         try await controller.play()
         // Pick up where the phone was, once the TV is actually playing.
         guard seconds > 5 else { return }
@@ -406,6 +409,7 @@ final class CastSession {
             try await Task.sleep(for: .milliseconds(700))
             if (try? await controller.transportState()) == "PLAYING" { break }
         }
+        guard current == generation else { throw CancellationError() }
         try? await controller.seek(to: seconds)
     }
 
@@ -497,7 +501,7 @@ final class CastSession {
         let current = generation
         phase = .connecting
         do {
-            try await load(on: controller, video: video, media: media, at: resumeAt)
+            try await load(on: controller, video: video, media: media, at: resumeAt, generation: current)
             guard current == generation, self.device == device else { return }
             startPolling(current)
         } catch {

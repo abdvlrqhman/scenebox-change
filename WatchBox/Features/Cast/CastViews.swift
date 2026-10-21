@@ -475,6 +475,7 @@ struct CastingOverlay: View {
                 Button { cast.skip(by: -10) } label: {
                     Image(systemName: "gobackward.10").font(.system(size: 28))
                 }
+                .accessibilityLabel("Back 10 seconds")
                 Button { cast.togglePause() } label: {
                     Image(systemName: cast.phase == .playing || cast.phase == .buffering ? "pause.fill" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
@@ -483,9 +484,11 @@ struct CastingOverlay: View {
                         .frame(width: 72, height: 72)
                         .background(Theme.accent, in: Circle())
                 }
+                .accessibilityLabel(cast.phase == .playing || cast.phase == .buffering ? "Pause" : "Play")
                 Button { cast.skip(by: 10) } label: {
                     Image(systemName: "goforward.10").font(.system(size: 28))
                 }
+                .accessibilityLabel("Forward 10 seconds")
             }
             .buttonStyle(.plain)
             .disabled(!isControllable)

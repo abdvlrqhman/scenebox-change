@@ -280,7 +280,7 @@ final class CastSession {
             } else if url.host == "127.0.0.1" {
                 source = .upstream(url)
             } else {
-                source = .remote(url)          // a debrid link: the TV fetches it itself
+                source = .remote(url)          // a debrid link: the TV fetches it itself, past the track list
             }
         }
         return CastServer.Content(source: source, fileExtension: fileExtension,
@@ -292,10 +292,8 @@ final class CastSession {
 
     /// Reads the file's audio tracks and picks the first one in a language
     /// the viewer wants; the server then makes it the TV's default.
-    // shortcut: debrid links go to the TV directly, so their audio stays the file's default; proxying them would fix it.
     private func chooseAudio(for media: Media) async {
-        guard ["mkv", "webm"].contains(fileExtension), media.source.isFileURL || media.source.host == "127.0.0.1",
-              let head = await head(of: media.source) else {
+        guard ["mkv", "webm"].contains(fileExtension), let head = await head(of: media.source) else {
             audioTracks = []
             audioPatch = nil
             return

@@ -99,7 +99,7 @@ actor CastServer {
     var baseURL: URL? { port == 0 ? nil : URL(string: "http://\(host):\(port)/\(code)/") }
     var videoURL: URL? {
         guard let content else { return nil }
-        if case .remote(let url) = content.source { return url }
+        if case .remote(let url) = content.source, content.audioPatch == nil { return url }
         return baseURL?.appendingPathComponent("video.\(content.fileExtension)")
     }
     var subtitleURL: URL? { content?.subtitles == nil ? nil : baseURL?.appendingPathComponent("subtitles.srt") }
@@ -219,8 +219,15 @@ actor CastServer {
                                          range: headers["range"], extra: extra, patch: content.audioPatch,
                                          queue: queue)
                 case .remote(let url):
-                    try await Self.sendHead(connection, "302 Found",
-                                            ["Location": url.absoluteString, "Content-Length": "0"])
+                    // Through the phone only while the TV reads the rewritten track list.
+                    let start = headers["range"].flatMap { CastServer.parseRange($0, length: .max)?.0 } ?? 0
+                    if let patch = content.audioPatch, start < patch.offset + Int64(patch.bytes.count) {
+                        try await Self.proxy(connection, method: method, from: url, type: type,
+                                             range: headers["range"], extra: extra, patch: patch)
+                    } else {
+                        try await Self.sendHead(connection, "302 Found",
+                                                ["Location": url.absoluteString, "Content-Length": "0"])
+                    }
                 }
             default:
                 try await Self.sendHead(connection, "404 Not Found", ["Content-Length": "0"])
@@ -328,6 +335,41 @@ actor CastServer {
                 return                                  // the stream closed: done
             }
         }
+    }
+
+    /// Fetches a remote video (a debrid link) for the TV, rewriting its track list on the way.
+    private nonisolated static func proxy(_ client: NWConnection, method: String, from url: URL, type: String,
+                                          range: String?, extra: [String: String],
+                                          patch: MatroskaAudio.Patch) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = method == "HEAD" ? "HEAD" : "GET"
+        request.timeoutInterval = 30
+        if let range { request.setValue(range, forHTTPHeaderField: "Range") }
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let http = response as? HTTPURLResponse, [200, 206].contains(http.statusCode) else {
+            throw NetworkIO.Failure.closed
+        }
+        var headers = extra
+        headers["Content-Type"] = type
+        for key in ["Content-Length", "Content-Range", "Accept-Ranges"] {
+            headers[key] = http.value(forHTTPHeaderField: key)
+        }
+        try await sendHead(client, http.statusCode == 206 ? "206 Partial Content" : "200 OK", headers)
+        guard method != "HEAD" else { return }
+        var offset = headers["Content-Range"].flatMap {
+            $0.split(whereSeparator: { $0 == " " || $0 == "-" }).dropFirst().first.flatMap { Int64($0) }
+        } ?? 0
+        var chunk = Data(capacity: 256 * 1024)
+        for try await byte in bytes {
+            chunk.append(byte)
+            guard chunk.count == 256 * 1024 else { continue }
+            MatroskaAudio.apply(patch, to: &chunk, at: offset)
+            try await NetworkIO.send(client, chunk)
+            offset += Int64(chunk.count)
+            chunk.removeAll(keepingCapacity: true)
+        }
+        MatroskaAudio.apply(patch, to: &chunk, at: offset)
+        if !chunk.isEmpty { try await NetworkIO.send(client, chunk) }
     }
 
     // MARK: Pages

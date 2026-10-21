@@ -10,7 +10,6 @@ import SwiftUI
 
 struct TVSearchView: View {
     @State private var model = SearchModel()
-    @Environment(AppSettings.self) private var settings
     @FocusState private var fieldFocused: Bool
 
     private let columns = [GridItem(.adaptive(minimum: 260, maximum: 300), spacing: 44)]
@@ -35,10 +34,6 @@ struct TVSearchView: View {
         .onChange(of: model.query) { _, query in
             if query.trimmingCharacters(in: .whitespaces).isEmpty { return }
             model.run()
-        }
-        .onChange(of: settings.streamSourceBases) { _, _ in
-            model.applySettings(settings)
-            if model.isSearching { model.run() }
         }
     }
 

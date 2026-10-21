@@ -23,7 +23,6 @@ struct SearchView: View {
 struct SearchScreen: View {
     @State private var model = SearchModel()
     @State private var router = TabRouter.shared
-    @Environment(AppSettings.self) private var settings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,10 +41,6 @@ struct SearchScreen: View {
             .onChange(of: model.query) { _, _ in model.run() }
             .onSubmit(of: .search) { model.run(immediate: true) }
             .task { if model.results.isEmpty { model.run() } }
-            .onChange(of: settings.streamSourceBases) { _, _ in
-                model.applySettings(settings)
-                model.run()
-            }
     }
 
     // MARK: - Phone header
@@ -53,14 +48,7 @@ struct SearchScreen: View {
     private var phoneHeader: some View {
         VStack(spacing: 10) {
             RootHeader(title: "Search") {
-                if !model.isSearching {
-                    filterMenu
-                        .labelStyle(.iconOnly)
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .background(Theme.surface, in: Circle())
-                        .overlay(Circle().strokeBorder(Theme.hairline))
-                }
+                if !model.isSearching { filterMenu }
             }
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -167,9 +155,22 @@ struct SearchScreen: View {
                 }
             }
         } label: {
-            Label("Filters", systemImage: filtersActive
-                  ? "line.3.horizontal.decrease.circle.fill"
-                  : "line.3.horizontal.decrease.circle")
+            let label = Label("Filters", systemImage: filtersActive
+                              ? "line.3.horizontal.decrease.circle.fill"
+                              : "line.3.horizontal.decrease.circle")
+            if Platform.isMac {
+                label
+            } else {
+                // Styled inside the label so the whole 44pt square opens the menu.
+                label
+                    .labelStyle(.iconOnly)
+                    .font(.headline.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Theme.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.hairline))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
         }
         .tint(filtersActive ? Theme.accent : .white)
         .onChange(of: model.scope) { _, _ in model.run() }

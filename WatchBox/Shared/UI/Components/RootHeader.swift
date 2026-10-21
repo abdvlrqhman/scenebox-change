@@ -49,6 +49,8 @@ struct HeaderIconButton: View {
                 .frame(width: 40, height: 40)
                 .background(Theme.surface, in: Circle())
                 .overlay(Circle().strokeBorder(Theme.hairline))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
         .accessibilityLabel(label)

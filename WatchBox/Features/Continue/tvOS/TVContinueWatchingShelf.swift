@@ -62,14 +62,26 @@ private struct TVContinueWatchingCard: View {
                 .overlay(alignment: .topLeading) { downloadBadge }
                 .overlay { TVFocusRing(cornerRadius: Theme.posterCorner, isFocused: isFocused) }
 
-            Text(item.episodeLabel ?? item.title)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .frame(width: width, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                // Always there, so movie and episode posters stay level in the row.
+                Text(item.episodeLabel ?? " ")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(width: width, alignment: .leading)
         }
         .frame(width: width, alignment: .leading)
-        .accessibilityLabel(item.title)
+        .accessibilityLabel(spokenLabel)
+    }
+
+    private var spokenLabel: String {
+        guard let season = item.season, let episode = item.episode else { return item.title }
+        return "\(item.title), season \(season), episode \(episode)"
     }
 
     @ViewBuilder

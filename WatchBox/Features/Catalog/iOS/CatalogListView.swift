@@ -142,6 +142,13 @@ struct CatalogListView: View {
     private var statusOverlay: some View {
         if model.isLoading && model.items.isEmpty {
             ProgressView()
+        } else if model.isLoading {
+            // A new feed or genre keeps the old grid until it arrives.
+            ProgressView()
+                .tint(Theme.accent)
+                .controlSize(.large)
+                .padding(22)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else if model.items.isEmpty, let message = model.errorMessage {
             if model.isShowingSearchResults {
                 EmptyStateView(systemImage: "magnifyingglass", title: "No results", message: message)

@@ -15,6 +15,7 @@ struct ProfileView: View {
     @State private var confirmClearDownloads = false
     @State private var confirmClearStreamCache = false
     @State private var streamCacheBytes: Int64 = 0
+    @FocusState private var portFocused: Bool
 
     var body: some View {
         @Bindable var settings = settings
@@ -262,6 +263,7 @@ struct ProfileView: View {
                         TextField("Port", value: portBinding, format: .number.grouping(.never))
                             #if os(iOS)
                             .keyboardType(.numberPad)
+                            .focused($portFocused)
                             #endif
                             .tint(.white)
                             .multilineTextAlignment(.trailing)
@@ -290,6 +292,7 @@ struct ProfileView: View {
             .hideScrollBackground()
             #if !os(tvOS)
             .contentMargins(.top, 4, for: .scrollContent)
+            .scrollDismissesKeyboard(.interactively)
             #endif
             }
             .background(Theme.background)
@@ -298,6 +301,15 @@ struct ProfileView: View {
             #else
             .toolbar(.hidden, for: .navigationBar)
             .statusBarScrim()
+            .toolbar {
+                // The number pad has no Return key, and the port only saves once the field lets go.
+                ToolbarItemGroup(placement: .keyboard) {
+                    if portFocused {
+                        Spacer()
+                        Button("Done") { portFocused = false }
+                    }
+                }
+            }
             #endif
             .task {
                 downloads.refreshDiskUsage()
@@ -350,6 +362,8 @@ struct ProfileView: View {
                 .frame(width: 40, height: 40)
                 .background(Theme.surface, in: Circle())
                 .overlay(Circle().strokeBorder(Theme.hairline))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Profiles")
     }

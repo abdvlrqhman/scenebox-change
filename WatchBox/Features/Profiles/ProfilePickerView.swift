@@ -38,8 +38,18 @@ struct ProfilePickerView: View {
     }
 
     private var picker: some View {
+        GeometryReader { geo in
+            ScrollView {
+                pickerContent
+                    // Centred while it fits; scrolls in landscape or at large text sizes.
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var pickerContent: some View {
         VStack(spacing: spacing) {
-            Spacer()
             Text("Who's watching?")
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.white)
@@ -56,10 +66,9 @@ struct ProfilePickerView: View {
                 }
             }
             .frame(maxWidth: CGFloat(min(profiles.profiles.count + 1, 3)) * (tile + spacing) + spacing)
-
-            Spacer()
         }
         .padding(.horizontal, 24)
+        .padding(.vertical, spacing)
     }
 }
 

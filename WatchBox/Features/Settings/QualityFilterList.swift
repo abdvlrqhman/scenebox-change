@@ -24,6 +24,7 @@ struct QualityFilterList: View {
                             Spacer()
                             if settings.excludedQualities.contains(quality) {
                                 Image(systemName: "checkmark")
+                                    .accessibilityHidden(true)
                                     #if os(tvOS)
                                     .foregroundStyle(.white)
                                     #else
@@ -32,6 +33,7 @@ struct QualityFilterList: View {
                             }
                         }
                     }
+                    .accessibilityAddTraits(settings.excludedQualities.contains(quality) ? .isSelected : [])
                 }
             } footer: {
                 Text("Checked qualities are hidden from release lists.")

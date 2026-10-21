@@ -61,7 +61,7 @@ private struct ContinueWatchingCard: View {
                 }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(primaryLine)
+                Text(item.title)
                     .font(Platform.isMac ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
                     .lineLimit(1)
                     .foregroundStyle(.white)
@@ -74,22 +74,39 @@ private struct ContinueWatchingCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(spokenLabel)
     }
 
-    private var primaryLine: String {
-        guard let season = item.season, let episode = item.episode else { return item.title }
-        return "S\(season) E\(episode)"
-    }
-
-    /// "Watched" once the episode is finished (the detail page names the next
-    /// one), otherwise the time left.
-    private var secondaryLine: String {
-        if item.mediaType != .movie, item.isFinished { return "Watched" }
+    private var minutesLeft: Int? {
         let left = max(0, item.durationSeconds - item.positionSeconds)
-        guard item.durationSeconds > 0, left > 30 else { return item.season == nil ? " " : item.title }
-        let minutes = Int((left / 60).rounded())
-        let time = minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
-        return "\(time) left"
+        guard item.durationSeconds > 0, left > 30 else { return nil }
+        return Int((left / 60).rounded())
+    }
+
+    /// "S1 E3 · 33m left" for an episode, "1h 20m left" for a movie. "Watched"
+    /// once the episode is finished (the detail page names the next one).
+    private var secondaryLine: String {
+        var parts: [String] = []
+        if let season = item.season, let episode = item.episode { parts.append("S\(season) E\(episode)") }
+        if item.mediaType != .movie, item.isFinished {
+            parts.append("Watched")
+        } else if let minutes = minutesLeft {
+            let time = minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+            parts.append("\(time) left")
+        }
+        return parts.isEmpty ? " " : parts.joined(separator: " · ")
+    }
+
+    private var spokenLabel: String {
+        var parts: [String] = [item.title]
+        if let season = item.season, let episode = item.episode { parts.append("Season \(season), episode \(episode)") }
+        if item.mediaType != .movie, item.isFinished {
+            parts.append("Watched")
+        } else if let minutes = minutesLeft {
+            let time: String = Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .wide))
+            parts.append("\(time) left")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 #endif

@@ -30,6 +30,16 @@ struct TVCatalogView: View {
             .padding(.top, 12)
             .padding(.bottom, 60)
         }
+        .overlay {
+            // A new feed or genre keeps the old grid until it arrives.
+            if model.isLoading && !model.items.isEmpty {
+                ProgressView()
+                    .tint(.white)
+                    .controlSize(.large)
+                    .padding(28)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+        }
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: settings.streamSourceBases) { _, _ in model.applySettings(settings) }
@@ -79,7 +89,8 @@ struct TVCatalogView: View {
         } else if model.items.isEmpty, let message = model.errorMessage {
             centered {
                 EmptyStateView(systemImage: "exclamationmark.triangle",
-                               title: "Couldn’t load", message: message)
+                               title: "Couldn’t load", message: message,
+                               actionTitle: "Try again") { model.reload() }
             }
         } else {
             LazyVGrid(columns: columns, spacing: 56) {

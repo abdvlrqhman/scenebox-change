@@ -24,9 +24,9 @@ struct RootTabView: View {
     @State private var watchlist = WatchlistStore.shared
     @Environment(ProfileStore.self) private var profiles
     @State private var profileIcon: UIImage?
-    #if os(iOS)
     @State private var detailItem: MediaResult?
     @State private var links = DeepLinkRouter.shared
+    #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
@@ -86,13 +86,14 @@ struct RootTabView: View {
         .environment(watchlist)
         .preferredColorScheme(.dark)
         .sensoryFeedback(.selection, trigger: router.tab)
-        #if os(iOS)
-        .environment(\.openMediaDetail, sizeClass == .regular && !Platform.isMac ? { detailItem = $0 } : nil)
-        .onChange(of: links.pendingDetail) { _, item in
+        // `initial` picks up a link that arrived while the profile picker was up.
+        .onChange(of: links.pendingDetail, initial: true) { _, item in
             guard let item else { return }
             links.pendingDetail = nil
             detailItem = item
         }
+        #if os(iOS)
+        .environment(\.openMediaDetail, sizeClass == .regular && !Platform.isMac ? { detailItem = $0 } : nil)
         .sheet(item: $detailItem) { item in
             NavigationStack {
                 MediaDetailView(mediaID: item.id, type: item.type, fallbackTitle: item.name)
@@ -108,6 +109,19 @@ struct RootTabView: View {
             .environment(watchProgress)
             .environment(watchlist)
             .environment(\.openMediaDetail, nil)
+            .preferredColorScheme(.dark)
+        }
+        #else
+        // Full screen like a pushed detail page; Menu closes it.
+        .fullScreenCover(item: $detailItem) { item in
+            NavigationStack {
+                MediaDetailView(mediaID: item.id, type: item.type, fallbackTitle: item.name)
+                    .mediaNavigationDestinations()
+            }
+            .environment(settings)
+            .environment(downloads)
+            .environment(watchProgress)
+            .environment(watchlist)
             .preferredColorScheme(.dark)
         }
         #endif

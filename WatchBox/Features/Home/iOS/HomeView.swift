@@ -11,7 +11,6 @@ import Kingfisher
 
 struct HomeView: View {
     @State private var model = HomeModel()
-    @Environment(AppSettings.self) private var settings
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
 
@@ -41,9 +40,6 @@ struct HomeView: View {
         .onAppear { progress.refresh() }
         .onChange(of: progress.items.first?.id, initial: true) { _, _ in
             model.loadBecauseYouWatched(progress.items.first)
-        }
-        .onChange(of: settings.streamSourceBases) { _, _ in
-            model.applySettings(settings)
         }
     }
 
@@ -268,10 +264,12 @@ private struct FeaturedWatchlistButton: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 38, height: 38)
                 .background(.ultraThinMaterial, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
         .sensoryFeedback(.selection, trigger: saved)
-        .padding(12)
+        .padding(9)                         // the circle stays 12pt from the corner
         .accessibilityLabel(saved ? "Remove from Watchlist" : "Add to Watchlist")
     }
 }

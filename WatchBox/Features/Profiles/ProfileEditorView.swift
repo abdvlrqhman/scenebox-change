@@ -33,6 +33,8 @@ struct ProfileEditorView: View {
     @State private var removePhoto = false
     @State private var confirmDelete = false
     @State private var saving = false
+    /// Set once Create has added the profile, so a retry after a failed photo edits it instead of adding another.
+    @State private var createdID: String?
     #if canImport(PhotosUI) && !os(tvOS)
     @State private var pickerItem: PhotosPickerItem?
     #endif
@@ -159,12 +161,12 @@ struct ProfileEditorView: View {
                     if existing != nil {
                         Button("Delete profile", role: .destructive) { confirmDelete = true }
                             .buttonStyle(.bordered)
-                            .tint(.red)
+                            .tint(Theme.danger)
                             .disabled(profiles.isWorking)
                     }
 
                     if let error = profiles.errorMessage {
-                        Text(error).font(.footnote).foregroundStyle(.red)
+                        Text(error).font(.footnote).foregroundStyle(Theme.danger)
                     }
                 }
                 .frame(maxWidth: 480)
@@ -227,18 +229,23 @@ struct ProfileEditorView: View {
                         }
                 }
                 .buttonStyle(ProfileTileStyle())
-                .accessibilityLabel("Colour \(i + 1)")
+                .accessibilityLabel(i < colorNames.count ? colorNames[i] : "Colour \(i + 1)")
+                .accessibilityAddTraits(colorIndex == i ? .isSelected : [])
             }
         }
     }
 
+    /// Names for `Profile.colors`, in the same order.
+    private let colorNames = ["Red", "Blue", "Green", "Amber"]
+
     private func save() {
         guard canSave else { return }
         saving = true
+        profiles.errorMessage = nil
         Task {
             defer { saving = false }
             var target: Profile?
-            if let existing {
+            if let existing = existing ?? profiles.profiles.first(where: { $0.id == createdID }) {
                 var updated = existing
                 updated.name = name
                 updated.colorIndex = colorIndex
@@ -248,6 +255,7 @@ struct ProfileEditorView: View {
                 if removePhoto, existing.hasPhoto, let t = target { await profiles.removePhoto(t) }
             } else {
                 target = await profiles.create(name: name, colorIndex: colorIndex)
+                createdID = target?.id
             }
             guard let target else { return }
             if let pickedImage {

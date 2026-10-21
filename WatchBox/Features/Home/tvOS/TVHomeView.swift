@@ -10,7 +10,6 @@ import SwiftUI
 
 struct TVHomeView: View {
     @State private var model = HomeModel()
-    @Environment(AppSettings.self) private var settings
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
 
@@ -25,7 +24,8 @@ struct TVHomeView: View {
                     ProgressView().tint(.white).controlSize(.large)
                 } else if let message = model.errorMessage, model.shelves.isEmpty {
                     EmptyStateView(systemImage: "exclamationmark.triangle",
-                                   title: "Couldn’t load", message: message)
+                                   title: "Couldn’t load", message: message,
+                                   actionTitle: "Try again") { model.reload() }
                 } else {
                     shelves
                 }
@@ -38,12 +38,11 @@ struct TVHomeView: View {
         }
         .task { model.loadIfNeeded() }
         .onAppear { progress.refresh() }
-        .onChange(of: settings.streamSourceBases) { _, _ in model.applySettings(settings) }
     }
 
     private var shelves: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 if let featured = model.featured {
                     TVSpotlight(item: featured, detail: model.featuredDetail)
                 }

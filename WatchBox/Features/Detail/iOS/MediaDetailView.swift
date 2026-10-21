@@ -228,6 +228,7 @@ struct MediaDetailView: View {
     }
 
     private func detailScrollContent(_ detail: MediaDetail) -> some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 24) {
                 BannerHeader(detail: detail, fallbackTitle: fallbackTitle)
@@ -256,10 +257,18 @@ struct MediaDetailView: View {
                         onDownloadEpisodes: { downloadEpisodes($0) },
                         onSetWatched: { setWatched($1, episode: $0, detail: detail) }
                     )
+                    .id("episodes")
                 }
                 moreLikeThis
             }
             .padding(.bottom, 40)
+        }
+        .task {
+            // `-SBDetailScroll episodes` opens the page at that section (screenshots, debugging).
+            guard let section = UserDefaults.standard.string(forKey: "SBDetailScroll") else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            proxy.scrollTo(section, anchor: .top)
+        }
         }
     }
 

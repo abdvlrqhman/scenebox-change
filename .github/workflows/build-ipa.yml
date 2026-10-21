@@ -119,3 +119,34 @@ jobs:
           cp "$IPA" SceneBox.ipa
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest SceneBox.ipa "$IPA" --title "SceneBox ${VERSION} (build ${{ github.run_number }})" --notes "$NOTES" --target "$GITHUB_SHA" --latest
+
+  # The same sources compile for Apple TV; this keeps tvOS-only code honest.
+  tvos:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      XCODE_APP: /Applications/Xcode_26.6.app
+      PACKAGES: build/SourcePackages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "$XCODE_APP"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PACKAGES }}
+          key: spm-${{ runner.os }}-${{ hashFiles('WatchBox.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build for tvOS (compile check)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project WatchBox.xcodeproj -scheme WatchBox -configuration Debug \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath build/tv -clonedSourcePackagesDirPath "$PACKAGES" \
+            -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build-tv.log | xcbeautify --renderer github-actions

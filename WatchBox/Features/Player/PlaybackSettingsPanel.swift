@@ -11,7 +11,7 @@ import SwiftVLC
 struct PlaybackSettingsPanel: View {
     let player: Player
     let subs: SubtitlesController
-    var onAudioSelected: () -> Void = {}
+    var onAudioSelected: (Track) -> Void = { _ in }
     let onClose: () -> Void
 
     private enum Page { case root, subtitles, versions }
@@ -71,6 +71,7 @@ struct PlaybackSettingsPanel: View {
                 #if os(tvOS)
                 Button { goBack() } label: { Image(systemName: "chevron.left") }
                     .buttonStyle(TVCircleButtonStyle(diameter: 46))
+                    .accessibilityLabel("Back")
                 #else
                 Button { goBack() } label: {
                     Image(systemName: "chevron.left.circle.fill")
@@ -78,6 +79,7 @@ struct PlaybackSettingsPanel: View {
                         .foregroundStyle(.white.opacity(0.6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Back")
                 #endif
             }
             Text(title)
@@ -87,6 +89,7 @@ struct PlaybackSettingsPanel: View {
                 #if os(tvOS)
                 Button(action: onClose) { Image(systemName: "xmark") }
                     .buttonStyle(TVCircleButtonStyle(diameter: 46))
+                    .accessibilityLabel("Close")
                 #else
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
@@ -94,6 +97,7 @@ struct PlaybackSettingsPanel: View {
                         .foregroundStyle(.white.opacity(0.6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close")
                 #endif
             }
         }
@@ -105,7 +109,7 @@ struct PlaybackSettingsPanel: View {
                 OptionRow(title: trackLabel(for: track),
                           selected: player.selectedAudioTrack?.id == track.id) {
                     player.selectedAudioTrack = track
-                    onAudioSelected()
+                    onAudioSelected(track)
                 }
             }
         }
@@ -478,6 +482,7 @@ struct OptionRow: View {
         #if os(tvOS)
         Button(action: action) { Text(title).lineLimit(1) }
             .buttonStyle(OptionRowStyle(selected: selected))
+            .accessibilityAddTraits(selected ? .isSelected : [])
         #else
         Button(action: action) {
             HStack {
@@ -495,6 +500,7 @@ struct OptionRow: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         #endif
     }
 }

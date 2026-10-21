@@ -100,7 +100,8 @@ nonisolated enum ZipReader {
     /// Raw DEFLATE, which is what zip stores (COMPRESSION_ZLIB in Apple's
     /// framework means raw deflate, no zlib wrapper).
     private static func inflate(_ data: Data, expected: Int) -> Data? {
-        let capacity = max(expected, data.count * 8) + 4096
+        // The size comes from the file: capped, so a bad header can't ask for gigabytes.
+        let capacity = min(max(expected, data.count * 8), 16 << 20) + 4096
         var output = Data(count: capacity)
         let written = output.withUnsafeMutableBytes { destination -> Int in
             guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress else { return 0 }

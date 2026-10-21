@@ -222,6 +222,11 @@ actor SubtitlesProvider {
     /// most likely code page. Arabic files are usually Windows-1256.
     private static func utf8(_ data: Data, declared: String?, language: String) -> Data {
         if String(data: data, encoding: .utf8) != nil { return data }
+        // UTF-16 with a byte order mark (Windows "Unicode"): no code page would read it.
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
+            let encoding: String.Encoding = data.first == 0xFF ? .utf16LittleEndian : .utf16BigEndian
+            if let text = String(data: data.dropFirst(2), encoding: encoding) { return Data(text.utf8) }
+        }
         var guesses: [String.Encoding] = []
         if let declared {
             let cf = CFStringConvertIANACharSetNameToEncoding(declared as CFString)

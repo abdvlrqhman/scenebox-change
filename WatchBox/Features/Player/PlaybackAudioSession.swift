@@ -13,8 +13,11 @@ enum PlaybackAudioSession {
     /// True while a player owns the audio session; the background-download
     /// keep-alive then leaves the session's category alone.
     private(set) static var isActive = false
+    /// Players holding the session: the next episode's player opens before the old one lets go.
+    private static var holders = 0
 
     static func activate() async {
+        holders += 1
         isActive = true
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             queue.async {
@@ -27,6 +30,8 @@ enum PlaybackAudioSession {
     }
 
     static func deactivate() {
+        holders = max(0, holders - 1)
+        guard holders == 0 else { return }
         isActive = false
         queue.async {
             try? AVAudioSession.sharedInstance()

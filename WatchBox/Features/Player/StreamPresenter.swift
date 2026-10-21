@@ -226,6 +226,7 @@ private struct PreparingPlayerView: View {
         #if os(tvOS)
         Button(action: onClose) { Image(systemName: "xmark") }
             .buttonStyle(TVCircleButtonStyle(diameter: 46))
+            .accessibilityLabel("Close")
             .padding(.leading, 50)
             .padding(.top, 40)
         #else
@@ -236,6 +237,7 @@ private struct PreparingPlayerView: View {
                 .frame(width: 40, height: 40)
                 .background(.black.opacity(0.45), in: Circle())
         }
+        .accessibilityLabel("Close")
         .padding(.horizontal, 16)
         .padding(.top, 8)
         #endif
@@ -247,6 +249,7 @@ private struct BufferBar: View {
     private let height: CGFloat = 8
 
     @State private var sweep = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geo in
@@ -260,18 +263,27 @@ private struct BufferBar: View {
                             .frame(width: max(height, w * CGFloat(max(0, min(1, progress)))))
                             .animation(.easeOut(duration: 0.4), value: progress)
                     } else {
+                        // Reduce Motion: it stays put and breathes instead of sweeping.
+                        let x: CGFloat = reduceMotion ? w * 0.33 : (sweep ? w : -w * 0.34)
                         Capsule()
                             .fill(Theme.accent)
                             .frame(width: w * 0.34)
-                            .offset(x: sweep ? w : -w * 0.34)
-                            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: false),
-                                       value: sweep)
+                            .offset(x: x)
+                            .opacity(reduceMotion && sweep ? 0.35 : 1)
+                            .animation(sweepAnimation, value: sweep)
+                            // Here, not on the bar: after a fallback the sweep starts again.
+                            .onAppear { sweep = true }
+                            .onDisappear { sweep = false }
                     }
                 }
                 .clipShape(Capsule())
         }
         .frame(height: height)
         .shadow(color: Theme.accent.opacity(0.45), radius: 8)
-        .onAppear { sweep = true }
+    }
+
+    private var sweepAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                     : .easeInOut(duration: 1.1).repeatForever(autoreverses: false)
     }
 }

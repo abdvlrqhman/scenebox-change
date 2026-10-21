@@ -15,15 +15,16 @@ struct PlaybackControls: View {
     let stats: SwarmStats?
     var isBuffering: Bool = false
     let subs: SubtitlesController
+    /// Lives with the screen, so Esc can close the panel before the player.
+    @Binding var showSettings: Bool
     var onSettingsOpenChanged: (Bool) -> Void = { _ in }
     var isLandscape = false
     var onToggleOrientation: () -> Void = {}
-    var onAudioSelected: () -> Void = {}
+    var onAudioSelected: (Track) -> Void = { _ in }
     var episodes: EpisodePlaylist? = nil
     var onCast: (() -> Void)? = nil
     let onClose: () -> Void
 
-    @State private var showSettings = false
     @State private var showEpisodes = false
 
     var body: some View {
@@ -76,6 +77,7 @@ private struct TopBar: View {
     var body: some View {
         HStack(spacing: 14) {
             Button(action: onClose) { icon("xmark") }
+                .accessibilityLabel("Close")
 
             Text(title)
                 .font(Platform.isMac ? .headline.weight(.semibold) : .subheadline.weight(.semibold))
@@ -87,8 +89,10 @@ private struct TopBar: View {
 
             if let episodes {
                 Button(action: onShowEpisodes) { icon("list.bullet") }
+                    .accessibilityLabel("Episodes")
                 if let next = episodes.next {
                     Button { episodes.onPlay(next) } label: { icon("forward.end.fill") }
+                        .accessibilityLabel("Next episode")
                 }
             }
 
@@ -97,12 +101,14 @@ private struct TopBar: View {
                     icon(isLandscape ? "arrow.down.right.and.arrow.up.left"
                                      : "arrow.up.left.and.arrow.down.right")
                 }
+                .accessibilityLabel(isLandscape ? "Rotate to portrait" : "Rotate to landscape")
             }
             if let onCast, !Platform.isMac {
                 Button(action: onCast) { icon("tv") }
                     .accessibilityLabel("Play on TV or computer")
             }
             Button(action: onSettings) { icon("slider.horizontal.3") }
+                .accessibilityLabel("Playback settings")
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
@@ -136,6 +142,7 @@ private struct TransportRow: View {
                 Image(systemName: "gobackward.10").font(.system(size: glyph))
             }
             .disabled(!player.isSeekable)
+            .accessibilityLabel("Back 10 seconds")
 
             ZStack {
                 if isBuffering, player.currentTime == .zero {
@@ -160,6 +167,7 @@ private struct TransportRow: View {
                                 .contentShape(Rectangle())
                         }
                     }
+                    .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 }
             }
             .frame(width: playSize, height: playSize)
@@ -170,6 +178,7 @@ private struct TransportRow: View {
                 Image(systemName: "goforward.10").font(.system(size: glyph))
             }
             .disabled(!player.isSeekable)
+            .accessibilityLabel("Forward 10 seconds")
         }
         .buttonStyle(.plain)
         .shadow(radius: 8)
@@ -220,7 +229,7 @@ private struct SeekRow: View {
                     scrub = nil
                 }
             )
-            .tint(.white)
+            .tint(Theme.accent)
             .controlSize(Platform.isMac ? .large : .regular)
             .disabled(!player.isSeekable)
 
@@ -234,6 +243,12 @@ private struct SeekRow: View {
             if let target = pendingTarget, abs(position - target) < 0.01 {
                 pendingTarget = nil
             }
+        }
+        .task(id: pendingTarget) {
+            // A seek that lands off target (keyframes) or late lets go after a moment.
+            guard pendingTarget != nil else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled { pendingTarget = nil }
         }
     }
 
@@ -297,6 +312,7 @@ private struct PlaybackControlsPreview: View {
                 stats: sampleStats,
                 isBuffering: buffering,
                 subs: SubtitlesController(),
+                showSettings: .constant(false),
                 isLandscape: true,
                 onToggleOrientation: {},
                 onClose: {}

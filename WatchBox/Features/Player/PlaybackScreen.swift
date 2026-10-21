@@ -57,12 +57,18 @@ struct PlaybackScreen: View {
     @State private var upNextRemaining: Double?
     /// Dismissed: no prompt and no auto-play, unless the viewer rewinds.
     @State private var upNextCancelled = false
-    @State private var didAutoAdvance = false
-    @State private var originalAudioSatisfied = false
+    /// The episode being looked up to play next; further picks wait for it.
+    @State private var advancingTo: Episode?
+    /// The audio track picked by hand or for the original language, picked again when the video reopens.
+    @State private var chosenAudioID: String?
     @State private var cast = CastSession()
     @State private var showCastPicker = false
     @State private var showCastSubtitles = false
+    @State private var toast: ToastMessage?
+    /// The player closed; work still in flight must not start it again.
+    @State private var closed = false
     #if os(iOS)
+    @State private var showSettings = false
     @State private var isLandscape = false
     @State private var levels = SwipeLevels()
     @FocusState private var hasKeyboardFocus: Bool
@@ -95,10 +101,9 @@ struct PlaybackScreen: View {
                 .contentShape(Rectangle())
                 // Landscape: swipe up/down on the left for brightness, on the right for volume.
                 .swipeToAdjustLevels(levels, enabled: failure == nil)
-                .onTapGesture(count: 2) {
-                    guard Platform.isMac else { return }
-                    MacWindow.toggleFullScreen()
-                }
+                // Mac only: anywhere else a double tap would hold back every single tap.
+                .gesture(TapGesture(count: 2).onEnded { MacWindow.toggleFullScreen() },
+                         including: Platform.isMac ? .all : .subviews)
                 .onTapGesture {
                     guard failure == nil else { return }
                     chrome.screenTapped(shouldAutoHide: player.isPlaying && !isBuffering)
@@ -137,8 +142,8 @@ struct PlaybackScreen: View {
                              : chrome.releaseHold(autoHide: player.isPlaying && !isBuffering)
                     },
                     onInteraction: { chrome.interacted(autoHide: player.isPlaying && !isBuffering) },
-                    onAudioSelected: { originalAudioSatisfied = true },
-                    episodes: episodes,
+                    onAudioSelected: { track in chosenAudioID = track.id },
+                    episodes: chromeEpisodes,
                     onClose: onClose
                 )
                 .transition(.opacity)
@@ -149,14 +154,15 @@ struct PlaybackScreen: View {
                     stats: stats,
                     isBuffering: isBuffering,
                     subs: subs,
+                    showSettings: $showSettings,
                     onSettingsOpenChanged: { open in
                         open ? chrome.holdVisible()
                              : chrome.releaseHold(autoHide: player.isPlaying && !isBuffering)
                     },
                     isLandscape: isLandscape,
                     onToggleOrientation: toggleOrientation,
-                    onAudioSelected: { originalAudioSatisfied = true },
-                    episodes: episodes,
+                    onAudioSelected: { track in chosenAudioID = track.id },
+                    episodes: chromeEpisodes,
                     onCast: openCastPicker,
                     onClose: onClose
                 )
@@ -203,12 +209,32 @@ struct PlaybackScreen: View {
                 #endif
             }
 
+            if let advancingTo {
+                let isNext: Bool = advancingTo == episodes?.next
+                HStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text(isNext ? "Finding next episode…" : "Finding \(advancingTo.label)…")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, upNextTrailingInset)
+                .padding(.bottom, chrome.isVisible ? upNextRaisedInset : upNextBottomInset)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
             #if os(iOS)
             SwipeLevelsIndicator(levels: levels)
             #endif
         }
         .animation(.easeInOut(duration: 0.35), value: upNextRemaining != nil)
+        .animation(.easeInOut(duration: 0.25), value: advancingTo)
         .animation(.easeInOut(duration: 0.25), value: cast.isActive)
+        .toast($toast)
         .onChange(of: cast.computerPlays) { _, _ in
             // A computer is playing it from the page: one player at a time.
             if player.isPlaying { player.pause() }
@@ -335,6 +361,7 @@ struct PlaybackScreen: View {
         }
         .onChange(of: player.state) { _, state in
             subs.playerStateChanged(state)
+            if state == .playing { syncOriginalAudio() }   // a reopen may list the same number of tracks
             if state == .playing, let target = recoverySeek, player.isSeekable {
                 recoverySeek = nil
                 try? player.seek(to: target)
@@ -361,9 +388,11 @@ struct PlaybackScreen: View {
 
     private var sourceURL: URL { sourceOverride ?? url }
 
-    /// "Ended" well before the credits: the stream broke off.
+    /// "Ended" well before the credits: the stream broke off. A file on the
+    /// phone doesn't, and a playhead at the very end (a drag there) is the end.
     private var endedEarly: Bool {
-        knownDuration > .zero && lastGoodPosition > .zero
+        guard !sourceURL.isFileURL, player.position < 0.98 else { return false }
+        return knownDuration > .zero && lastGoodPosition > .zero
             && lastGoodPosition < knownDuration - .seconds(20)
     }
 
@@ -385,6 +414,7 @@ struct PlaybackScreen: View {
             player.stop()
             try? await Task.sleep(for: .milliseconds(500 * attempt))
             if let fresh = await onRecover?() { sourceOverride = fresh }
+            guard !closed else { return }
             recoverySeek = resumeAt
             isRecovering = false
             beginPlayback()
@@ -393,6 +423,7 @@ struct PlaybackScreen: View {
 
     private var isBuffering: Bool {
         guard failure == nil else { return false }
+        if isRecovering { return true }   // Play would restart from the beginning
         switch player.state {
         case .opening, .buffering: return true
         case .playing: return player.currentTime == .zero || isStalled
@@ -464,7 +495,7 @@ struct PlaybackScreen: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
 
-            guard !didAutoAdvance, failure == nil, !cast.isActive,
+            guard advancingTo == nil, failure == nil, !cast.isActive,
                   knownDuration > .zero, player.currentTime > .zero else {
                 upNextRemaining = nil
                 continue
@@ -487,11 +518,29 @@ struct PlaybackScreen: View {
 
     /// "Next Episode" during the credits: this one counts as watched.
     private func playNextNow() {
-        guard !didAutoAdvance, let episodes, let next = episodes.next else { return }
-        didAutoAdvance = true
-        upNextRemaining = nil
+        guard advancingTo == nil, let next = episodes?.next else { return }
         markWatched()
-        episodes.onPlay(next)
+        advance(to: next)
+    }
+
+    /// Every switch to another episode (the prompt, the chrome's Next and
+    /// episode list) goes through here: one lookup at a time, shown meanwhile.
+    private func advance(to episode: Episode) {
+        guard advancingTo == nil, let episodes else { return }
+        advancingTo = episode
+        upNextRemaining = nil
+        episodes.onPlay(episode)
+        // A new episode replaces this screen; if nothing came of it, let the viewer try again.
+        Task {
+            try? await Task.sleep(for: .seconds(30))
+            if advancingTo == episode { advancingTo = nil }
+        }
+    }
+
+    private var chromeEpisodes: EpisodePlaylist? {
+        guard let episodes else { return nil }
+        return EpisodePlaylist(current: episodes.current, all: episodes.all, mediaID: episodes.mediaID,
+                               onPlay: { episode in advance(to: episode) })
     }
 
     private func markWatched() {
@@ -505,11 +554,8 @@ struct PlaybackScreen: View {
 
     private func playbackEnded() {
         markWatched()
-        guard !upNextCancelled, !didAutoAdvance,
-              let episodes, let next = episodes.next else { return }
-        didAutoAdvance = true
-        upNextRemaining = nil
-        episodes.onPlay(next)
+        guard !upNextCancelled, let next = episodes?.next else { return }
+        advance(to: next)
     }
 
     // MARK: - Original-language audio
@@ -523,19 +569,26 @@ struct PlaybackScreen: View {
     }
 
     private func syncOriginalAudio() {
-        guard !originalAudioSatisfied, let code = targetAudioLanguage else { return }
         var seen = Set<String>()
         let tracks = player.audioTracks.filter { seen.insert($0.id).inserted }
+        if let id = chosenAudioID {
+            // Reopened (recovery, back from the TV): VLC starts on its default track again.
+            guard player.selectedAudioTrack?.id != id,
+                  let chosen = tracks.first(where: { $0.id == id }) else { return }
+            player.selectedAudioTrack = chosen
+            return
+        }
+        guard let code = targetAudioLanguage else { return }
         guard tracks.count > 1 else { return }   // more may still be discovered
 
         if let selected = player.selectedAudioTrack,
            speaks(selected, code) {
-            originalAudioSatisfied = true
+            chosenAudioID = selected.id
             return
         }
         guard let match = tracks.first(where: { speaks($0, code) }) else { return }
         player.selectedAudioTrack = match
-        originalAudioSatisfied = true
+        chosenAudioID = match.id
     }
 
     private func speaks(_ track: Track, _ code: String) -> Bool {
@@ -618,14 +671,21 @@ struct PlaybackScreen: View {
         #endif
         Task {
             await PlaybackAudioSession.activate()
+            guard !closed else { return }
             beginPlayback()
             #if os(iOS)
-            let controller = NowPlayingController(player: player, title: title)
-            controller.begin(artworkURL: artworkURL)
-            nowPlaying = controller
+            beginNowPlaying()
             #endif
         }
     }
+
+    #if os(iOS)
+    private func beginNowPlaying() {
+        let controller = NowPlayingController(player: player, title: title)
+        controller.begin(artworkURL: artworkURL)
+        nowPlaying = controller
+    }
+    #endif
 
     private func keepNowPlayingFresh() async {
         #if os(iOS)
@@ -668,11 +728,13 @@ struct PlaybackScreen: View {
     #if os(iOS)
     private func keyboardTogglePlayback() {
         guard failure == nil else { return }
+        if cast.isActive { cast.togglePause(); return }   // the phone's player is stopped
         player.togglePlaybackReasserting()
         chrome.reveal(autoHide: !player.isPlaying && !isBuffering)
     }
 
     private func keyboardSeek(by seconds: Double) {
+        if cast.isActive { cast.skip(by: seconds); return }
         guard failure == nil, player.isSeekable else { return }
         try? player.seek(by: .seconds(seconds), fast: true)
         chrome.reveal(autoHide: player.isPlaying && !isBuffering)
@@ -684,7 +746,10 @@ struct PlaybackScreen: View {
     }
 
     private func keyboardEscape() {
-        if upNextRemaining != nil {
+        if showSettings || showCastSubtitles {
+            showSettings = false
+            showCastSubtitles = false
+        } else if upNextRemaining != nil {
             dismissUpNext()
         } else if chrome.isVisible, player.isPlaying {
             chrome.hide()
@@ -745,26 +810,48 @@ struct PlaybackScreen: View {
                                       durationSeconds: knownDuration.asSeconds,
                                       audioLanguages: castAudioLanguages)
         player.stop()
+        #if os(iOS)
+        // Lock screen, AirPods and Control Center would drive the stopped phone player.
+        nowPlaying?.end()
+        nowPlaying = nil
+        #endif
         Task {
-            await cast.prepare(media, subtitleFile: subs.fileOnScreen)
+            let serving = await cast.prepare(media, subtitleFile: subs.fileOnScreen)
+            guard !closed else { return }
+            guard serving else {
+                toast = ToastMessage(text: "Couldn't reach the Wi-Fi to cast.", systemImage: "wifi.exclamationmark")
+                resumeHere(at: from)
+                return
+            }
             await cast.cast(to: device, from: from.asSeconds)
         }
     }
 
     /// Back to the phone, where the TV got to.
     private func stopCasting() {
+        recordProgress()   // the TV's position, while it's still the one that counts
         Task {
             let reached = await cast.stop()
+            guard !closed else { return }
             showCastSubtitles = false
             let resumeAt = reached > 1 ? Duration.seconds(reached) : lastGoodPosition
             lastGoodPosition = resumeAt
-            recordProgress()
-            recoverySeek = resumeAt
-            beginPlayback()
+            resumeHere(at: resumeAt)
         }
     }
 
+    /// The phone's player picks up at `position`, lock-screen controls included.
+    private func resumeHere(at position: Duration) {
+        recoverySeek = position
+        beginPlayback()
+        #if os(iOS)
+        beginNowPlaying()
+        #endif
+    }
+
     private func teardown() {
+        closed = true
+        recordProgress(publish: true)   // before the cast shuts down: while casting, the TV's position counts
         cast.shutdown()
         subs.stop()
         #if os(iOS)
@@ -772,7 +859,6 @@ struct PlaybackScreen: View {
         nowPlaying = nil
         levels.detach()
         #endif
-        recordProgress(publish: true)
         chrome.viewDisappeared()
         ScreenIdle.keepAwake(false)
         #if os(iOS)

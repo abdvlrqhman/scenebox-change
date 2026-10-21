@@ -17,7 +17,7 @@ struct TVPlaybackChrome: View {
     let subs: SubtitlesController
     var onSettingsOpenChanged: (Bool) -> Void = { _ in }
     var onInteraction: () -> Void = {}
-    var onAudioSelected: () -> Void = {}
+    var onAudioSelected: (Track) -> Void = { _ in }
     var episodes: EpisodePlaylist? = nil
     let onClose: () -> Void
 
@@ -25,10 +25,7 @@ struct TVPlaybackChrome: View {
     @State private var showEpisodes = false
     @State private var knownDuration: Duration = .zero
     @State private var seekFlash: SeekFlash?
-    @State private var lastRewindAt: Date?
     @FocusState private var focus: Field?
-
-    private let doubleSwipeWindow: TimeInterval = 0.65
 
     private enum Field: Hashable { case scrubber, playPause, cc, episodes, nextEpisode }
     private struct SeekFlash: Equatable { let forward: Bool; let token: Int }
@@ -72,10 +69,7 @@ struct TVPlaybackChrome: View {
         .animation(.easeInOut(duration: 0.2), value: isPaused)
         .onChange(of: showSettings) { _, open in onSettingsOpenChanged(open) }
         .onChange(of: showEpisodes) { _, open in onSettingsOpenChanged(open) }
-        .onChange(of: focus) { _, _ in
-            lastRewindAt = nil
-            onInteraction()
-        }
+        .onChange(of: focus) { _, _ in onInteraction() }
         .onChange(of: player.duration) { _, new in if let new, new > .zero { knownDuration = new } }
         .onAppear { if let d = player.duration, d > .zero { knownDuration = d } }
         .task(id: seekFlash?.token) {
@@ -103,6 +97,7 @@ struct TVPlaybackChrome: View {
                 }
                 .buttonStyle(BareButtonStyle())
                 .focused($focus, equals: .episodes)
+                .accessibilityLabel("Episodes")
 
                 if episodes?.next != nil {
                     Button {
@@ -112,6 +107,7 @@ struct TVPlaybackChrome: View {
                     }
                     .buttonStyle(BareButtonStyle())
                     .focused($focus, equals: .nextEpisode)
+                    .accessibilityLabel("Next episode")
                 }
             }
             chromeButton("captions.bubble", field: .cc)
@@ -146,15 +142,13 @@ struct TVPlaybackChrome: View {
             if isBuffering { bufferingLine }
 
             HStack(alignment: .center, spacing: 24) {
-                Button {
-                    player.togglePlaybackReasserting()
-                    onInteraction()
-                } label: {
+                Button(action: togglePlayback) {
                     TVChromeIcon(systemName: player.isPlaying ? "pause.fill" : "play.fill",
                                  isFocused: focus == .playPause)
                 }
                 .buttonStyle(BareButtonStyle())
                 .focused($focus, equals: .playPause)
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 .onMoveCommand { direction in
                     switch direction {
                     case .up: focus = episodes != nil ? .episodes : .cc
@@ -167,20 +161,11 @@ struct TVPlaybackChrome: View {
                             focused: focus == .scrubber, buffering: isBuffering)
                     .focusable()
                     .focused($focus, equals: .scrubber)
+                    .onTapGesture(perform: togglePlayback)   // a click on the remote pauses, as on the button
                     .onMoveCommand { direction in
                         switch direction {
-                        case .left:
-                            if let last = lastRewindAt,
-                               Date().timeIntervalSince(last) < doubleSwipeWindow {
-                                lastRewindAt = nil
-                                focus = .playPause
-                            } else {
-                                lastRewindAt = Date()
-                                seek(-10)
-                            }
-                        case .right:
-                            lastRewindAt = nil
-                            seek(10)
+                        case .left: seek(-10)
+                        case .right: seek(10)
                         case .down: focus = .playPause
                         default: break
                         }
@@ -195,6 +180,7 @@ struct TVPlaybackChrome: View {
         }
         .buttonStyle(BareButtonStyle())
         .focused($focus, equals: field)
+        .accessibilityLabel("Playback settings")
     }
 
     private var bufferingLine: some View {
@@ -223,6 +209,11 @@ struct TVPlaybackChrome: View {
         .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(radius: 20)
         .transition(.opacity)
+    }
+
+    private func togglePlayback() {
+        player.togglePlaybackReasserting()
+        onInteraction()
     }
 
     private func seek(_ seconds: Double) {

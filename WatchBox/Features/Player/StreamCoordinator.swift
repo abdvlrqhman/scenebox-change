@@ -57,6 +57,8 @@ final class StreamCoordinator {
     @ObservationIgnored private var currentProgress: WatchProgressContext?
     @ObservationIgnored private var switchToNextSource: (() -> Void)?
     @ObservationIgnored private var offerTask: Task<Void, Never>?
+    /// The last stop()'s cleanup; a new stream waits for it before touching the cache.
+    @ObservationIgnored private var teardownTask: Task<Void, Never>?
     @ObservationIgnored private let settings: AppSettings
 
     static var streamCacheRoot: URL { StreamCache.root }
@@ -108,6 +110,7 @@ final class StreamCoordinator {
         prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         prepareTask?.cancel()
+        statsTask?.cancel(); statsTask = nil
         // The next best source, for a failure here or the viewer's "Try another source".
         let hasFallback = !fallbacks.isEmpty
         currentStreamID = stream.id
@@ -150,7 +153,10 @@ final class StreamCoordinator {
         self.bufferProgress = nil
         self.isPresenting = true
 
+        let pendingTeardown = teardownTask
         prepareTask = Task { [settings] in
+            // A stream closed moments ago may still be deleting its folder or handing back the pack.
+            if let pendingTeardown { await pendingTeardown.value }
             let cacheLimit = settings.streamCacheLimitBytes
             let directory = Self.streamCacheRoot
                 .appendingPathComponent(stream.id, isDirectory: true)
@@ -306,15 +312,12 @@ final class StreamCoordinator {
                     subtitleContext: SubtitleContext? = nil, episodes: EpisodePlaylist? = nil,
                     startAt: Duration = .zero, progress: WatchProgressContext? = nil,
                     originalAudioLanguage: String? = nil) {
+        stop()   // a streamed episode may be playing before this one
         prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
-        prepareTask?.cancel()
         self.title = title
         self.backdropURL = backdropURL
         self.logoURL = logoURL
-        self.errorMessage = nil
-        self.preparing = nil
-        self.stats = SwarmStats()
         self.isPresenting = true
         self.target = Target(url: url, title: title, showsTorrentStats: false,
                              subtitleContext: subtitleContext,
@@ -383,7 +386,9 @@ final class StreamCoordinator {
         currentStream = nil
         currentProgress = nil
         canStartNow = false
-        Task { [settings] in
+        let previousTeardown = teardownTask
+        teardownTask = Task { [settings] in
+            if let previousTeardown { await previousTeardown.value }
             if let finished {
                 await Self.endSession(finished, stream: finishedStream, progress: finishedProgress,
                                       directory: directory, keepFolder: false, waitForEngine: true,
@@ -421,7 +426,7 @@ final class StreamCoordinator {
         let kept = DownloadStore.shared.adoptStreamedFile(
             at: file, relativePath: relativePath, stream: stream, title: progress.title,
             mediaID: progress.mediaID, mediaType: progress.mediaType,
-            posterURL: progress.posterURL, episodeLabel: episodeLabel)
+            posterURL: progress.posterURL, episodeLabel: episodeLabel, episodeID: progress.episodeID)
         guard kept, !keepFolder, let directory else { return }
         // Out of the cache. Other files of a season pack may stay, so the
         // engine's saved state (which still lists this file) is dropped and

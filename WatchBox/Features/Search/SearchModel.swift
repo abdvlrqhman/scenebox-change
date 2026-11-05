@@ -43,6 +43,8 @@ final class SearchModel {
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var errorMessage: String?
+    /// Kinds whose search failed while others answered ("TV shows didn't load").
+    private(set) var missingKinds: [MediaType] = []
 
     @ObservationIgnored private var search: TorrentSearch
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -89,6 +91,7 @@ final class SearchModel {
 
             var rows = [[MediaResult]](repeating: [], count: types.count)
             var failed = false
+            var failedTypes: [MediaType] = []
             await withTaskGroup(of: (Int, [MediaResult]?).self) { group in
                 for (i, type) in types.enumerated() {
                     group.addTask {
@@ -103,7 +106,7 @@ final class SearchModel {
                 }
                 for await (i, items) in group {
                     guard !Task.isCancelled else { return }
-                    guard let items else { failed = true; continue }
+                    guard let items else { failed = true; failedTypes.append(types[i]); continue }
                     rows[i] = items
                     let partial = searching ? Self.rankedBySearchRelevance(rows, query: trimmed)
                                             : (rows.first ?? [])
@@ -123,6 +126,7 @@ final class SearchModel {
             errorMessage = results.isEmpty && failed
                 ? "Couldn’t reach the catalog. Check your connection."
                 : nil
+            missingKinds = results.isEmpty ? [] : failedTypes
             isLoading = false
         }
     }

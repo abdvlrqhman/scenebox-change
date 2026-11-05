@@ -168,30 +168,21 @@ private struct FeaturedMarquee: View {
     var body: some View {
         VStack(spacing: 12) {
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
+                LazyHStack(spacing: 0) {
                     ForEach(items) { item in
-                        PosterLink(item: item) {
-                            FeaturedCard(item: item)
-                        }
-                        .overlay(alignment: .topTrailing) { FeaturedWatchlistButton(item: item) }
-                        .containerRelativeFrame(.horizontal) { width, _ in
-                            sizeClass == .regular ? min(width * 0.62, 760) : width - 32
-                        }
-                        // Cards leaving the centre recede while the finger drags them.
-                        .scrollTransition(axis: .horizontal) { content, phase in
-                            content
-                                .scaleEffect(phase.isIdentity || reduceMotion ? 1 : 0.94)
-                                .opacity(phase.isIdentity ? 1 : 0.55)
-                        }
-                        .id(item.id)
+                        FeaturedPage(item: item)
+                            .containerRelativeFrame(.horizontal)
+                            // A page leaving under the finger dims; nothing moves on its own.
+                            .scrollTransition(axis: .horizontal) { content, phase in
+                                content.opacity(phase.isIdentity || reduceMotion ? 1 : 0.4)
+                            }
+                            .id(item.id)
                     }
                 }
                 .scrollTargetLayout()
             }
-            .contentMargins(.horizontal, 16, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
+            .scrollTargetBehavior(.paging)
             .scrollPosition(id: $current)
-            .scrollClipDisabled()
             .sensoryFeedback(.selection, trigger: current)
 
             if items.count > 1 {
@@ -202,103 +193,91 @@ private struct FeaturedMarquee: View {
     }
 }
 
-private struct FeaturedCard: View {
+/// One featured title, CinemaScope like Up next: the frame, the serif title,
+/// one line of facts, Play (straight to video) and Save.
+private struct FeaturedPage: View {
     let item: MediaResult
 
+    private var facts: String {
+        var parts: [String] = []
+        if let year = item.year { parts.append(year) }
+        if !item.genres.isEmpty { parts.append(item.genres.prefix(2).joined(separator: ", ")) }
+        if let rating = item.imdbRating, !rating.isEmpty { parts.append("★ \(rating)") }
+        if let place = HomeModel.topTenPlaces[item.id] { parts.append(place) }
+        return parts.joined(separator: "   ")
+    }
+
     var body: some View {
-        Color.clear
-            .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            .background {
-                KFImage(item.backdropURL)
-                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1200, height: 900)))
-                    .cacheOriginalImage()
-                    .cancelOnDisappear(true)
-                    .fade(duration: 0.25)
-                    .placeholder { Theme.surface }
-                    .resizable()
-                    .scaledToFill()
+        VStack(alignment: .leading, spacing: 0) {
+            NavigationLink(value: item) {
+                Color.clear
+                    .aspectRatio(Theme.scopeAspect, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        KFImage(item.backdropURL ?? item.posterURL)
+                            .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1200, height: 600)))
+                            .cancelOnDisappear(true)
+                            .resizable()
+                            .fade(duration: 0.25)
+                            .placeholder { Theme.surface }
+                            .scaledToFill()
+                    }
+                    .clipped()
             }
-            .overlay {
-                LinearGradient(stops: [
-                    .init(color: .clear, location: 0.35),
-                    .init(color: .black.opacity(0.55), location: 0.7),
-                    .init(color: .black.opacity(0.88), location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-            }
-            .overlay(alignment: .bottomLeading) { caption }
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous)
-                .strokeBorder(Theme.hairline))
-            .contentShape(RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous))
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(item.name)
-    }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(item.name), details")
 
-    private var caption: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let logo = item.logoURL {
-                KFImage(logo)
-                    .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 600, height: 240)) |> TrimTransparentEdges())
-                    .cancelOnDisappear(true)
-                    .placeholder { titleText }
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 220, maxHeight: 76, alignment: .bottomLeading)
-                    .shadow(color: .black.opacity(0.5), radius: 8)
-            } else {
-                titleText
-            }
-            HStack(spacing: 10) {
-                if let year = item.year { Text(year) }
-                if let rating = item.imdbRating, !rating.isEmpty {
-                    Label(rating, systemImage: "star.fill")
-                        .labelStyle(.titleAndIcon)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(item.name)
+                    .font(.display(40, relativeTo: .largeTitle))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                Text(facts)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                HStack(spacing: 12) {
+                    NavigationLink(value: PlayTitle(item: item)) {
+                        Label("Play", systemImage: "play.fill")
+                            .font(.headline)
+                            .foregroundStyle(Theme.onAccent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(Theme.accent, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.pressable)
+                    SaveCircleButton(item: item)
                 }
-                if !item.genres.isEmpty {
-                    Text(item.genres.prefix(2).joined(separator: ", "))
-                        .lineLimit(1)
-                }
+                .padding(.top, 10)
             }
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.8))
+            .padding(.horizontal, Theme.gutter)
+            .padding(.top, 16)
         }
-        .padding(18)
     }
-
-    private var titleText: some View {
-        Text(item.name)
-            .font(.display(34))
-            .foregroundStyle(.white)
-            .lineLimit(2)
-            .minimumScaleFactor(0.7)
-    }
-
 }
 
-/// Sits over the card (not inside its link) so the tap reaches it.
-private struct FeaturedWatchlistButton: View {
+/// The round Save next to Play: outlined on black, a check once saved.
+private struct SaveCircleButton: View {
     let item: MediaResult
     @Environment(WatchlistStore.self) private var watchlist
 
     var body: some View {
         let saved = watchlist.contains(item.id)
         Button {
-            withAnimation(Theme.snappy) {
-                watchlist.toggle(id: item.id, mediaType: item.type, title: item.name, posterURL: item.posterURL)
-            }
+            watchlist.toggle(id: item.id, mediaType: item.type, title: item.name, posterURL: item.posterURL)
         } label: {
-            Image(systemName: saved ? "bookmark.fill" : "bookmark")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(saved ? Theme.accent : .white)
+            Image(systemName: saved ? "checkmark" : "plus")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white)
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 38, height: 38)
-                .background(.ultraThinMaterial, in: Circle())
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+                .frame(width: 52, height: 52)
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.24), lineWidth: 1))
+                .contentShape(Circle())
         }
         .buttonStyle(.pressable)
         .sensoryFeedback(.selection, trigger: saved)
-        .padding(9)                         // the circle stays 12pt from the corner
         .accessibilityLabel(saved ? "Remove from Watchlist" : "Add to Watchlist")
     }
 }
@@ -355,7 +334,7 @@ private struct PosterShelf: View {
                     SectionHeader(title)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.gutter)
 
             HorizontalShelfScroller {
                 LazyHStack(alignment: .top, spacing: 12) {
@@ -370,7 +349,7 @@ private struct PosterShelf: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.gutter)
             }
         }
     }
@@ -412,7 +391,7 @@ private struct PlaceholderShelf: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Theme.surface)
                 .frame(width: 170, height: 22)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.gutter)
             HStack(spacing: 12) {
                 ForEach(0..<5, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: Theme.posterCorner, style: .continuous)
@@ -421,7 +400,7 @@ private struct PlaceholderShelf: View {
                         .aspectRatio(Theme.posterAspect, contentMode: .fit)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.gutter)
             .frame(maxWidth: .infinity, alignment: .leading)
             .clipped()
         }
@@ -516,21 +495,7 @@ private struct UpNextHero: View {
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.pressable)
-                    let saved = watchlist.contains(item.id)
-                    Button {
-                        watchlist.toggle(id: item.id, mediaType: item.type, title: item.name, posterURL: item.posterURL)
-                    } label: {
-                        Image(systemName: saved ? "checkmark" : "plus")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 52, height: 52)
-                            .overlay(Circle().strokeBorder(Color.white.opacity(0.24), lineWidth: 1))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.pressable)
-                    .sensoryFeedback(.selection, trigger: saved)
-                    .accessibilityLabel(saved ? "Remove from Watchlist" : "Add to Watchlist")
+                    SaveCircleButton(item: item)
                 }
                 .padding(.top, 10)
             }

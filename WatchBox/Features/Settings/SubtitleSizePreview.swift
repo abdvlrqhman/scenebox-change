@@ -25,7 +25,10 @@ struct SubtitleSizePreview: View {
         .frame(height: 68)
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 6, leading: Theme.gutter, bottom: 6, trailing: Theme.gutter))
+        #if !os(tvOS)
+        .listRowSeparator(.hidden)
+        #endif
         .animation(.easeInOut(duration: 0.15), value: scale)
     }
 }

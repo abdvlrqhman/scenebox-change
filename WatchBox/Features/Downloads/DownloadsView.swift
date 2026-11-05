@@ -256,6 +256,7 @@ struct DownloadsView: View {
             if group.items.count == 1, let download = group.items.first {
                 DownloadItemRow(download: download, style: .standalone,
                                 watched: isWatched(download), watchFraction: watchFraction(download),
+                                timeLeft: timeLeft(download),
                                 onPrimary: { primaryAction(for: download) })
                     .contentShape(Rectangle())
                     .onTapGesture { if download.phase == .completed { play(download) } }
@@ -363,6 +364,15 @@ struct DownloadsView: View {
         guard let saved = progress.progress(for: context.mediaID), !saved.isFinished,
               saved.fraction > 0.01 else { return nil }
         return saved.fraction
+    }
+
+    /// A part-watched movie's resume point in words ("33 min left"); episodes only keep a fraction.
+    private func timeLeft(_ download: Download) -> String? {
+        guard let context = download.record.watchProgressContext, context.episodeID == nil,
+              let saved = progress.progress(for: context.mediaID), !saved.isFinished,
+              saved.fraction > 0.01, saved.durationSeconds > 0 else { return nil }
+        let minutes = max(1, Int(((saved.durationSeconds - saved.positionSeconds) / 60).rounded()))
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes) min left"
     }
 
     private var deleteTitle: String {
@@ -481,7 +491,7 @@ private struct GroupHeaderRow: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(Theme.textSecondary)
                 .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                .frame(width: 32, height: 32)
+                .frame(width: 44, height: 32)
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
@@ -508,6 +518,7 @@ private struct DownloadItemRow: View {
     let style: Style
     let watched: Bool
     let watchFraction: Double?
+    var timeLeft: String? = nil
     let onPrimary: () -> Void
 
     var body: some View {
@@ -535,9 +546,8 @@ private struct DownloadItemRow: View {
                 Image(systemName: primaryIcon)
                     .font(.system(size: 30))
                     .symbolRenderingMode(.palette)
-                    // Play is the yellow "do this" disc; pause and resume stay quiet.
-                    .foregroundStyle(download.phase == .completed ? Theme.onAccent : .white,
-                                     download.phase == .completed ? Theme.accent : Theme.elevated)
+                    // Quiet like pause and resume: a column of bright discs would shout, and the row plays anyway.
+                    .foregroundStyle(.white, Theme.elevated)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
@@ -556,11 +566,11 @@ private struct DownloadItemRow: View {
             PosterImage(url: download.record.posterURL, cornerRadius: Theme.posterCorner)
                 .frame(width: 56)
                 .overlay(alignment: .bottom) {
-                    if let watchFraction { ArtworkProgress(fraction: watchFraction).padding(4) }
+                    if timeLeft == nil, let watchFraction { ArtworkProgress(fraction: watchFraction).padding(4) }
                 }
         case .episode:
             Text(episodeCode)
-                .font(.display(17, weight: .bold))
+                .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(watched ? Theme.textTertiary : .white)
                 .frame(width: 58, alignment: .leading)
@@ -581,7 +591,7 @@ private struct DownloadItemRow: View {
         switch download.phase {
         case .completed:
             if style == .standalone {
-                Text(ByteFormat.size(download.record.totalBytes))
+                Text([ByteFormat.size(download.record.totalBytes), timeLeft].compactMap { $0 }.joined(separator: "   "))
                     .font(.caption).monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
             } else {

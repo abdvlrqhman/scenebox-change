@@ -285,7 +285,11 @@ struct SearchResults: View {
                            actionTitle: "Try again") { model.run(immediate: true) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.results.isEmpty {
-            if model.isSearching {
+            if model.isSearching, model.isLoading {
+                EmptyStateView(systemImage: "magnifyingglass", title: "Still searching",
+                               message: "Some catalogs are slow to answer right now.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.isSearching {
                 EmptyStateView(systemImage: "magnifyingglass", title: "Nothing found for “\(model.query)”",
                                message: "Check the spelling, or try the original title.",
                                actionTitle: "Browse instead") { model.query = "" }

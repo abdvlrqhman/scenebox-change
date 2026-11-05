@@ -78,6 +78,8 @@ final class SearchModel {
         let searching = !trimmed.isEmpty
         let types = searching ? [.movie, .series, .anime] : scope.types
         activeTypes = types
+        // A new query never shows the previous query's rows as its own.
+        if searching, trimmed != activeQuery { results = [] }
         activeQuery = trimmed
         pageOffsets = [:]
         exhausted = []

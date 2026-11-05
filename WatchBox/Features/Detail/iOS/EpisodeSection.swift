@@ -11,6 +11,8 @@ import Kingfisher
 struct EpisodeSection: View {
     let detail: MediaDetail
     @Binding var selectedSeason: Int
+    /// Season downloads and "Select Episodes…" live in the page's download menu.
+    @Binding var isSelecting: Bool
     var watchedEpisodes: Set<String> = []
     var episodeFraction: (Episode) -> Double? = { _ in nil }
     let onWatch: (Episode) -> Void
@@ -19,9 +21,10 @@ struct EpisodeSection: View {
     var onSetWatched: (Episode, Bool) -> Void = { _, _ in }
     /// The show's usual episode length, for "33m left" and "48m Watched".
     var runtimeMinutes: Int? = nil
+    /// What the Resume button says, so the episode row says the same.
+    var resumeTimeLeft: String? = nil
     @Environment(DownloadStore.self) private var downloads
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var isSelecting = false
     @State private var selection: Set<String> = []
 
     private var usesCards: Bool { Platform.isMac || sizeClass == .regular }
@@ -84,6 +87,7 @@ struct EpisodeSection: View {
                                    watchFraction: episodeFraction(episode),
                                    selection: selectionState(for: episode, state: state),
                                    runtimeMinutes: runtimeMinutes,
+                                   resumeTimeLeft: resumeTimeLeft,
                                    onWatch: { onWatch(episode) },
                                    onDownload: { onDownload(episode) },
                                    onToggleSelection: { toggle(episode, state: state) })
@@ -117,7 +121,7 @@ struct EpisodeSection: View {
                             let on = season == selectedSeason
                             Button { selectedSeason = season } label: {
                                 Text(season == 0 ? "Specials" : "\(season)")
-                                    .font(.title3.weight(on ? .semibold : .regular))
+                                    .font(.display(24, weight: on ? .medium : .light, relativeTo: .title2))
                                     .foregroundStyle(on ? Color.white : Theme.textTertiary)
                                     .frame(minWidth: 44, minHeight: 44)
                                     .contentShape(Rectangle())
@@ -138,31 +142,8 @@ struct EpisodeSection: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .tint(.white)
-                .padding(.trailing, 12)
-            } else {
-                Menu {
-                    let available = downloadable(in: detail.episodes(inSeason: selectedSeason))
-                    Button {
-                        onDownloadEpisodes(available)
-                    } label: {
-                        Label("Download \(seasonName(selectedSeason)) (\(available.count))",
-                              systemImage: "square.and.arrow.down.on.square")
-                    }
-                    .disabled(available.isEmpty)
-                    Button {
-                        isSelecting = true
-                    } label: {
-                        Label("Select Episodes…", systemImage: "checklist")
-                    }
-                } label: {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.title3)
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Download episodes")
-                .padding(.trailing, 8)
+                .frame(minHeight: 44)
+                .padding(.trailing, 20)
             }
         }
         .padding(.leading, 20)
@@ -262,7 +243,7 @@ private struct EpisodeDownloadGlyph: View {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: size))
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(.black, Theme.success)
+                .foregroundStyle(.black, .white)
         case .pending:
             PendingRing(progress: download?.progress ?? 0, size: size)
         }
@@ -313,9 +294,11 @@ private struct EpisodeRow: View {
     /// nil when not selecting; otherwise whether this row is ticked.
     var selection: Bool? = nil
     var runtimeMinutes: Int? = nil
+    var resumeTimeLeft: String? = nil
     let onWatch: () -> Void
     let onDownload: () -> Void
     var onToggleSelection: () -> Void = {}
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -325,16 +308,19 @@ private struct EpisodeRow: View {
                 .frame(minWidth: 28, alignment: .leading)
                 .accessibilityHidden(true)
 
-            // The still is the play button, like the row around it.
-            Button(action: selection != nil ? onToggleSelection : onWatch) { thumbnail }
-                .buttonStyle(.pressable)
-                .disabled(selection == nil && episode.isUnaired)
-                .accessibilityLabel("Play episode \(episode.episode)")
+            // The still is the play button, like the row around it; at the largest
+            // text sizes it steps aside for the title.
+            if !typeSize.isAccessibilitySize {
+                Button(action: selection != nil ? onToggleSelection : onWatch) { thumbnail }
+                    .buttonStyle(.pressable)
+                    .disabled(selection == nil && episode.isUnaired)
+                    .accessibilityLabel("Play episode \(episode.episode)")
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(episode.name)
                     .font(.body.weight(.semibold))
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Text(statusLine)
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
@@ -383,12 +369,12 @@ private struct EpisodeRow: View {
         if let released = episode.released, episode.isUnaired {
             return "Airs \(released.formatted(date: .abbreviated, time: .omitted))"
         }
-        if let watchFraction, !isWatched, let minutes = runtimeMinutes {
-            return "\(max(1, Int((Double(minutes) * (1 - watchFraction)).rounded()))) min left"
+        let estimate = runtimeMinutes.flatMap { minutes in
+            watchFraction.map { "\(max(1, Int((Double(minutes) * (1 - $0)).rounded()))) min left" }
         }
-        let length = runtimeMinutes.map { "\($0) min" }
-        let state = isWatched ? "Watched" : downloadState == .completed ? "Downloaded" : nil
-        let parts = [length, state].compactMap { $0 }
+        let time = watchFraction != nil && !isWatched ? (resumeTimeLeft ?? estimate) : runtimeMinutes.map { "\($0) min" }
+        let download: String? = downloadState == .completed ? "Downloaded" : downloadState == .pending ? "Downloading" : nil
+        let parts = [time, isWatched ? "Watched" : nil, download].compactMap { $0 }
         if parts.isEmpty, let released = episode.released {
             return released.formatted(date: .abbreviated, time: .omitted)
         }

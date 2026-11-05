@@ -68,7 +68,8 @@ struct PlaybackControls: View {
     }
 }
 
-/// Close and the title, then at most three tools: subtitles, TV, settings.
+/// Close and the title (serif, with the episode under it), then the three
+/// tools in one glass group: subtitles, TV, settings.
 private struct TopBar: View {
     let title: String
     let onSubtitles: () -> Void
@@ -76,43 +77,74 @@ private struct TopBar: View {
     var onCast: (() -> Void)? = nil
     let onClose: () -> Void
 
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: onClose) { icon("xmark") }
-                .accessibilityLabel("Close")
+    /// "Breaking Bad · S1E3" arrives as one label; the episode goes on its own line.
+    private var parts: (show: String, episode: String?) {
+        let pieces = title.components(separatedBy: " · ")
+        guard pieces.count > 1 else { return (title, nil) }
+        return (pieces.dropLast().joined(separator: " · "), pieces.last)
+    }
 
-            Text(title)
-                .font(Platform.isMac ? .headline.weight(.semibold) : .subheadline.weight(.semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.leading, 2)
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .glassChrome(in: Circle())
+            }
+            .accessibilityLabel("Close")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(parts.show)
+                    .font(.display(20, weight: .medium, relativeTo: .title3))
+                    .lineLimit(1)
+                if let episode = parts.episode {
+                    Text(spoken(episode))
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+            }
+            .truncationMode(.middle)
 
             Spacer(minLength: 0)
 
-            Button(action: onSubtitles) { icon("captions.bubble") }
-                .accessibilityLabel("Subtitles")
-            if let onCast, !Platform.isMac {
-                Button(action: onCast) { icon("tv") }
-                    .accessibilityLabel("Play on TV or computer")
+            HStack(spacing: 0) {
+                Button(action: onSubtitles) { icon("captions.bubble") }
+                    .accessibilityLabel("Subtitles")
+                if let onCast, !Platform.isMac {
+                    Button(action: onCast) { icon("tv") }
+                        .accessibilityLabel("Play on TV or computer")
+                }
+                Button(action: onSettings) { icon("slider.horizontal.3") }
+                    .accessibilityLabel("Playback settings")
             }
-            Button(action: onSettings) { icon("slider.horizontal.3") }
-                .accessibilityLabel("Playback settings")
+            .padding(.horizontal, 4)
+            .glassChrome(in: Capsule())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(
-            LinearGradient(colors: [.black.opacity(0.75), .clear],
+            LinearGradient(colors: [.black.opacity(0.6), .clear],
                            startPoint: .top, endPoint: .bottom)
+                .padding(.bottom, -40)
         )
+    }
+
+    /// "S1E3" reads as "Season 1, episode 3".
+    private func spoken(_ code: String) -> String {
+        guard let match = code.wholeMatch(of: /S(\d+)E(\d+)/) else { return code }
+        return "Season \(match.1), episode \(match.2)"
     }
 
     private func icon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(Platform.isMac ? .headline.weight(.bold) : .subheadline.weight(.bold))
+            .font(.body.weight(.semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .background(.ultraThinMaterial, in: Circle())
+            .contentShape(Rectangle())
     }
 }
 
@@ -121,13 +153,15 @@ private struct TransportRow: View {
     let isBuffering: Bool
 
     var body: some View {
-        let glyph: CGFloat = Platform.isMac ? 36 : 30
-        let playSize: CGFloat = Platform.isMac ? 88 : 74
+        let glyph: CGFloat = Platform.isMac ? 34 : 28
+        let playSize: CGFloat = Platform.isMac ? 84 : 72
         HStack(spacing: Platform.isMac ? 64 : 48) {
             Button {
                 try? player.seek(by: .seconds(-10), fast: true)
             } label: {
                 Image(systemName: "gobackward.10").font(.system(size: glyph))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(!player.isSeekable)
             .accessibilityLabel("Back 10 seconds")
@@ -139,21 +173,13 @@ private struct TransportRow: View {
                     Button {
                         player.togglePlaybackReasserting()
                     } label: {
-                        if #available(iOS 26.0, *) {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: glyph, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: playSize, height: playSize)
-                                .glassEffect(.regular.interactive(), in: Circle())
-                                .contentShape(Rectangle())
-                        } else {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: glyph, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: playSize, height: playSize)
-                                .background(.white.opacity(0.18), in: Circle())
-                                .contentShape(Rectangle())
-                        }
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: glyph, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: playSize, height: playSize)
+                            .glassChrome(in: Circle())
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 }
@@ -164,6 +190,8 @@ private struct TransportRow: View {
                 try? player.seek(by: .seconds(10), fast: true)
             } label: {
                 Image(systemName: "goforward.10").font(.system(size: glyph))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(!player.isSeekable)
             .accessibilityLabel("Forward 10 seconds")
@@ -213,9 +241,9 @@ private struct BottomBar: View {
             Label(title, systemImage: systemImage)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .frame(minHeight: 44)
-                .background(.ultraThinMaterial, in: Capsule())
+                .glassChrome(in: Capsule())
         }
         .buttonStyle(.plain)
     }

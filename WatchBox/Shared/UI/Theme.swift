@@ -37,6 +37,9 @@ enum Theme {
     static let accent: Color = Color(hex: defaultAccentHex)
     static let onAccent: Color = accent.contrastingForeground
 
+    /// One horizontal margin on iPhone.
+    static let gutter: CGFloat = 20
+
     // MARK: Shape (radius follows hierarchy: the bigger the thing, the rounder)
 
     static let stillCorner: CGFloat = 6

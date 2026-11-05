@@ -17,6 +17,9 @@ struct MediaDetailView: View {
 
     @State private var model: MediaDetailModel
     @State private var didAutoplay = false
+    @State private var isSelectingEpisodes = false
+    @State private var scrollToEpisodes = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotionScroll
     @State private var streamer = StreamCoordinator()
     @State private var pendingPlay: (() -> Void)?
     @State private var isAutoResolving = false
@@ -249,7 +252,7 @@ struct MediaDetailView: View {
                 if let synopsis = detail.description, !synopsis.isEmpty {
                     ExpandableText(text: synopsis, lineLimit: 3, font: .synopsis, color: .white.opacity(0.82))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, Theme.gutter)
                 }
                 if detail.type == .series, !detail.seasons.isEmpty {
                     EpisodeSection(
@@ -257,23 +260,31 @@ struct MediaDetailView: View {
                         selectedSeason: Binding(
                             get: { model.selectedSeason },
                             set: { model.selectedSeason = $0 }),
+                        isSelecting: $isSelectingEpisodes,
                         watchedEpisodes: progressStore.watchedEpisodes(for: mediaID),
                         episodeFraction: { progressStore.episodeFraction(mediaID: mediaID, episodeID: $0.id) },
                         onWatch: { watch(episode: $0) },
                         onDownload: { requestDownload(episode: $0) },
                         onDownloadEpisodes: { downloadEpisodes($0) },
                         onSetWatched: { setWatched($1, episode: $0, detail: detail) },
-                        runtimeMinutes: detail.runtime.flatMap { Int($0.prefix { $0.isNumber }) }
+                        runtimeMinutes: detail.runtime.flatMap { Int($0.prefix { $0.isNumber }) },
+                        resumeTimeLeft: timeLeftText(for: detail)
                     )
                     .id("episodes")
                 }
-                if !model.castMembers.isEmpty || !detail.cast.isEmpty {
-                    CastRow(members: model.castMembers, names: detail.cast)
+                if !model.castMembers.isEmpty || !detail.cast.isEmpty || !detail.directors.isEmpty {
+                    CastRow(members: model.castMembers, names: detail.cast,
+                            crew: detail.directors.map { ($0, "Director") } + detail.writers.map { ($0, "Writer") })
                 }
                 crew(for: detail)
                 moreLikeThis
             }
             .padding(.bottom, 40)
+        }
+        .onChange(of: scrollToEpisodes) { _, go in
+            guard go else { return }
+            scrollToEpisodes = false
+            proxy.scrollTo("episodes", anchor: .top)
         }
         .task {
             // `-SBDetailScroll episodes` opens the page at that section (screenshots, debugging).
@@ -337,6 +348,12 @@ struct MediaDetailView: View {
                                   systemImage: "square.and.arrow.down.on.square")
                         }
                         .disabled(downloadableEpisodes(season).isEmpty)
+                        Button {
+                            isSelectingEpisodes = true
+                            withAnimation(reduceMotionScroll ? nil : Theme.smooth) { scrollToEpisodes = true }
+                        } label: {
+                            Label("Select Episodes…", systemImage: "checklist")
+                        }
                     } label: {
                         actionIcon("arrow.down.circle", tint: .white)
                     }
@@ -346,8 +363,7 @@ struct MediaDetailView: View {
                     Button {
                         requestDownload(episode: firstEpisode(of: detail))
                     } label: {
-                        actionIcon(downloaded ? "arrow.down.circle.fill" : "arrow.down.circle",
-                                   tint: downloaded ? Theme.success : .white)
+                        actionIcon(downloaded ? "arrow.down.circle.fill" : "arrow.down.circle", tint: .white)
                     }
                     .buttonStyle(.pressable)
                     .accessibilityLabel(downloaded ? "Downloaded" : "Download")
@@ -374,7 +390,7 @@ struct MediaDetailView: View {
             }
         }
         .frame(maxWidth: Platform.isMac ? 480 : .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.gutter)
         .disabled(busy)
         .opacity(busy ? 0.6 : 1)
     }
@@ -394,7 +410,7 @@ struct MediaDetailView: View {
         guard watchProgressFraction(for: detail) != nil, let saved = savedProgress, saved.durationSeconds > 0 else { return nil }
         let minutes = Int(((saved.durationSeconds - saved.positionSeconds) / 60).rounded())
         guard minutes > 0 else { return nil }
-        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes)m left"
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes) min left"
     }
 
     private func toggleMovieWatched(_ detail: MediaDetail) {
@@ -756,7 +772,7 @@ struct MediaDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("More Like This")
                     .sectionTitleStyle()
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Theme.gutter)
                 HorizontalShelfScroller {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(model.similar) { item in
@@ -765,7 +781,7 @@ struct MediaDetailView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Theme.gutter)
                 }
             }
         }
@@ -774,14 +790,6 @@ struct MediaDetailView: View {
 
     private func crew(for detail: MediaDetail) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            if !detail.directors.isEmpty {
-                CreditLine(label: detail.directors.count > 1 ? "Directors" : "Director",
-                           value: detail.directors.joined(separator: ", "))
-            }
-            if !detail.writers.isEmpty {
-                CreditLine(label: detail.writers.count > 1 ? "Writers" : "Writer",
-                           value: detail.writers.joined(separator: ", "))
-            }
             if let country = detail.country, !country.isEmpty {
                 CreditLine(label: "Country", value: country)
             }
@@ -789,7 +797,7 @@ struct MediaDetailView: View {
                 CreditLine(label: "Awards", value: awards)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.gutter)
     }
 }
 
@@ -810,7 +818,6 @@ private struct BannerHeader: View {
                 Color.clear
                     .aspectRatio(Theme.scopeAspect, contentMode: .fit)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, chromeAllowance)
                     .overlay {
                         KFImage(detail?.backdropURL)
                             .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1400, height: 900)))
@@ -821,12 +828,8 @@ private struct BannerHeader: View {
                             .scaledToFill()
                     }
                     .clipped()
-                    .overlay(alignment: .top) {
-                        LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: chromeAllowance)
-                    }
                     // The frame dissolves into its own light instead of ending on a hard edge.
-                    .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.72),
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.8),
                                                  .init(color: .clear, location: 1)],
                                          startPoint: .top, endPoint: .bottom))
                     // Pull down to stretch, in answer to the finger only.
@@ -834,10 +837,11 @@ private struct BannerHeader: View {
                         let minY = reduceMotion ? 0 : proxy.frame(in: .scrollView).minY
                         return content.scaleEffect(minY > 0 ? 1 + minY / 300 : 1, anchor: .bottom)
                     }
+                    .padding(.top, chromeAllowance)
             }
 
             titleTreatment
-                .padding(.horizontal, 20)
+                .padding(.horizontal, Theme.gutter)
         }
         .padding(.top, Platform.isMac ? 120 : 0)
         .background(alignment: .top) {
@@ -884,6 +888,8 @@ private struct BannerHeader: View {
 private struct CastRow: View {
     let members: [CastMember]
     let names: [String]
+    /// Directors and writers, under the cast in the same list.
+    var crew: [(String, String)] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -902,8 +908,11 @@ private struct CastRow: View {
                     .buttonStyle(.plain)
                 }
             }
+            ForEach(crew.indices, id: \.self) { index in
+                personRow(name: crew[index].0, role: crew[index].1, photo: nil)
+            }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.gutter)
     }
 
     /// "Bryan Cranston ... Walter White", over a hairline.
@@ -947,7 +956,7 @@ private struct CreditLine: View {
                 .frame(width: labelWidth, alignment: .leading)
             Text(value)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
         }
     }
 }

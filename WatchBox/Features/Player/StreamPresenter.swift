@@ -276,7 +276,7 @@ private struct PreparingPlayerView: View {
 
 private struct BufferBar: View {
     let progress: Double?
-    private let height: CGFloat = 8
+    private let height: CGFloat = 3
 
     @State private var sweep = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

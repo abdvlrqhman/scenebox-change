@@ -14,6 +14,7 @@ struct ExpandableText: View {
     var color: Color = .secondary
 
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collapsedHeight: CGFloat = 0
     @State private var fullHeight: CGFloat = 0
 
@@ -29,7 +30,7 @@ struct ExpandableText: View {
 
             if isTruncatable {
                 Button(expanded ? "Show less" : "Show more") {
-                    withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                    withAnimation(reduceMotion ? nil : Theme.smooth) { expanded.toggle() }
                 }
                 .font(font.weight(.semibold))
                 .foregroundStyle(.white)

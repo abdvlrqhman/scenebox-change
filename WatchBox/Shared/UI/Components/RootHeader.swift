@@ -22,7 +22,7 @@ struct RootHeader<Trailing: View>: View {
             Spacer(minLength: 8)
             trailing
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Theme.gutter)
         .padding(.top, 6)
         .padding(.bottom, 2)
     }

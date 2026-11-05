@@ -40,13 +40,13 @@ struct FirstRunView: View {
                         if settings.debridProvider == .none { settings.debridProvider = .realDebrid }
                     }
                     if usesDebrid {
-                        Picker("Service", selection: $settings.debridProvider) {
-                            ForEach(DebridProvider.allCases.filter { $0 != .none }) { provider in
-                                Text(provider.title).tag(provider)
+                        row("Service") {
+                            Picker("Service", selection: $settings.debridProvider) {
+                                ForEach(DebridProvider.allCases.filter { $0 != .none }) { provider in
+                                    Text(provider.title).tag(provider)
+                                }
                             }
                         }
-                        .tint(.white)
-                        .frame(minHeight: 44)
                         SecureField("API key", text: $settings.debridAPIKey)
                             .autocorrectionDisabled()
                             #if os(iOS)
@@ -55,24 +55,30 @@ struct FirstRunView: View {
                             .padding(.horizontal, 14)
                             .frame(minHeight: 48)
                             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner, style: .continuous))
+                        if settings.debridAPIKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                            Text("Without a key, SceneBox plays peer-to-peer until you add one.")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.textTertiary)
+                        }
                     }
                 }
 
                 group("Languages") {
-                    Picker("Subtitles in", selection: $settings.preferredSubtitleLanguage) {
-                        ForEach(SubtitleLanguage.offered) { language in
-                            Text(language.name).tag(language.code)
+                    row("Audio") {
+                        Picker("Audio", selection: $settings.preferredAudioLanguage) {
+                            ForEach(AppSettings.audioLanguageOptions, id: \.code) { option in
+                                Text(option.name).tag(option.code)
+                            }
                         }
                     }
-                    .frame(minHeight: 44)
-                    Picker("Audio", selection: $settings.preferredAudioLanguage) {
-                        ForEach(AppSettings.audioLanguageOptions, id: \.code) { option in
-                            Text(option.name).tag(option.code)
+                    row("Subtitles") {
+                        Picker("Subtitles", selection: $settings.preferredSubtitleLanguage) {
+                            ForEach(SubtitleLanguage.offered) { language in
+                                Text(language.name).tag(language.code)
+                            }
                         }
                     }
-                    .frame(minHeight: 44)
                 }
-                .tint(.white)
 
                 group("Downloads") {
                     Toggle("Download over Wi-Fi only", isOn: $settings.wifiOnly)
@@ -121,6 +127,19 @@ struct FirstRunView: View {
                 .padding(.bottom, 6)
             content()
         }
+    }
+
+    /// "Audio ........ English ⌄": the label says what the picker is for.
+    private func row<Control: View>(_ title: String, @ViewBuilder control: () -> Control) -> some View {
+        LabeledContent {
+            control()
+                .labelsHidden()
+                .tint(.white)
+        } label: {
+            Text(title).font(.body.weight(.semibold))
+        }
+        .frame(minHeight: 48)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
     }
 
     /// A hairline row you pick, with a sentence of what it means.

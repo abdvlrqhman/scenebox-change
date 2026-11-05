@@ -150,11 +150,11 @@ struct ProfileEditorView: View {
                                 Text(existing == nil ? "Create" : "Save").font(.headline)
                             }
                         }
-                        .foregroundStyle(Theme.onAccent)
+                        .foregroundStyle(canSave ? Theme.onAccent : Theme.textSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
-                        .background(Theme.accent, in: Capsule())
-                        .opacity(canSave ? 1 : 0.4)
+                        .background(canSave ? Theme.accent : Theme.surface, in: Capsule())
+                        .overlay(Capsule().strokeBorder(canSave ? Color.clear : Theme.hairline))
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.pressable)
@@ -185,7 +185,7 @@ struct ProfileEditorView: View {
                 }
                 .frame(maxWidth: 480)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, Theme.gutter)
                 .padding(.bottom, 40)
             }
         }

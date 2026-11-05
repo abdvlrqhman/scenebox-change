@@ -89,7 +89,7 @@ struct SearchScreen: View {
             .background(Theme.surface, in: Capsule())
             .overlay(Capsule().strokeBorder(macFieldFocused ? Theme.accent.opacity(0.6) : Theme.hairline))
             .animation(Theme.snappy, value: macFieldFocused)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.gutter)
 
             chips
 
@@ -108,7 +108,7 @@ struct SearchScreen: View {
                     .contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(browseTitle), change filters")
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.gutter)
                 .padding(.top, 6)
             }
         }
@@ -349,7 +349,7 @@ struct SearchResults: View {
                         .aspectRatio(Theme.posterAspect, contentMode: .fit)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.gutter)
         }
         .scrollDisabled(true)
         .accessibilityLabel("Loading")

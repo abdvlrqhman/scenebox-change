@@ -36,9 +36,10 @@ struct ProfileAvatar: View {
 
     private var monogram: some View {
         ZStack {
-            profile.color
+            Color.black
+            profile.color.opacity(0.55)
             Text(profile.initial)
-                .font(.system(size: size * 0.46, weight: .bold, design: .rounded))
+                .font(.system(size: size * 0.46, weight: .medium, design: .serif))
                 .foregroundStyle(.white)
         }
     }

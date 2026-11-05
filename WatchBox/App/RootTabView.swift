@@ -60,10 +60,11 @@ struct RootTabView: View {
                 ProfileView()
             }
             #else
-            Tab("My Stuff", systemImage: "square.stack.fill", value: AppTab.library) {
+            Tab("My Stuff", systemImage: "play.square.stack.fill", value: AppTab.library) {
                 LibraryView()
             }
-            .badge(downloads.activeCount)
+            // Red means "needs you": only downloads that failed.
+            .badge(downloads.downloads.filter { $0.phase == .failed }.count)
             #endif
         }
         .tint(settings.accentColor)

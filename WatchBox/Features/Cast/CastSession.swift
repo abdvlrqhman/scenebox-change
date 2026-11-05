@@ -523,6 +523,21 @@ final class CastSession {
         return reached
     }
 
+    #if DEBUG
+    /// A cast as it looks mid-film, for screenshots (`-SBCastPreview`).
+    func showPreview() {
+        device = RendererDescription(
+            location: URL(string: "http://192.168.1.50:9197/dmr")!, name: "[TV] Samsung 7 Series (55)",
+            manufacturer: "Samsung Electronics", model: "UE55", udn: "uuid:preview",
+            avTransport: URL(string: "http://192.168.1.50:9197/upnp/control/AVTransport1")!, renderingControl: nil)
+        phase = .playing
+        position = 4100
+        duration = 8880
+        audioTracks = [.init(language: "eng", name: "English 5.1", isDefault: true),
+                       .init(language: "fre", name: nil, isDefault: false)]
+    }
+    #endif
+
     /// The player is closing: the TV stops and the address goes away.
     func shutdown() {
         pollTask?.cancel()

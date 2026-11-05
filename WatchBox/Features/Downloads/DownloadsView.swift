@@ -117,6 +117,11 @@ struct DownloadsView: View {
         #endif
         .onAppear {
             if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.map(\.id)) }
+            #if DEBUG
+            // `-SBPlayDownload <id>` opens that download in the player (screenshots).
+            if let id = UserDefaults.standard.string(forKey: "SBPlayDownload"),
+               let download = store.downloads.first(where: { $0.id == id }) { play(download) }
+            #endif
         }
         .fullScreenCover(isPresented: Binding(get: { streamer.isPresenting },
                                               set: { if !$0 { streamer.stop() } })) {

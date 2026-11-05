@@ -362,6 +362,9 @@ struct PlaybackScreen: View {
         .onChange(of: player.state) { _, state in
             subs.playerStateChanged(state)
             if state == .playing { syncOriginalAudio() }   // a reopen may list the same number of tracks
+            #if DEBUG
+            if state == .playing { applyScreenshotFlags() }
+            #endif
             if state == .playing, let target = recoverySeek, player.isSeekable {
                 recoverySeek = nil
                 try? player.seek(to: target)
@@ -601,6 +604,20 @@ struct PlaybackScreen: View {
     }
 
     #if DEBUG
+    /// Still states for screenshots: `-SBPlayerPause`, `-SBCastPicker`, `-SBCastPreview`.
+    private func applyScreenshotFlags() {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "SBPlayerPause") {
+            player.pause()
+            chrome.reveal(autoHide: false)
+        }
+        if defaults.bool(forKey: "SBCastPicker") { openCastPicker() }
+        if defaults.bool(forKey: "SBCastPreview"), !cast.isActive {
+            cast.showPreview()
+            player.stop()
+        }
+    }
+
     private func reportPlayerTime() async {
         guard !url.isFileURL else { return }
         while !Task.isCancelled {

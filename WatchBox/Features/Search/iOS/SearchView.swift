@@ -40,7 +40,12 @@ struct SearchScreen: View {
             .onChange(of: router.focusSearch) { _, _ in focusIfAsked() }
             .onChange(of: model.query) { _, _ in model.run() }
             .onSubmit(of: .search) { model.run(immediate: true) }
-            .task { if model.results.isEmpty { model.run() } }
+            .task {
+                #if DEBUG
+                if let query = UserDefaults.standard.string(forKey: "SBSearchQuery") { model.query = query }   // screenshots
+                #endif
+                if model.results.isEmpty { model.run() }
+            }
     }
 
     // MARK: - Phone header

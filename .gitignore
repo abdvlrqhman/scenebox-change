@@ -42,7 +42,8 @@ ExportOptions*.local.plist
 node_modules/
 
 # Local tooling
-.claude/
+.claude/*
+!.claude/agents/
 
 # Firebase config (kept locally)
 GoogleService-Info.plist

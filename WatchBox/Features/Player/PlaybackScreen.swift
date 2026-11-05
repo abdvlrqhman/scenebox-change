@@ -152,7 +152,7 @@ struct PlaybackScreen: View {
                              : chrome.releaseHold(autoHide: player.isPlaying && !isBuffering)
                     },
                     onInteraction: { chrome.interacted(autoHide: player.isPlaying && !isBuffering) },
-                    onAudioSelected: { track in chosenAudioID = track.id },
+                    onAudioSelected: { track in chosenAudioID = track.id; PlayerChoices.audioLanguage = track.language },
                     episodes: chromeEpisodes,
                     onClose: onClose
                 )
@@ -170,7 +170,7 @@ struct PlaybackScreen: View {
                     },
                     isLandscape: isLandscape,
                     onToggleOrientation: toggleOrientation,
-                    onAudioSelected: { track in chosenAudioID = track.id },
+                    onAudioSelected: { track in chosenAudioID = track.id; PlayerChoices.audioLanguage = track.language },
                     episodes: chromeEpisodes,
                     onCast: openCastPicker,
                     onClose: onClose
@@ -573,6 +573,8 @@ struct PlaybackScreen: View {
     // MARK: - Original-language audio
 
     private var targetAudioLanguage: String? {
+        // A language picked earlier in this sitting wins over the defaults.
+        if let chosen = PlayerChoices.audioLanguage, !chosen.isEmpty { return chosen.lowercased() }
         let preferred = settings.preferredAudioLanguage.lowercased()
         let original = originalAudioLanguage?.lowercased()
         if preferred.isEmpty { return original?.isEmpty == false ? original : nil }
@@ -687,7 +689,8 @@ struct PlaybackScreen: View {
     #endif
 
     private func start() {
-        player.aspectRatio = settings.fillScreen ? .fill : .default
+        player.aspectRatio = PlayerChoices.aspect ?? (settings.fillScreen ? .fill : .default)
+        if PlayerChoices.rate != 1 { try? player.setPlaybackRate(PlaybackRate(PlayerChoices.rate)) }
         player.setSubtitleScale(SubtitleScale(Float(settings.subtitleScale)))
         #if os(iOS)
         // Video opens the way it's watched. The rotate button still returns to

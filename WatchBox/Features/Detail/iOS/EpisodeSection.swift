@@ -80,14 +80,18 @@ struct EpisodeSection: View {
                     ForEach(episodes) { episode in
                         let watched = watchedEpisodes.contains(episode.label)
                         let state = downloadState(for: episode)
+                        let download = downloads.download(mediaID: detail.id, episodeLabel: episode.label)
                         EpisodeRow(episode: episode,
                                    downloadState: state,
-                                   download: downloads.download(mediaID: detail.id, episodeLabel: episode.label),
+                                   download: download,
                                    isWatched: watched,
                                    watchFraction: episodeFraction(episode),
                                    selection: selectionState(for: episode, state: state),
                                    runtimeMinutes: runtimeMinutes,
                                    resumeTimeLeft: resumeTimeLeft,
+                                   // A stopped download says so; tapping the arrow resumes it.
+                                   detail: download?.phase == .paused ? "Download paused"
+                                       : download?.phase == .failed ? "Download failed" : nil,
                                    onWatch: { onWatch(episode) },
                                    onDownload: { onDownload(episode) },
                                    onToggleSelection: { toggle(episode, state: state) })
@@ -97,6 +101,11 @@ struct EpisodeSection: View {
                             } label: {
                                 Label(watched ? "Mark as Unwatched" : "Mark as Watched",
                                       systemImage: watched ? "eye.slash" : "checkmark.circle")
+                            }
+                            if state == .completed, let download {
+                                Button(role: .destructive) { downloads.remove(download) } label: {
+                                    Label("Remove Download", systemImage: "trash")
+                                }
                             }
                         } preview: {
                             EpisodePeek(episode: episode)   // the synopsis the compact row leaves out
@@ -285,7 +294,8 @@ private struct SelectionMark: View {
     }
 }
 
-private struct EpisodeRow: View {
+/// One episode, the same on the show's page and in My Stuff.
+struct EpisodeRow: View {
     let episode: Episode
     var downloadState: EpisodeDownloadState = .idle
     var download: Download? = nil
@@ -295,6 +305,8 @@ private struct EpisodeRow: View {
     var selection: Bool? = nil
     var runtimeMinutes: Int? = nil
     var resumeTimeLeft: String? = nil
+    /// Appended to the status line: size or transfer progress in My Stuff.
+    var detail: String? = nil
     let onWatch: () -> Void
     let onDownload: () -> Void
     var onToggleSelection: () -> Void = {}
@@ -375,7 +387,7 @@ private struct EpisodeRow: View {
         }
         let time = watchFraction != nil && !isWatched ? (resumeTimeLeft ?? estimate) : runtimeMinutes.map { "\($0) min" }
         let download: String? = downloadState == .completed ? "Downloaded" : downloadState == .pending ? "Downloading" : nil
-        let parts = [time, isWatched ? "Watched" : nil, download].compactMap { $0 }
+        let parts = [time, isWatched ? "Watched" : nil, download, detail].compactMap { $0 }
         if parts.isEmpty, let released = episode.released {
             return released.formatted(date: .abbreviated, time: .omitted)
         }

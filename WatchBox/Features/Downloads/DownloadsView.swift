@@ -118,7 +118,7 @@ struct DownloadsView: View {
         }
         #endif
         .onAppear {
-            if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.flatMap { ["ready-\($0.id)", "coming-\($0.id)"] }) }
+            if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.map(\.id)) }
             #if DEBUG
             // `-SBPlayDownload <id>` opens that download in the player (screenshots).
             if let id = UserDefaults.standard.string(forKey: "SBPlayDownload"),
@@ -150,19 +150,11 @@ struct DownloadsView: View {
 
     #if !os(tvOS)
     private func list(_ groups: [DownloadGroup]) -> some View {
-        // Ready to watch first; what's still coming after. A show can be in both.
-        let ready = DownloadGroup.make(from: store.downloads.filter { $0.phase == .completed })
-        let coming = DownloadGroup.make(from: store.downloads.filter { $0.phase != .completed })
+        // Each title once, its episodes in order whatever their state, like on its page.
         let watchedDone = store.downloads.filter { $0.phase == .completed && isWatched($0) }
         return List {
-            if !ready.isEmpty {
-                sectionTitle("Ready offline")
-                groupRows(ready, section: "ready")
-            }
-            if !coming.isEmpty {
-                downloadingHeader
-                groupRows(coming, section: "coming")
-            }
+            if store.downloads.contains(where: { $0.phase != .completed }) { transferStatus }
+            groupRows(groups)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Using \(ByteFormat.size(store.diskUsage)) on this device")
@@ -204,57 +196,42 @@ struct DownloadsView: View {
         }
     }
 
-    /// "Downloading" with Pause all / Resume all beside it and one line of where things stand.
-    private var downloadingHeader: some View {
+    /// Where transfers stand, with Pause all / Resume all beside it.
+    private var transferStatus: some View {
         let pending = store.downloads.filter(\.phase.isPending)
-        let total = pending.reduce(Int64(0)) { $0 + $1.record.totalBytes }
-        let done = pending.reduce(Int64(0)) { $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes)) }
-        let canResume = store.downloads.contains { $0.phase == .paused || $0.phase == .failed }
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Downloading")
-                    .sectionTitleStyle()
-                Spacer(minLength: 8)
+        let stopped = store.downloads.filter { $0.phase == .paused || $0.phase == .failed }
+        let coming = pending + stopped
+        let total = coming.reduce(Int64(0)) { $0 + $1.record.totalBytes }
+        let done = coming.reduce(Int64(0)) { $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes)) }
+        let counts = [pending.isEmpty ? nil : "\(pending.count) downloading",
+                      stopped.isEmpty ? nil : "\(stopped.count) paused"].compactMap { $0 }.joined(separator: ", ")
+        return HStack(alignment: .firstTextBaseline) {
+            Text("\(counts), \(ByteFormat.size(done)) of \(ByteFormat.size(total))")
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(Theme.textSecondary)
+            Spacer(minLength: 8)
+            Group {
                 if !pending.isEmpty {
                     Button("Pause all") { store.pauseAll() }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(minHeight: 44)
-                } else if canResume {
+                } else if !stopped.isEmpty {
                     Button("Resume all") { store.resumeAll() }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(minHeight: 44)
                 }
             }
-            if !pending.isEmpty {
-                Text("\(pending.count) downloading, \(ByteFormat.size(done)) of \(ByteFormat.size(total))")
-                    .font(.subheadline)
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
-            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(minHeight: 44)
         }
-        .padding(.top, 10)
         .listRowBackground(Theme.background)
         .listRowSeparator(.hidden)
         .buttonStyle(.plain)
     }
 
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .sectionTitleStyle()
-            .padding(.top, 10)
-            .listRowBackground(Theme.background)
-            .listRowSeparator(.hidden)
-    }
-
     @ViewBuilder
-    private func groupRows(_ groups: [DownloadGroup], section: String) -> some View {
+    private func groupRows(_ groups: [DownloadGroup]) -> some View {
         ForEach(groups) { group in
-            // Expanding a show in one section leaves it alone in the other.
-            let key = "\(section)-\(group.id)"
-            if group.items.count == 1, let download = group.items.first {
-                DownloadItemRow(download: download, style: .standalone,
+            if group.items.count == 1, let download = group.items.first, !group.isSeries {
+                DownloadItemRow(download: download,
                                 watched: isWatched(download), watchFraction: watchFraction(download),
                                 timeLeft: timeLeft(download),
                                 onPrimary: { primaryAction(for: download) })
@@ -266,31 +243,68 @@ struct DownloadsView: View {
                     .contextMenu { itemMenu(download) }
             } else {
                 Button {
-                    withAnimation(Theme.smooth) { toggle(key) }
+                    withAnimation(Theme.smooth) { toggle(group.id) }
                 } label: {
-                    GroupHeaderRow(group: group, isExpanded: expanded.contains(key),
+                    GroupHeaderRow(group: group, isExpanded: expanded.contains(group.id),
                                    watchedCount: group.items.filter { isWatched($0) }.count)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(expanded.contains(key) ? Theme.surface : Theme.background)
-                .listRowSeparator(expanded.contains(key) ? .hidden : .visible)
+                .listRowBackground(Theme.background)
+                .listRowSeparator(expanded.contains(group.id) ? .hidden : .visible)
                 .listRowSeparatorTint(Theme.hairline)
                 .swipeActions { deleteButton { pendingDelete = .group(group) } }
                 .contextMenu { groupMenu(group) }
 
-                if expanded.contains(key) {
+                if expanded.contains(group.id) {
+                    // The same row as on the show's page: still, name, state in words.
                     ForEach(group.items) { download in
-                        DownloadItemRow(download: download, style: .episode,
-                                        watched: isWatched(download), watchFraction: watchFraction(download),
-                                        onPrimary: { primaryAction(for: download) })
-                            .listRowBackground(Theme.surface)
-                            .listRowSeparator(download.id == group.items.last?.id ? .visible : .hidden)
-                            .listRowSeparatorTint(Theme.hairline)
-                            .swipeActions { deleteButton { pendingDelete = .one(download) } }
-                            .contextMenu { itemMenu(download) }
+                        if let episode = download.record.episode {
+                            EpisodeRow(episode: episode,
+                                       downloadState: download.phase == .completed ? .completed
+                                           : download.phase.isPending ? .pending : .idle,
+                                       download: download,
+                                       isWatched: isWatched(download),
+                                       watchFraction: watchFraction(download),
+                                       detail: episodeDetail(download),
+                                       onWatch: { if !download.phase.isPending { primaryAction(for: download) } },
+                                       onDownload: { primaryAction(for: download) })
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Theme.background)
+                                .listRowSeparator(.hidden)
+                                .swipeActions { deleteButton { pendingDelete = .one(download) } }
+                                .contextMenu { itemMenu(download) }
+                        }
+                    }
+                    if let first = group.items.first {
+                        Button { openTitle(first) } label: {
+                            HStack {
+                                Text("All episodes of \(group.title)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(Theme.textTertiary)
+                            }
+                            .foregroundStyle(.white)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Theme.background)
+                        .listRowSeparatorTint(Theme.hairline)
                     }
                 }
             }
+        }
+    }
+
+    /// Size when it's here; how far along, or why it stopped, when it isn't.
+    private func episodeDetail(_ download: Download) -> String? {
+        switch download.phase {
+        case .completed: ByteFormat.size(download.record.totalBytes)
+        case .downloading, .resolving, .queued: download.sizeProgressText
+        case .paused, .failed: [download.statusText, download.sizeProgressText].compactMap { $0 }.joined(separator: "   ")
         }
     }
 
@@ -500,7 +514,7 @@ private struct GroupHeaderRow: View {
     }
 
     private var summary: String {
-        var parts = ["\(group.items.count) episodes"]
+        var parts = [group.items.count == 1 ? "1 episode" : "\(group.items.count) episodes"]
         if group.pendingCount > 0 {
             parts.append("\(group.pendingCount) downloading")
         } else if group.completedCount < group.items.count {
@@ -511,11 +525,9 @@ private struct GroupHeaderRow: View {
     }
 }
 
+/// A movie (or a lone episode) in My Stuff; a show's episodes use `EpisodeRow`.
 private struct DownloadItemRow: View {
-    enum Style { case standalone, episode }
-
     let download: Download
-    let style: Style
     let watched: Bool
     let watchFraction: Double?
     var timeLeft: String? = nil
@@ -528,15 +540,10 @@ private struct DownloadItemRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(titleLine)
-                        .font(style == .standalone ? .display(19, weight: .medium, relativeTo: .headline) : .subheadline.weight(.semibold))
+                        .font(.display(19, weight: .medium, relativeTo: .headline))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    if watched, style == .standalone { WatchedBadge(size: 16) }
-                }
-                if style == .standalone, let episode = download.record.episodeLabel {
-                    Text(episode)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
+                    if watched { WatchedBadge(size: 16) }
                 }
                 status
             }
@@ -555,57 +562,26 @@ private struct DownloadItemRow: View {
             .buttonStyle(.pressable)
             .accessibilityLabel(download.phase.actionLabel)
         }
-        .padding(.vertical, style == .standalone ? 6 : 2)
-        .padding(.leading, style == .episode ? 4 : 0)
+        .padding(.vertical, 6)
     }
 
-    @ViewBuilder
     private var leading: some View {
-        switch style {
-        case .standalone:
-            PosterImage(url: download.record.posterURL, cornerRadius: Theme.posterCorner)
-                .frame(width: 56)
-                .overlay(alignment: .bottom) {
-                    if timeLeft == nil, let watchFraction { ArtworkProgress(fraction: watchFraction).padding(4) }
-                }
-        case .episode:
-            Text(episodeCode)
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(watched ? Theme.textTertiary : .white)
-                .frame(width: 58, alignment: .leading)
-        }
+        PosterImage(url: download.record.posterURL, cornerRadius: Theme.posterCorner)
+            .frame(width: 56)
+            .overlay(alignment: .bottom) {
+                if timeLeft == nil, let watchFraction { ArtworkProgress(fraction: watchFraction).padding(4) }
+            }
     }
 
-    private var titleLine: String {
-        switch style {
-        case .standalone: download.record.title
-        case .episode: download.phase == .completed
-            ? (watched ? "Watched" : "Ready to watch")
-            : download.statusText
-        }
-    }
+    private var titleLine: String { download.record.title }
 
     @ViewBuilder
     private var status: some View {
         switch download.phase {
         case .completed:
-            if style == .standalone {
-                Text([ByteFormat.size(download.record.totalBytes), timeLeft].compactMap { $0 }.joined(separator: "   "))
-                    .font(.caption).monospacedDigit()
-                    .foregroundStyle(Theme.textTertiary)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(ByteFormat.size(download.record.totalBytes))
-                        .font(.caption).monospacedDigit()
-                        .foregroundStyle(Theme.textTertiary)
-                    if let watchFraction {
-                        ProgressView(value: watchFraction)
-                            .tint(.white.opacity(0.7))
-                            .frame(maxWidth: 140)
-                    }
-                }
-            }
+            Text([ByteFormat.size(download.record.totalBytes), timeLeft].compactMap { $0 }.joined(separator: "   "))
+                .font(.caption).monospacedDigit()
+                .foregroundStyle(Theme.textTertiary)
         default:
             // Words first, then the bar, like the show rows above.
             VStack(alignment: .leading, spacing: 6) {
@@ -623,15 +599,7 @@ private struct DownloadItemRow: View {
     }
 
     private var detailLine: String {
-        if style == .episode {
-            return download.sizeProgressText ?? download.record.releaseName
-        }
-        return [download.statusText, download.sizeProgressText].compactMap { $0 }.joined(separator: "  ")
-    }
-
-    private var episodeCode: String {
-        guard let label = download.record.episodeLabel else { return "" }
-        return label.replacingOccurrences(of: "E", with: " E")
+        [download.statusText, download.sizeProgressText].compactMap { $0 }.joined(separator: "  ")
     }
 
     private var primaryIcon: String {

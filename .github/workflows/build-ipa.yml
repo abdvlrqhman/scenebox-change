@@ -54,6 +54,10 @@ jobs:
             WatchBox/Features/Cast/MatroskaAudio.swift \
             WatchBox/Features/Player/OriginalAudio.swift \
             WatchBox/Shared/Formatting/OpaqueBounds.swift \
+            WatchBox/Shared/Models/MediaType.swift \
+            WatchBox/Shared/Models/Episode.swift \
+            WatchBox/Shared/Models/MediaDetail.swift \
+            WatchBox/Features/Detail/ResumeTarget.swift \
             scripts/selftest/main.swift
           build/selftest build/fixtures
 

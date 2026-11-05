@@ -50,6 +50,7 @@ struct PlaybackControls: View {
                 PlaybackSettingsPanel(player: player, subs: subs,
                                       onAudioSelected: onAudioSelected,
                                       opensOnSubtitles: panelOnSubtitles,
+                                      includesTracks: false,
                                       onRotate: canRotate ? onToggleOrientation : nil) { showSettings = false }
                     .transition(.opacity)
             }
@@ -112,7 +113,7 @@ private struct TopBar: View {
 
             HStack(spacing: 0) {
                 Button(action: onSubtitles) { icon("captions.bubble") }
-                    .accessibilityLabel("Subtitles")
+                    .accessibilityLabel("Audio and subtitles")
                 if let onCast, !Platform.isMac {
                     Button(action: onCast) { icon("tv") }
                         .accessibilityLabel("Play on TV or computer")

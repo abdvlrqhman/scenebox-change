@@ -13,6 +13,7 @@ struct HomeView: View {
     @State private var model = HomeModel()
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
+    @Environment(DownloadStore.self) private var downloads
 
     var body: some View {
         NavigationStack {
@@ -32,7 +33,8 @@ struct HomeView: View {
             model.loadBecauseYouWatched(progress.items.first)
         }
         .onChange(of: progress.continueItems.first, initial: true) { _, item in
-            model.loadUpNext(item, watched: item.map { progress.watchedEpisodes(for: $0.id) } ?? [])
+            model.loadUpNext(item, watched: item.map { progress.watchedEpisodes(for: $0.id) } ?? [],
+                             downloaded: item.map { downloads.completedEpisodeLabels(mediaID: $0.id) } ?? [])
         }
     }
 

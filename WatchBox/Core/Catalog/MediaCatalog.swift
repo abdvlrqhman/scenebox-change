@@ -42,12 +42,31 @@ extension TorrentSearch {
         guard let url = URL(string: "\(base)/meta/\(typePath)/\(safeID).json") else {
             throw CatalogError.badURL
         }
-        let (data, _) = try await URLSession.shared.data(for: Self.request(url))
+        let cacheFile = Self.metaCacheURL(id: id)
+        let data: Data
+        do {
+            data = try await URLSession.shared.data(for: Self.request(url)).0
+        } catch {
+            // Offline: the copy from the last visit keeps the page, and its downloads, playable.
+            guard let cached = try? Data(contentsOf: cacheFile) else { throw error }
+            data = cached
+        }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         guard let meta = json?["meta"] as? [String: Any] else {
             throw CatalogError.notFound(id)
         }
+        try? data.write(to: cacheFile, options: .atomic)
         return Self.parseDetail(meta, fallbackType: type)
+    }
+
+    /// shortcut: kept in Caches, so iOS may purge it under storage pressure; move to
+    /// Application Support if offline pages go missing for downloaded titles.
+    nonisolated private static func metaCacheURL(id: String) -> URL {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Meta", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = id.map { $0.isLetter || $0.isNumber ? String($0) : "_" }.joined()
+        return folder.appendingPathComponent("\(name).json")
     }
 
     nonisolated private static func request(_ url: URL) -> URLRequest {

@@ -114,6 +114,13 @@ final class DownloadStore {
         }
     }
 
+    /// Labels ("S1E3") of a show's episodes that are on the phone.
+    func completedEpisodeLabels(mediaID: String) -> Set<String> {
+        Set(downloads.compactMap {
+            $0.record.mediaID == mediaID && ($0.phase == .completed || $0.record.isComplete) ? $0.record.episodeLabel : nil
+        })
+    }
+
     func isDownloaded(mediaID: String, episodeLabel: String? = nil) -> Bool {
         completedDownload(mediaID: mediaID, episodeLabel: episodeLabel) != nil
     }
@@ -143,7 +150,9 @@ final class DownloadStore {
             debridURLString: stream.url?.absoluteString,
             debridFileName: stream.url.map { Self.fileName(from: $0, title: title) },
             infoHash: stream.id.lowercased(),
-            episodeID: episode?.id
+            episodeID: episode?.id,
+            episodeName: episode?.name,
+            stillURLString: episode?.thumbnailURL?.absoluteString
         )
         let download = Download(record: record, phase: .paused)
         downloads.insert(download, at: 0)

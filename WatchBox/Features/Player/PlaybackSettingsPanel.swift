@@ -12,8 +12,11 @@ struct PlaybackSettingsPanel: View {
     let player: Player
     let subs: SubtitlesController
     var onAudioSelected: (Track) -> Void = { _ in }
-    /// Opened from the CC button: subtitles first (language, size, sync).
+    /// Opened from the CC button: audio and subtitles (language, version, size, sync).
     var opensOnSubtitles = false
+    /// Off when a separate CC button owns audio and subtitles, so the two buttons
+    /// never open the same page (tvOS and casting have only one button).
+    var includesTracks = true
     /// Phones only: the screen turns from here rather than from a top-bar icon.
     var onRotate: (() -> Void)? = nil
     let onClose: () -> Void
@@ -39,9 +42,12 @@ struct PlaybackSettingsPanel: View {
                     switch page {
                     case .root:
                         header(title: "Playback")
-                        if !player.audioTracks.isEmpty { audioSection }
-                        subtitleNavSection
-                        if hasActiveSubtitle { subtitleDelaySection }
+                        if includesTracks {
+                            if !player.audioTracks.isEmpty { audioSection }
+                            subtitleNavSection
+                            sizeSection           // tvOS has no CC page, so size lives here too
+                            if hasActiveSubtitle { subtitleDelaySection }
+                        }
                         speedSection
                         aspectSection
                         if let onRotate {
@@ -53,8 +59,10 @@ struct PlaybackSettingsPanel: View {
                             }
                         }
                     case .captions:
-                        header(title: "Subtitles")
-                        subtitleNavSection
+                        // One tap picks a language; no second page to find it.
+                        header(title: "Audio & subtitles")
+                        if !player.audioTracks.isEmpty { audioSection }
+                        subtitleSection
                         sizeSection
                         if hasActiveSubtitle { subtitleDelaySection }
                     case .subtitles:
@@ -142,11 +150,15 @@ struct PlaybackSettingsPanel: View {
     private var subtitleNavSection: some View {
         SettingsSection(title: "Subtitles") {
             NavRow(title: "Language", value: currentSubtitleLabel) { page = .subtitles }
-            if let active = subs.selectedTrack,
-               subs.versions(for: active.languageCode, player: player).count > 1 {
-                NavRow(title: "Version", value: Self.versionName(active)) {
-                    showVersions(of: active.languageCode, returningTo: .root)
-                }
+            versionRow
+        }
+    }
+
+    @ViewBuilder private var versionRow: some View {
+        if let active = subs.selectedTrack,
+           subs.versions(for: active.languageCode, player: player).count > 1 {
+            NavRow(title: "Subtitle version", value: Self.versionName(active)) {
+                showVersions(of: active.languageCode, returningTo: page)
             }
         }
     }
@@ -337,7 +349,7 @@ struct PlaybackSettingsPanel: View {
     }
 
     private var subtitleSection: some View {
-        SettingsSection(title: "Language") {
+        SettingsSection(title: page == .captions ? "Subtitles" : "Language") {
             OptionRow(title: "Off", selected: !hasActiveSubtitle) {
                 subs.apply(nil, on: player)
                 page = home
@@ -374,7 +386,7 @@ struct PlaybackSettingsPanel: View {
                             subs.apply(best, on: player)
                         }
                         if count > 1 {
-                            showVersions(of: code, returningTo: .subtitles)
+                            showVersions(of: code, returningTo: page)
                         } else {
                             page = home
                         }
@@ -385,6 +397,7 @@ struct PlaybackSettingsPanel: View {
             // versions at all.
             let defaultLanguage = AppSettings.shared.preferredSubtitleLanguage
             if !defaultLanguage.isEmpty { translateRow(to: defaultLanguage) }
+            if page == .captions { versionRow }
         }
     }
 
@@ -456,6 +469,7 @@ struct PlaybackSettingsPanel: View {
                 OptionRow(title: String(format: "%.2g×", rate),
                           selected: abs(player.rate - rate) < 0.01) {
                     try? player.setPlaybackRate(PlaybackRate(rate))
+                    PlayerChoices.rate = rate
                 }
             }
         }
@@ -473,6 +487,7 @@ struct PlaybackSettingsPanel: View {
     private func aspectRow(_ title: String, _ ratio: AspectRatio) -> some View {
         OptionRow(title: title, selected: player.aspectRatio == ratio) {
             player.aspectRatio = ratio
+            PlayerChoices.aspect = ratio
         }
     }
 

@@ -372,6 +372,24 @@ if let url = await fileServer.videoURL {
 }
 await fileServer.stop()
 
+// Which episode Play starts: part-watched first, else the next; a new show starts at its first download.
+let show = MediaDetail(id: "tt1", type: .series, name: "Show", year: nil, posterURL: nil, backdropURL: nil,
+                       logoURL: nil, description: nil, cast: [], directors: [], writers: [], genres: [],
+                       imdbRating: nil, runtime: nil, released: nil, country: nil, awards: nil,
+                       episodes: (1...6).map { Episode(id: "tt1:1:\($0)", season: 1, episode: $0, name: "E\($0)",
+                                                       overview: nil, thumbnailURL: nil, released: nil) })
+func target(_ saved: String?, finished: Bool = false, watched: Set<String> = [], downloaded: Set<String> = []) -> String? {
+    show.resumeEpisode(savedEpisodeID: saved, savedFinished: finished, watched: watched,
+                       downloaded: downloaded, fallback: show.episodes.first)?.label
+}
+check(target(nil) == "S1E1", "play: a new show starts at the first episode")
+check(target(nil, downloaded: ["S1E4", "S1E5"]) == "S1E4", "play: a new show starts at its first download")
+check(target("tt1:1:2", downloaded: ["S1E4"]) == "S1E2", "play: a part-watched episode resumes even if not downloaded")
+check(target("tt1:1:2", finished: true, watched: ["S1E1", "S1E2"]) == "S1E3", "play: after a finished episode comes the next")
+check(target("tt1:1:2", finished: true, watched: ["S1E1", "S1E2"], downloaded: ["S1E5"]) == "S1E3",
+      "play: once watching has begun, a later download never skips an episode")
+check(target(nil, watched: ["S1E1"], downloaded: ["S1E4"]) == "S1E2", "play: watched history keeps the order")
+
 try? FileManager.default.removeItem(at: work)
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

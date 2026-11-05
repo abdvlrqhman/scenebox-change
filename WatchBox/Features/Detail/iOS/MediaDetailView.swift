@@ -358,15 +358,25 @@ struct MediaDetailView: View {
                         actionIcon("arrow.down.circle", tint: .white)
                     }
                     .accessibilityLabel("Download")
+                } else if let done = downloads.completedDownload(mediaID: mediaID, episodeLabel: nil) {
+                    // Downloaded: the button says so and offers the one thing left to do.
+                    Menu {
+                        Button(role: .destructive) { downloads.remove(done) } label: {
+                            Label("Remove Download", systemImage: "trash")
+                        }
+                    } label: {
+                        actionIcon("arrow.down.circle.fill", tint: .white)
+                    }
+                    .accessibilityLabel("Downloaded")
                 } else {
-                    let downloaded = downloads.isDownloaded(mediaID: mediaID)
+                    let pending = downloads.download(mediaID: mediaID, episodeLabel: nil)?.phase.isPending == true
                     Button {
                         requestDownload(episode: firstEpisode(of: detail))
                     } label: {
-                        actionIcon(downloaded ? "arrow.down.circle.fill" : "arrow.down.circle", tint: .white)
+                        actionIcon(pending ? "arrow.down.circle.dotted" : "arrow.down.circle", tint: .white)
                     }
                     .buttonStyle(.pressable)
-                    .accessibilityLabel(downloaded ? "Downloaded" : "Download")
+                    .accessibilityLabel(pending ? "Downloading" : "Download")
                 }
 
                 Button {
@@ -548,6 +558,11 @@ struct MediaDetailView: View {
     }
 
     private func requestDownload(episode: Episode?) {
+        // Already here or on its way: resume it, never start a second copy.
+        if let existing = downloads.download(mediaID: mediaID, episodeLabel: episode?.label) {
+            if existing.phase == .paused || existing.phase == .failed { downloads.resume(existing) }
+            return
+        }
         guard settings.autoSelectSource else {
             model.requestReleases(intent: .download, episode: episode)
             return
@@ -691,7 +706,10 @@ struct MediaDetailView: View {
     private var savedProgress: WatchProgress? { progressStore.progress(for: mediaID) }
 
     private func resumeEpisode(for detail: MediaDetail) -> Episode? {
-        detail.resumeEpisode(saved: savedProgress, watched: progressStore.watchedEpisodes(for: mediaID),
+        detail.resumeEpisode(savedEpisodeID: savedProgress?.episodeID,
+                             savedFinished: savedProgress?.isFinished ?? true,
+                             watched: progressStore.watchedEpisodes(for: mediaID),
+                             downloaded: downloads.completedEpisodeLabels(mediaID: mediaID),
                              fallback: firstEpisode(of: detail))
     }
 

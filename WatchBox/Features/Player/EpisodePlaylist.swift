@@ -20,7 +20,9 @@ struct EpisodePlaylist {
             .filter { $0.season > 0 }
             .sorted { ($0.season, $0.episode) < ($1.season, $1.episode) }
         guard let index = ordered.firstIndex(of: current), index + 1 < ordered.count else { return nil }
-        return ordered[index + 1]
+        // An episode that hasn't aired has nothing to play; the season ends here.
+        let following = ordered[index + 1]
+        return (following.released ?? .distantPast) > Date() ? nil : following
     }
 
     var nextIsNewSeason: Bool {

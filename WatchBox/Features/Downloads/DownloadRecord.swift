@@ -27,8 +27,17 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
     var wantsRunning: Bool?     // queued or downloading when last saved; resumes on launch
     var episodeID: String?      // the catalog's id ("tt…:1:3", "kitsu:…:3"); nil on older records
     var lastProgress: Double?   // fraction done when last saved, so a paused row keeps its percentage
+    var episodeName: String?    // "Pilot"; kept so My Stuff shows the episode like its show page, offline too
+    var stillURLString: String? // the episode's still; nil on older records
 
     var posterURL: URL? { posterURLString.flatMap(URL.init(string:)) }
+    /// Older records didn't keep a still; Cinemeta's follow one pattern for IMDb shows.
+    var stillURL: URL? {
+        if let stillURLString { return URL(string: stillURLString) }
+        let parts = episodeParts
+        guard mediaID.hasPrefix("tt"), let season = parts.season, let number = parts.episode else { return nil }
+        return URL(string: "https://episodes.metahub.space/\(mediaID)/\(season)/\(number)/w780.jpg")
+    }
     var magnet: MagnetLink? { MagnetLink(string: magnetURI) }
     var debridURL: URL? { debridURLString.flatMap(URL.init(string:)) }
     var isDebrid: Bool { debridURLString != nil }
@@ -61,8 +70,8 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
     var episode: Episode? {
         let parts = episodeParts
         guard let season = parts.season, let number = parts.episode, let id = parts.id else { return nil }
-        return Episode(id: id, season: season, episode: number, name: "Episode \(number)",
-                       overview: nil, thumbnailURL: nil, released: nil)
+        return Episode(id: id, season: season, episode: number, name: episodeName ?? "Episode \(number)",
+                       overview: nil, thumbnailURL: stillURL, released: nil)
     }
 
     private var episodeParts: (season: Int?, episode: Int?, id: String?) {

@@ -130,13 +130,15 @@ final class HomeModel {
     /// Fills a genre row the first time it scrolls into view; an empty or
     /// failed one drops out until the next refresh.
     /// Looks up the title's episodes so Up next can name the episode Play starts.
-    func loadUpNext(_ item: WatchProgress?, watched: Set<String>) {
+    func loadUpNext(_ item: WatchProgress?, watched: Set<String>, downloaded: Set<String>) {
         upNextTask?.cancel()
         guard let item else { upNext = nil; return }
         if upNext?.progress.id != item.id { upNext = UpNext(progress: item) }
         upNextTask = Task { [search] in
             guard let detail = try? await search.detail(id: item.id, type: item.mediaType), !Task.isCancelled else { return }
-            let episode = detail.resumeEpisode(saved: item, watched: watched, fallback: detail.episodes.first)
+            let episode = detail.resumeEpisode(savedEpisodeID: item.episodeID, savedFinished: item.isFinished,
+                                               watched: watched, downloaded: downloaded,
+                                               fallback: detail.episodes.first)
             upNext = UpNext(progress: item, detail: detail, episode: episode)
         }
     }

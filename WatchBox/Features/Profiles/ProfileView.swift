@@ -309,11 +309,13 @@ struct ProfileView: View {
                 #if !os(tvOS)
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.hairline)
+                .listSectionSeparator(.hidden)      // hairlines only between rows, never edge to edge
                 .listRowInsets(EdgeInsets(top: 0, leading: Theme.gutter, bottom: 0, trailing: Theme.gutter))
                 #endif
             }
             .hideScrollBackground()
             #if !os(tvOS)
+            .listSectionSpacing(.custom(32))       // air between a footer and the next serif header
             .contentMargins(.top, 4, for: .scrollContent)
             .contentMargins(.horizontal, 0, for: .scrollContent)
             .scrollDismissesKeyboard(.interactively)

@@ -33,8 +33,8 @@ launch() {  # launch <args...>
 }
 
 launch;                                   shot 01-home 16
-launch -SBInitialTab library;             shot 02-library-downloads 8
-launch -SBInitialTab library -SBExpandAll YES; shot 03-library-expanded 8
+launch -SBInitialTab library;             shot 02-library-downloads 12
+launch -SBInitialTab library -SBExpandAll YES; shot 03-library-expanded 12
 launch -SBInitialTab search;              shot 04-search 12
 launch -SBInitialTab profile;             shot 05-profile 12
 launch -SBOpenDetail series/tt0903747;    shot 06-detail-series 16
@@ -56,6 +56,6 @@ launch -SBShowFirstRun YES;               shot 18-first-run 8
 # A new viewer: same profile, nothing watched, saved or downloaded.
 xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 python3 "$(dirname "$0")/seed_screenshots.py" "$DATA" --empty
-launch -SBInitialTab library;             shot 16-library-empty 8
+launch -SBInitialTab library;             shot 16-library-empty 12
 launch;                                   shot 17-home-new-viewer 16
 ls -la "$OUT"

@@ -17,6 +17,8 @@ struct ProfileView: View {
     @State private var streamCacheBytes: Int64 = 0
     @FocusState private var portFocused: Bool
     @Environment(\.dismiss) private var dismiss
+    /// Technical settings stay folded away until asked for.
+    @AppStorage("SBShowAdvanced") private var showAdvanced = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -52,122 +54,6 @@ struct ProfileView: View {
                     #endif
                 }
 
-                Section("Stream quality") {
-                    Picker("Sort releases by", selection: $settings.releaseSort) {
-                        ForEach(ReleaseSort.allCases) { sort in
-                            Text(sort.title).tag(sort)
-                        }
-                    }
-                    Picker("Prefer resolution", selection: $settings.preferredResolution) {
-                        ForEach(["2160p", "1080p", "720p", "480p"], id: \.self) { res in
-                            Text(res == "2160p" ? "4K" : res).tag(res)
-                        }
-                    }
-                    NavigationLink {
-                        QualityFilterList()
-                    } label: {
-                        LabeledContent("Hide qualities",
-                                       value: hiddenSummary)
-                    }
-                }
-
-                Section {
-                    Toggle("Auto-pick best source", isOn: $settings.autoSelectSource)
-                        .tint(toggleTint)
-                } header: {
-                    Text("Sources")
-                } footer: {
-                    Text("Skip the release list and start the best match automatically.")
-                }
-
-                Section {
-                    ForEach(StreamProvider.queryOrder) { provider in
-                        let locked = provider.requiresDebrid && !settings.hasRealDebridKey
-                        Toggle(isOn: sourceBinding(provider)) {
-                            if locked {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(provider.title)
-                                    Text("Needs a Real-Debrid key")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            } else {
-                                Text(provider.title)
-                            }
-                        }
-                        .disabled(locked)
-                        .tint(toggleTint)
-                    }
-                    Toggle("Extra public providers", isOn: $settings.extraSourceProviders)
-                        .tint(toggleTint)
-                } header: {
-                    Text("Stream sources")
-                } footer: {
-                    if settings.enabledSources.isEmpty {
-                        Text("Turn on at least one source.")
-                    } else {
-                        Text("Peer-to-peer streams connect you directly to other peers, who can see your IP address. Use a VPN, or a debrid service (which fetches on your behalf), if that matters to you.")
-                    }
-                }
-
-                Section {
-                    Toggle("Send debrid key to community sources", isOn: $settings.shareDebridKeyWithCommunitySources)
-                        .tint(toggleTint)
-                    LabeledContent("StremThru server") {
-                        TextField("https://…", text: $settings.stremthruHost)
-                            .autocorrectionDisabled()
-                            .tint(.white)
-                            .multilineTextAlignment(.trailing)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
-                            #endif
-                    }
-                } header: {
-                    Text("Source privacy")
-                } footer: {
-                    Text("Comet and StremThru are community-run servers. The Stremio protocol puts your debrid key in every request to them, so whoever runs the server can read it. Off: they're used peer-to-peer only (Comet is skipped). Torrentio's official server always receives the key.")
-                }
-
-                Section {
-                    Picker("Service", selection: $settings.debridProvider) {
-                        ForEach(DebridProvider.allCases) { provider in
-                            Text(provider.title).tag(provider)
-                        }
-                    }
-                    if settings.debridProvider.requiresKey {
-                        SecureField("API key", text: $settings.debridAPIKey)
-                            .autocorrectionDisabled()
-                            .tint(.white)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                    }
-                } header: {
-                    Text("Debrid")
-                } footer: {
-                    if let hint = settings.debridProvider.keyHint {
-                        Text("Key: \(hint)")
-                    } else {
-                        Text("Stream cached torrents at full speed instead of peer-to-peer.")
-                    }
-                }
-
-                Section {
-                    SecureField("TMDB API key", text: $settings.tmdbAPIKey)
-                        .autocorrectionDisabled()
-                        .tint(.white)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                } header: {
-                    Text("Cast")
-                } footer: {
-                    Text("A free TMDB key adds cast photos and filmographies.")
-                }
-
-                SubtitleKeysSection()
-
                 Section {
                     Picker("Default audio", selection: $settings.preferredAudioLanguage) {
                         ForEach(AppSettings.audioLanguageOptions, id: \.code) { option in
@@ -195,13 +81,42 @@ struct ProfileView: View {
                         Text("20 s").tag(20000)
                     }
                 } header: {
-                    Text("Playback")
+                    Text("Playback & subtitles")
                 } footer: {
                     Text("""
                     Default audio is used when a title was made in that language (or its language is unknown); a foreign title keeps its original audio instead of a dub. Subtitles in your default language are fetched from OpenSubtitles as soon as you press play.
 
                     Player buffer is how many seconds the player holds ahead. Larger smooths slow downloads but starts slower; 3 seconds suits most connections.
                     """)
+                }
+
+                Section {
+                    Toggle("Download over Wi-Fi only", isOn: $settings.wifiOnly)
+                        .tint(toggleTint)
+                    Picker("Simultaneous downloads", selection: $settings.maxSimultaneousDownloads) {
+                        ForEach(AppSettings.simultaneousDownloadOptions, id: \.self) { count in
+                            Text("\(count)").tag(count)
+                        }
+                    }
+                    #if os(iOS)
+                    Picker("Keep downloading in background", selection: $settings.backgroundDownloadMode) {
+                        ForEach(BackgroundDownloadMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    if #available(iOS 26, *) {
+                        Toggle("Show progress in Live Activity", isOn: $settings.downloadLiveActivity)
+                            .tint(toggleTint)
+                    }
+                    #endif
+                } header: {
+                    Text("Downloads")
+                } footer: {
+                    #if os(iOS)
+                    Text("Extra downloads wait in a queue and start automatically. iOS normally freezes an app a few seconds after you leave it, which drops every peer; background mode keeps SceneBox running while downloads are active by playing silent audio that mixes with your music. Smart uses short pulses to save battery; switch to Always-on audio if downloads still stop. Closing SceneBox from the app switcher always stops downloads. The Live Activity shows progress on the Lock Screen, but iOS may mark it failed while a torrent is still looking for peers; downloads carry on regardless.")
+                    #else
+                    Text("Extra downloads wait in a queue and start automatically.")
+                    #endif
                 }
 
                 Section {
@@ -236,30 +151,127 @@ struct ProfileView: View {
                 }
 
                 Section {
-                    Picker("Simultaneous downloads", selection: $settings.maxSimultaneousDownloads) {
-                        ForEach(AppSettings.simultaneousDownloadOptions, id: \.self) { count in
-                            Text("\(count)").tag(count)
-                        }
-                    }
-                    #if os(iOS)
-                    Picker("Keep downloading in background", selection: $settings.backgroundDownloadMode) {
-                        ForEach(BackgroundDownloadMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    if #available(iOS 26, *) {
-                        Toggle("Show progress in Live Activity", isOn: $settings.downloadLiveActivity)
-                            .tint(toggleTint)
-                    }
-                    #endif
+                    Toggle("Play the best version automatically", isOn: $settings.autoSelectSource)
+                        .tint(toggleTint)
                 } header: {
-                    Text("Downloads")
+                    Text("Streaming")
                 } footer: {
-                    #if os(iOS)
-                    Text("Extra downloads wait in a queue and start automatically. iOS normally freezes an app a few seconds after you leave it, which drops every peer; background mode keeps SceneBox running while downloads are active by playing silent audio that mixes with your music. Smart uses short pulses to save battery; switch to Always-on audio if downloads still stop. Closing SceneBox from the app switcher always stops downloads. The Live Activity shows progress on the Lock Screen, but iOS may mark it failed while a torrent is still looking for peers; downloads carry on regardless.")
-                    #else
-                    Text("Extra downloads wait in a queue and start automatically.")
-                    #endif
+                    Text("Skip the release list and start the best match automatically.")
+                }
+
+                Section {
+                    Picker("Service", selection: $settings.debridProvider) {
+                        ForEach(DebridProvider.allCases) { provider in
+                            Text(provider.title).tag(provider)
+                        }
+                    }
+                    if settings.debridProvider.requiresKey {
+                        SecureField("API key", text: $settings.debridAPIKey)
+                            .autocorrectionDisabled()
+                            .tint(.white)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                    }
+                } header: {
+                    Text("Debrid")
+                } footer: {
+                    if let hint = settings.debridProvider.keyHint {
+                        Text("Key: \(hint)")
+                    } else {
+                        Text("Stream cached torrents at full speed instead of peer-to-peer.")
+                    }
+                }
+
+                Section {
+                    ForEach(StreamProvider.queryOrder) { provider in
+                        let locked = provider.requiresDebrid && !settings.hasRealDebridKey
+                        Toggle(isOn: sourceBinding(provider)) {
+                            if locked {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(provider.title)
+                                    Text("Needs a Real-Debrid key")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Text(provider.title)
+                            }
+                        }
+                        .disabled(locked)
+                        .tint(toggleTint)
+                    }
+                    Toggle("Extra public providers", isOn: $settings.extraSourceProviders)
+                        .tint(toggleTint)
+                } header: {
+                    Text("Stream sources")
+                } footer: {
+                    if settings.enabledSources.isEmpty {
+                        Text("Turn on at least one source.")
+                    } else {
+                        Text("Peer-to-peer streams connect you directly to other peers, who can see your IP address. Use a VPN, or a debrid service (which fetches on your behalf), if that matters to you.")
+                    }
+                }
+
+                SubtitleKeysSection()
+
+                Section {
+                    SecureField("TMDB API key", text: $settings.tmdbAPIKey)
+                        .autocorrectionDisabled()
+                        .tint(.white)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                } header: {
+                    Text("Actor photos")
+                } footer: {
+                    Text("A free TMDB key adds cast photos and filmographies.")
+                }
+
+                Section {
+                    Toggle("Show advanced settings", isOn: $showAdvanced)
+                        .tint(toggleTint)
+                } footer: {
+                    Text("Release sorting and quality, source privacy, peers, ports and trackers.")
+                }
+
+                if showAdvanced {
+                Section("Stream quality") {
+                    Picker("Sort releases by", selection: $settings.releaseSort) {
+                        ForEach(ReleaseSort.allCases) { sort in
+                            Text(sort.title).tag(sort)
+                        }
+                    }
+                    Picker("Prefer resolution", selection: $settings.preferredResolution) {
+                        ForEach(["2160p", "1080p", "720p", "480p"], id: \.self) { res in
+                            Text(res == "2160p" ? "4K" : res).tag(res)
+                        }
+                    }
+                    NavigationLink {
+                        QualityFilterList()
+                    } label: {
+                        LabeledContent("Hide qualities",
+                                       value: hiddenSummary)
+                    }
+                }
+
+                Section {
+                    Toggle("Send debrid key to community sources", isOn: $settings.shareDebridKeyWithCommunitySources)
+                        .tint(toggleTint)
+                    LabeledContent("StremThru server") {
+                        TextField("https://…", text: $settings.stremthruHost)
+                            .autocorrectionDisabled()
+                            .tint(.white)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.URL)
+                            #endif
+                    }
+                } header: {
+                    Text("Source privacy")
+                } footer: {
+                    Text("Comet and StremThru are community-run servers. The Stremio protocol puts your debrid key in every request to them, so whoever runs the server can read it. Off: they're used peer-to-peer only (Comet is skipped). Torrentio's official server always receives the key.")
                 }
 
                 Section {
@@ -278,15 +290,14 @@ struct ProfileView: View {
                             .multilineTextAlignment(.trailing)
                             .frame(width: 90)
                     }
-                    Toggle("Download over Wi-Fi only", isOn: $settings.wifiOnly)
-                        .tint(toggleTint)
                     NavigationLink("Custom trackers") {
                         TrackerEditor()
                     }
                 } header: {
                     Text("Network")
                 } footer: {
-                    Text("Ports \(AppSettings.streamingPortRange.lowerBound)–\(AppSettings.streamingPortRange.upperBound); if it's busy the app picks a free one automatically. Wi-Fi only pauses downloads on cellular and resumes them on Wi-Fi. Custom trackers are announced in addition to each torrent's own.")
+                    Text("Ports \(AppSettings.streamingPortRange.lowerBound)–\(AppSettings.streamingPortRange.upperBound); if it's busy the app picks a free one automatically. Custom trackers are announced in addition to each torrent's own.")
+                }
                 }
 
                 Section {
@@ -442,7 +453,7 @@ struct ProfileView: View {
         #if os(tvOS)
         .white
         #else
-        settings.accentColor
+        Theme.success          // a warm-white track would hide the knob
         #endif
     }
 

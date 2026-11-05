@@ -30,7 +30,7 @@ The bar for each screen:
 | Home | 3 | 9.0 | yes | none |
 | Title page | 4 | 8.8 | yes | Episode hairlines now stop at the gutter (fixed after the last round). |
 | Search | 4 (cap) | 8.8 | yes | Fixed after the last round, not re-judged: a new query clears the old rows, and slow catalogs show "Still searching". Left: no hint that TV shows are still loading. |
-| My Stuff | 4 (cap) | 8.6 | yes | Fixed after the last round, not re-judged: play buttons are quiet, the resume point is in words ("2.6 GB   33 min left"), episode codes are in SF Pro, the bars line up. Left: the summary doesn't count paused downloads, and expanded shows sit on grey. |
+| My Stuff | 4 (cap) | 8.6 | yes | Fixed after the last round, not re-judged: play buttons are quiet, the resume point is in words ("2.6 GB   1h 20m left"), episode codes are in SF Pro, the bars line up. Left: the summary doesn't count paused downloads, and expanded shows sit on grey. |
 | Player | 4 (cap) | 8.7 | partly | Subtitles can't be lifted above the scrubber because the SwiftVLC source isn't vendored, so a stronger scrim is used instead. |
 | Cast | 3 | 9.0 | yes | none |
 | Settings | 4 (cap) | 8.5 | yes | Fixed after the last round, not re-judged: the subtitle preview sits on the 20 pt gutter. Left: the footers run 4 to 8 lines. |

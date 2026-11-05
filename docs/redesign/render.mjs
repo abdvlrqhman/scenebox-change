@@ -15,6 +15,7 @@ for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${port}/json/
 
 for (const file of files) {
   const sheet = basename(file).startsWith('sheet-')
+  const landscape = basename(file).includes('player')    // the player is shown sideways
   const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json()
   const ws = new WebSocket(target.webSocketDebuggerUrl)
   await new Promise((ok) => ws.addEventListener('open', ok))
@@ -25,6 +26,7 @@ for (const file of files) {
     ws.send(JSON.stringify({ id: n, method, params }))
   })
   await call('Emulation.setDeviceMetricsOverride', sheet ? { width: 1800, height: 1000, deviceScaleFactor: 1, mobile: false }
+                                                         : landscape ? { width: 956, height: 440, deviceScaleFactor: 3, mobile: true }
                                                          : { width: 440, height: 956, deviceScaleFactor: 3, mobile: true })
   await call('Page.enable')
   await call('Page.navigate', { url: 'file://' + resolve(file) })

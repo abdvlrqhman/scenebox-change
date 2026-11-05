@@ -98,7 +98,9 @@ struct FirstRunView: View {
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
         }
+        #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
+        #endif
         .foregroundStyle(.white)
         .background {
             // A projector's beam on the black: the only light before there's artwork.

@@ -324,7 +324,7 @@ private struct EpisodeRow: View {
                 Text(statusLine)
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
 
             Spacer(minLength: 0)
@@ -346,7 +346,8 @@ private struct EpisodeRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(downloadState != .idle || episode.isUnaired)
+                // A running download keeps full contrast; it just doesn't take a second tap.
+                .allowsHitTesting(downloadState == .idle && !episode.isUnaired)
                 .opacity(episode.isUnaired ? 0.4 : 1)
                 .accessibilityLabel(downloadState == .pending ? "Downloading" : "Download")
             }

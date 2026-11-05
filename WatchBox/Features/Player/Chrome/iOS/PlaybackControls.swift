@@ -263,9 +263,8 @@ private struct SeekRow: View {
             Text(timecode(elapsed))
                 .font(Platform.isMac ? .subheadline.monospacedDigit() : .caption.monospacedDigit())
 
-            Slider(
+            HairlineScrubber(
                 value: Binding(get: { sliderValue }, set: { scrub = $0 }),
-                in: 0...1,
                 onEditingChanged: { editing in
                     guard !editing, let target = scrub else { return }
                     seek(to: target)
@@ -273,14 +272,12 @@ private struct SeekRow: View {
                     scrub = nil
                 }
             )
-            .tint(Theme.accent)
-            .controlSize(Platform.isMac ? .large : .regular)
             .disabled(!player.isSeekable)
 
             // Time left, the number a viewer actually wants.
             Text("-" + timecode(max(.zero, knownDuration - elapsed)))
                 .font(Platform.isMac ? .subheadline.monospacedDigit() : .caption.monospacedDigit())
-                .accessibilityLabel("Time left")
+                .accessibilityLabel("\(timecode(max(.zero, knownDuration - elapsed))) left")
         }
         .onChange(of: player.duration, initial: true) { _, new in
             if let new, new > .zero { knownDuration = new }

@@ -64,9 +64,8 @@ struct CastSheet: View {
                 Text("Nearby screens")
                     .sectionTitleStyle()
                 Spacer()
-                if discovery.isScanning {
+                if discovery.isScanning, !discovery.found.isEmpty {
                     ProgressView().controlSize(.mini)
-                    Text("Searching").font(.caption).foregroundStyle(Theme.textTertiary)
                 }
             }
 
@@ -382,20 +381,7 @@ struct CastingOverlay: View {
         .aspectRatio(16 / 9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardCorner))
         .overlay(RoundedRectangle(cornerRadius: Theme.cardCorner).strokeBorder(Theme.hairline))
-        .overlay(alignment: .bottomLeading) { deviceBadge.padding(10) }
         .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
-    }
-
-    private var deviceBadge: some View {
-        HStack(spacing: 6) {
-            Image(systemName: cast.device?.isComputer == true ? "laptopcomputer" : "tv")
-                .symbolEffect(.pulse, isActive: cast.phase == .connecting || cast.phase == .buffering)
-            Text(cast.device?.displayName ?? "TV").lineLimit(1)
-        }
-        .font(.caption.weight(.semibold))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
     }
 
     private var info: some View {
@@ -405,7 +391,6 @@ struct CastingOverlay: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
             HStack(spacing: 6) {
-                Circle().fill(statusColor).frame(width: 7, height: 7)
                 Text(statusText)
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.textSecondary)
@@ -432,26 +417,17 @@ struct CastingOverlay: View {
         }
     }
 
-    private var statusColor: Color {
-        switch cast.phase {
-        case .playing: Theme.success
-        case .failed: Theme.danger
-        case .paused, .finished: Theme.textTertiary
-        default: Theme.warning
-        }
-    }
-
     private var controls: some View {
         VStack(spacing: 20) {
             VStack(spacing: 6) {
-                Slider(value: Binding(get: { scrub ?? cast.position }, set: { scrub = $0 }),
-                       in: 0...max(1, cast.duration),
-                       onEditingChanged: { editing in
-                           guard !editing, let target = scrub else { return }
-                           cast.seek(to: target)
-                           scrub = nil
-                       })
-                    .tint(Theme.accent)
+                HairlineScrubber(
+                    value: Binding(get: { (scrub ?? cast.position) / max(1, cast.duration) },
+                                   set: { scrub = $0 * max(1, cast.duration) }),
+                    onEditingChanged: { editing in
+                        guard !editing, let target = scrub else { return }
+                        cast.seek(to: target)
+                        scrub = nil
+                    })
                     .disabled(!isControllable || cast.duration <= 0)
                 HStack {
                     Text(timecode(.seconds(scrub ?? cast.position)))
@@ -486,7 +462,7 @@ struct CastingOverlay: View {
             .opacity(isControllable ? 1 : 0.4)
 
             Button(action: onStop) {
-                Label("Stop casting · watch on phone", systemImage: "iphone")
+                Label("Watch on phone", systemImage: "iphone")
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 18)
                     .padding(.vertical, 11)

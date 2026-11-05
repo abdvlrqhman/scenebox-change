@@ -273,8 +273,7 @@ struct MediaDetailView: View {
                     .id("episodes")
                 }
                 if !model.castMembers.isEmpty || !detail.cast.isEmpty || !detail.directors.isEmpty {
-                    CastRow(members: model.castMembers, names: detail.cast,
-                            crew: detail.directors.map { ($0, "Director") } + detail.writers.map { ($0, "Writer") })
+                    CastRow(members: model.castMembers, names: detail.cast, crew: crewRoles(detail))
                 }
                 crew(for: detail)
                 moreLikeThis
@@ -393,6 +392,17 @@ struct MediaDetailView: View {
         .padding(.horizontal, Theme.gutter)
         .disabled(busy)
         .opacity(busy ? 0.6 : 1)
+    }
+
+    /// Directors and writers, one row per person ("Christopher Nolan: Director, Writer").
+    private func crewRoles(_ detail: MediaDetail) -> [(String, String)] {
+        var order: [String] = []
+        var roles: [String: [String]] = [:]
+        for (name, role) in detail.directors.map({ ($0, "Director") }) + detail.writers.map({ ($0, "Writer") }) {
+            if roles[name] == nil { order.append(name) }
+            roles[name, default: []].append(role)
+        }
+        return order.map { ($0, roles[$0, default: []].joined(separator: ", ")) }
     }
 
     /// "Downloaded   In your Watchlist   Watched", for movies (episodes show their own).
@@ -832,12 +842,12 @@ private struct BannerHeader: View {
                     .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.8),
                                                  .init(color: .clear, location: 1)],
                                          startPoint: .top, endPoint: .bottom))
-                    // Pull down to stretch, in answer to the finger only.
+                    .padding(.top, chromeAllowance)
+                    // Pull down to stretch, in answer to the finger only (0 at rest).
                     .visualEffect { content, proxy in
                         let minY = reduceMotion ? 0 : proxy.frame(in: .scrollView).minY
                         return content.scaleEffect(minY > 0 ? 1 + minY / 300 : 1, anchor: .bottom)
                     }
-                    .padding(.top, chromeAllowance)
             }
 
             titleTreatment

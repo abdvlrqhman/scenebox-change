@@ -48,25 +48,25 @@ final class HomeModel {
 
     /// Loaded with the screen. The Top 10s also feed the marquee.
     private static let specs: [Shelf] = [
-        Shelf(title: "Top 10 Shows", type: .series, feed: .popular, isRanked: true),
-        Shelf(title: "New Movies", type: .movie, feed: .new),
-        Shelf(title: "Top 10 Movies", type: .movie, feed: .popular, isRanked: true),
-        Shelf(title: "Popular Anime", type: .anime, feed: .popular),
-        Shelf(title: "Top Rated Movies", type: .movie, feed: .popular, minRating: 7.5),
+        Shelf(title: "Top 10 shows", type: .series, feed: .popular, isRanked: true),
+        Shelf(title: "New movies", type: .movie, feed: .new),
+        Shelf(title: "Top 10 movies", type: .movie, feed: .popular, isRanked: true),
+        Shelf(title: "Popular anime", type: .anime, feed: .popular),
+        Shelf(title: "Top rated movies", type: .movie, feed: .popular, minRating: 7.5),
     ]
 
     /// Further down; each loads when it scrolls into view (a feed is 100–600 KB).
     private static let genreSpecs: [Shelf] = [
-        Shelf(title: "Crime TV Shows", type: .series, feed: .popular, genre: "Crime"),
-        Shelf(title: "Action Movies", type: .movie, feed: .popular, genre: "Action"),
+        Shelf(title: "Crime TV shows", type: .series, feed: .popular, genre: "Crime"),
+        Shelf(title: "Action movies", type: .movie, feed: .popular, genre: "Action"),
         Shelf(title: "Comedies", type: .movie, feed: .popular, genre: "Comedy"),
-        Shelf(title: "Sci-Fi Shows", type: .series, feed: .popular, genre: "Sci-Fi"),
-        Shelf(title: "Horror Movies", type: .movie, feed: .popular, genre: "Horror"),
-        Shelf(title: "Critically Acclaimed TV", type: .series, feed: .popular, minRating: 8),
-        Shelf(title: "Thriller Movies", type: .movie, feed: .popular, genre: "Thriller"),
-        Shelf(title: "Animated Movies", type: .movie, feed: .popular, genre: "Animation"),
+        Shelf(title: "Sci-fi shows", type: .series, feed: .popular, genre: "Sci-Fi"),
+        Shelf(title: "Horror movies", type: .movie, feed: .popular, genre: "Horror"),
+        Shelf(title: "Critically acclaimed TV", type: .series, feed: .popular, minRating: 8),
+        Shelf(title: "Thriller movies", type: .movie, feed: .popular, genre: "Thriller"),
+        Shelf(title: "Animated movies", type: .movie, feed: .popular, genre: "Animation"),
         Shelf(title: "Documentaries", type: .movie, feed: .popular, genre: "Documentary"),
-        Shelf(title: "Romantic Movies", type: .movie, feed: .popular, genre: "Romance"),
+        Shelf(title: "Romantic movies", type: .movie, feed: .popular, genre: "Romance"),
     ]
 
     /// Each title's place in the Top 10 rows ("#3 in Shows"), for its page.
@@ -171,7 +171,7 @@ final class HomeModel {
             guard let genre = known.first(where: { $0 != "Drama" }) ?? known.first,
                   let items = try? await search.catalog(type: recent.mediaType, feed: .popular, genre: genre),
                   becauseSourceID == recent.id else { return }
-            let shelf = Shelf(title: "Because You Watched \(recent.title)", type: recent.mediaType,
+            let shelf = Shelf(title: "More like \(recent.title)", type: recent.mediaType,
                               feed: .popular, genre: genre, minRating: 7)
                 .filled(with: items.filter { $0.id != recent.id })
             becauseYouWatched = shelf.items.isEmpty ? nil : shelf

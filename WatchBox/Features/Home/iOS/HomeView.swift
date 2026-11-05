@@ -127,8 +127,9 @@ struct HomeView: View {
 
     /// A few popular movies and shows, alternating, for the marquee.
     private var featured: [MediaResult] {
+        // Ranks 4-6: the Top 10 rows right below already show 1-3.
         let pools = model.shelves.filter(\.isRanked).map { shelf in
-            Array(shelf.items.filter { $0.backdropURL != nil }.prefix(3))
+            Array(shelf.items.filter { $0.backdropURL != nil }.dropFirst(3).prefix(3))
         }
         var picks: [MediaResult] = []
         for index in 0..<3 {
@@ -311,7 +312,7 @@ private struct PosterShelf: View {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(title)
                                 .sectionTitleStyle()
-                                .lineLimit(1)
+                                .lineLimit(2)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 15, weight: .heavy))
                                 .foregroundStyle(Theme.textTertiary)
@@ -430,8 +431,7 @@ private struct UpNextHero: View {
     }
 
     private var playTitle: String {
-        guard let episode = upNext.episode else { return isResuming ? "Resume" : "Play" }
-        return isResuming ? "Resume episode \(episode.episode)" : "Play episode \(episode.episode)"
+        isResuming ? "Resume" : "Play"     // the line above already names the episode
     }
 
     private var isDownloaded: Bool {
@@ -452,7 +452,12 @@ private struct UpNextHero: View {
                         .scaledToFill()
                 }
                 .clipped()
-                .accessibilityHidden(true)
+                .overlay {
+                    // The frame opens the show, like every other picture on Home.
+                    NavigationLink(value: item) { Color.clear.contentShape(Rectangle()) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(item.name), details")
+                }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Up next")

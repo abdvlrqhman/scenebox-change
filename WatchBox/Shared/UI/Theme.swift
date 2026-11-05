@@ -71,8 +71,8 @@ extension Font {
         return .system(size: UIFontMetrics(forTextStyle: style).scaledValue(for: size), weight: tone, design: .serif)
     }
 
-    /// Synopses: New York at body size.
-    static let synopsis = Font.system(.body, design: .serif)
+    /// Synopses: SF Pro at body size (serif means a title).
+    static let synopsis = Font.system(.body)
 }
 
 extension View {

@@ -185,17 +185,20 @@ final class SearchModel {
     private static func rankedBySearchRelevance(_ rows: [[MediaResult]], query: String) -> [MediaResult] {
         let q = query.lowercased()
         var seen = Set<String>()
-        var scored: [(result: MediaResult, tier: Int, rank: Int)] = []
+        var scored: [(result: MediaResult, tier: Int, rank: Int, rating: Double)] = []
 
         for typeResults in rows {
             for (rank, result) in typeResults.enumerated() where seen.insert(result.id).inserted {
-                scored.append((result, matchTier(of: result.name, query: q), rank))
+                scored.append((result, matchTier(of: result.name, query: q), rank,
+                               result.imdbRating.flatMap(Double.init) ?? 0))
             }
         }
 
         return scored
             .sorted { a, b in
                 if a.tier != b.tier { return a.tier > b.tier }
+                // Same kind of match: the better-loved title first, then the catalog's order.
+                if a.rank < 3 || b.rank < 3, abs(a.rating - b.rating) >= 0.5 { return a.rating > b.rating }
                 return a.rank < b.rank
             }
             .map(\.result)

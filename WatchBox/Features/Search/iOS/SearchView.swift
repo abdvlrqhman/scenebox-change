@@ -23,6 +23,8 @@ struct SearchView: View {
 struct SearchScreen: View {
     @State private var model = SearchModel()
     @State private var router = TabRouter.shared
+    /// While typing, which kind of result to show (nil: all).
+    @State private var resultType: MediaType?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,12 +33,18 @@ struct SearchScreen: View {
             } else {
                 phoneHeader
             }
-            SearchResults(model: model)
+            SearchResults(model: model, filter: resultType)
         }
             .toolbar(.hidden, for: .navigationBar)
             .background(Theme.background)
             .statusBarScrim()
-            .onAppear { focusIfAsked() }
+            .onAppear {
+                focusIfAsked()
+                // The tab is for typing: the field is ready (screenshot runs keep the grid visible).
+                if !Platform.isMac, model.query.isEmpty, !UserDefaults.standard.bool(forKey: "SBScreenshots") {
+                    macFieldFocused = true
+                }
+            }
             .onChange(of: router.focusSearch) { _, _ in focusIfAsked() }
             .onChange(of: model.query) { _, _ in model.run() }
             .onSubmit(of: .search) { model.run(immediate: true) }
@@ -83,6 +91,8 @@ struct SearchScreen: View {
             .animation(Theme.snappy, value: macFieldFocused)
             .padding(.horizontal, 16)
 
+            chips
+
             if !model.isSearching {
                 // What the grid shows is its title, and tapping it changes the filters.
                 filterMenu {
@@ -103,6 +113,46 @@ struct SearchScreen: View {
             }
         }
         .padding(.bottom, 12)
+    }
+
+    /// Kinds of title, and genres while browsing: neutral until chosen.
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if model.isSearching {
+                    chip("All", on: resultType == nil) { resultType = nil }
+                    chip("Movies", on: resultType == .movie) { resultType = .movie }
+                    chip("TV Shows", on: resultType == .series) { resultType = .series }
+                    chip("Anime", on: resultType == .anime) { resultType = .anime }
+                } else {
+                    ForEach(SearchModel.Scope.browseScopes) { scope in
+                        chip(scope.title, on: model.scope == scope) { model.scope = scope }
+                    }
+                    Theme.hairline.frame(width: 1, height: 22).padding(.horizontal, 4)
+                    chip("All genres", on: model.genre == nil) { model.genre = nil }
+                    ForEach(MediaGenre.shared, id: \.self) { genre in
+                        chip(genre, on: model.genre == genre) { model.genre = genre }
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.gutter)
+        }
+        .padding(.top, 4)
+    }
+
+    private func chip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(on ? Theme.onAccent : .white)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(on ? Theme.accent : Color.white.opacity(0.10), in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     /// "Popular Movies", "New Drama TV Shows".
@@ -209,7 +259,13 @@ struct SearchScreen: View {
 
 struct SearchResults: View {
     let model: SearchModel
+    var filter: MediaType? = nil
     @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var shown: [MediaResult] {
+        guard let filter else { return model.results }
+        return model.results.filter { $0.type == filter }
+    }
 
     @ViewBuilder
     var body: some View {
@@ -220,15 +276,67 @@ struct SearchResults: View {
                            actionTitle: "Try again") { model.run(immediate: true) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.results.isEmpty {
-            EmptyStateView(systemImage: "magnifyingglass",
-                           title: model.isSearching ? "Nothing found" : "Nothing here yet",
-                           message: model.isSearching
-                               ? "Check the spelling, or try the original title."
-                               : "Try another type, feed or genre.")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if model.isSearching {
+                EmptyStateView(systemImage: "magnifyingglass", title: "Nothing found",
+                               message: "Check the spelling, or try the original title.",
+                               actionTitle: "Browse instead") { model.query = "" }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                EmptyStateView(systemImage: "magnifyingglass", title: "Nothing here yet",
+                               message: "Try another type, feed or genre.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else if model.isSearching, !Platform.isMac {
+            list
         } else {
             grid
         }
+    }
+
+    /// Search results as hairline rows: poster, title, year and kind.
+    private var list: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(shown) { item in
+                    NavigationLink(value: item) {
+                        HStack(spacing: 14) {
+                            PosterImage(url: item.posterURL, cornerRadius: Theme.posterCorner)
+                                .frame(width: 56)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.name)
+                                    .font(.display(19, weight: .medium, relativeTo: .headline))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+                                Text(details(item))
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressable)
+                    .onAppear { model.loadMoreIfNeeded(after: item) }
+                }
+            }
+            .padding(.horizontal, Theme.gutter)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    /// "2008   TV show   ★ 9.5"
+    private func details(_ item: MediaResult) -> String {
+        let kind = switch item.type {
+        case .movie: "Movie"
+        case .series: "TV show"
+        case .anime: "Anime"
+        }
+        let rating = item.imdbRating.flatMap { $0.isEmpty ? nil : "★ \($0)" }
+        return [item.year, kind, rating].compactMap { $0 }.joined(separator: "   ")
     }
 
     /// Poster-shaped placeholders while the first page loads.
@@ -257,7 +365,7 @@ struct SearchResults: View {
                     .onAppear { model.loadMoreIfNeeded(after: item) }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.gutter)
             .padding(.bottom, 24)
 
             if model.isLoadingMore {

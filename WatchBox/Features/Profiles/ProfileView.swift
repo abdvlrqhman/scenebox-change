@@ -310,8 +310,10 @@ struct ProfileView: View {
                     Text("SceneBox \(appVersion) (\(buildNumber))")
                 }
                 }
+                #if !os(tvOS)
                 .listRowBackground(Theme.surface)
                 .listRowSeparatorTint(Theme.hairline)
+                #endif
             }
             .hideScrollBackground()
             #if !os(tvOS)

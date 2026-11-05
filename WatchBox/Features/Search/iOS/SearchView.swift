@@ -52,7 +52,7 @@ struct SearchScreen: View {
 
     private var phoneHeader: some View {
         VStack(spacing: 10) {
-            RootHeader("Search")
+            RootHeader(title: "Search") { ProfileButton() }
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Theme.textSecondary)

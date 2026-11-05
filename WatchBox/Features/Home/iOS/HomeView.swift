@@ -13,7 +13,6 @@ struct HomeView: View {
     @State private var model = HomeModel()
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
-    @Environment(ProfileStore.self) private var profiles
 
     var body: some View {
         NavigationStack {
@@ -46,15 +45,7 @@ struct HomeView: View {
                 .foregroundStyle(.white)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            if let profile = profiles.selected {
-                Button { TabRouter.shared.tab = .profile } label: {
-                    ProfileAvatar(profile: profile, size: 36)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.pressable)
-                .accessibilityLabel("Profile and settings")
-            }
+            ProfileButton()
         }
         .padding(.horizontal, 20)
         .padding(.top, 6)

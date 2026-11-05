@@ -88,7 +88,7 @@ struct ReleasePickerView: View {
                         }
                         Button("Source settings") {
                             dismiss()
-                            TabRouter.shared.tab = .profile
+                            TabRouter.shared.showProfile = true
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.textSecondary)

@@ -12,7 +12,12 @@ enum AppTab: String, Hashable {
 
     /// `-SBInitialTab library` (screenshots and debugging) picks the first tab.
     static var initial: AppTab {
-        UserDefaults.standard.string(forKey: "SBInitialTab").flatMap(AppTab.init(rawValue:)) ?? .home
+        let asked = UserDefaults.standard.string(forKey: "SBInitialTab").flatMap(AppTab.init(rawValue:)) ?? .home
+        #if os(tvOS)
+        return asked
+        #else
+        return asked == .profile ? .home : asked     // a sheet there, not a tab
+        #endif
     }
 }
 
@@ -23,7 +28,6 @@ struct RootTabView: View {
     @State private var watchProgress = WatchProgressStore.shared
     @State private var watchlist = WatchlistStore.shared
     @Environment(ProfileStore.self) private var profiles
-    @State private var profileIcon: UIImage?
     @State private var detailItem: MediaResult?
     @State private var links = DeepLinkRouter.shared
     #if os(iOS)
@@ -48,36 +52,19 @@ struct RootTabView: View {
             }
             #endif
 
+            #if os(tvOS)
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView()
             }
-            #if !os(tvOS)
-            .badge(downloads.activeCount)
-            #endif
-
-            #if os(tvOS)
             Tab("Profile", systemImage: "person.crop.circle", value: AppTab.profile) {
                 ProfileView()
             }
             #else
-            Tab(value: AppTab.profile) {
-                ProfileView()
-            } label: {
-                Label {
-                    Text("Profile")
-                } icon: {
-                    if let profileIcon {
-                        Image(uiImage: profileIcon).renderingMode(.original)
-                    } else {
-                        Image(systemName: "person.crop.circle")
-                    }
-                }
+            Tab("My Stuff", systemImage: "square.stack.fill", value: AppTab.library) {
+                LibraryView()
             }
+            .badge(downloads.activeCount)
             #endif
-        }
-        .task(id: profiles.selected) {
-            guard let profile = profiles.selected else { profileIcon = nil; return }
-            profileIcon = await ProfileTabIcon.make(for: profile)
         }
         .tint(settings.accentColor)
         .environment(settings)
@@ -93,6 +80,15 @@ struct RootTabView: View {
             detailItem = item
         }
         #if os(iOS)
+        .sheet(isPresented: $router.showProfile) {
+            ProfileView()
+                .environment(settings)
+                .environment(downloads)
+                .environment(watchProgress)
+                .environment(watchlist)
+                .environment(profiles)
+                .preferredColorScheme(.dark)
+        }
         .environment(\.openMediaDetail, sizeClass == .regular && !Platform.isMac ? { detailItem = $0 } : nil)
         .sheet(item: $detailItem) { item in
             NavigationStack {

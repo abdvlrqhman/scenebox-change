@@ -16,6 +16,7 @@ struct ProfileView: View {
     @State private var confirmClearStreamCache = false
     @State private var streamCacheBytes: Int64 = 0
     @FocusState private var portFocused: Bool
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         @Bindable var settings = settings
@@ -23,7 +24,15 @@ struct ProfileView: View {
         NavigationStack {
             VStack(spacing: 0) {
             #if !os(tvOS)
-            RootHeader(title: "Profile") { profileMenu }
+            RootHeader(title: "Profile") {
+                HStack(spacing: 8) {
+                    profileMenu
+                    Button("Done") { dismiss() }
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+            }
             #endif
             Form {
                 PageTitleRow("Profile")

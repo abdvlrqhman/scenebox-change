@@ -11,6 +11,7 @@ struct LibraryView: View {
     private enum Section: String, CaseIterable, Identifiable {
         case downloads = "Downloads"
         case watchlist = "Watchlist"
+        case history = "History"
         var id: String { rawValue }
     }
 
@@ -35,7 +36,7 @@ struct LibraryView: View {
                 }
                 #else
                 VStack(spacing: 0) {
-                    RootHeader("Library")
+                    RootHeader(title: "My Stuff") { ProfileButton() }
                     sectionPicker
                         .padding(.horizontal, controlInset)
                         .padding(.top, 10)
@@ -73,13 +74,13 @@ struct LibraryView: View {
                 } label: {
                     Text(option.rawValue)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(selected ? Theme.onAccent : Theme.textSecondary)
+                        .foregroundStyle(selected ? Color.white : Theme.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
                         .background {
                             if selected {
                                 Capsule()
-                                    .fill(Theme.accent)
+                                    .fill(Theme.elevated)
                                     .matchedGeometryEffect(id: "pill", in: switcher)
                             }
                         }
@@ -101,13 +102,14 @@ struct LibraryView: View {
         switch section {
         case .downloads: DownloadsView()
         case .watchlist: WatchlistSection()
+        case .history: HistorySection()
         }
     }
 
     #if os(tvOS)
     private var controlInset: CGFloat { TVHomeView.edge }
     #else
-    private var controlInset: CGFloat { 16 }
+    private var controlInset: CGFloat { Theme.gutter }
     #endif
 }
 
@@ -249,4 +251,62 @@ private struct WatchlistRow: View {
     private var titleFont: Font { .subheadline.weight(.semibold) }
     private var subtitleFont: Font { .caption }
     #endif
+}
+
+/// Everything watched or started, newest first: a way back to anything.
+private struct HistorySection: View {
+    @Environment(WatchProgressStore.self) private var progress
+
+    var body: some View {
+        let items = progress.items.sorted { $0.updatedAt > $1.updatedAt }
+        if items.isEmpty {
+            EmptyStateView(systemImage: "clock.arrow.circlepath", title: "Nothing watched yet",
+                           message: "What you watch shows up here, newest first.")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(items) { item in
+                        NavigationLink(value: item.mediaResult) { row(item) }
+                            #if os(tvOS)
+                            .buttonStyle(TVListRowButtonStyle())
+                            #else
+                            .buttonStyle(.plain)
+                            #endif
+                    }
+                }
+                .padding(.horizontal, Theme.gutter)
+            }
+        }
+    }
+
+    private func row(_ item: WatchProgress) -> some View {
+        HStack(spacing: 14) {
+            PosterImage(url: item.posterURL, cornerRadius: Theme.posterCorner)
+                .frame(width: 44)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.display(19, weight: .medium, relativeTo: .headline))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(detail(item))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
+        .contentShape(Rectangle())
+    }
+
+    /// "Season 1, episode 3   Watched   Yesterday"
+    private func detail(_ item: WatchProgress) -> String {
+        var parts: [String] = []
+        if let season = item.season, let episode = item.episode { parts.append("Season \(season), episode \(episode)") }
+        parts.append(item.isFinished ? "Watched" : "\(Int(item.fraction * 100))% watched")
+        parts.append(item.updatedAt.formatted(.relative(presentation: .named)))
+        return parts.joined(separator: "   ")
+    }
 }

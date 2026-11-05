@@ -83,6 +83,9 @@ final class TabRouter {
     var tab: AppTab = AppTab.initial
     /// Set when another screen asks for search; the Search tab focuses its field.
     var focusSearch = false
+    /// Profiles and settings, opened from the avatar (a sheet, not a tab, off Apple TV).
+    /// `-SBInitialTab profile` opens it at launch (screenshots).
+    var showProfile = UserDefaults.standard.string(forKey: "SBInitialTab") == "profile"
 
     private init() {}
 
@@ -91,3 +94,22 @@ final class TabRouter {
         focusSearch = true
     }
 }
+
+#if !os(tvOS)
+/// Who's watching, top right on every tab: opens profiles and settings.
+struct ProfileButton: View {
+    @Environment(ProfileStore.self) private var profiles
+
+    var body: some View {
+        if let profile = profiles.selected {
+            Button { TabRouter.shared.showProfile = true } label: {
+                ProfileAvatar(profile: profile, size: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.pressable)
+            .accessibilityLabel("Profile and settings")
+        }
+    }
+}
+#endif

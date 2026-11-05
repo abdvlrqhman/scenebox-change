@@ -151,7 +151,6 @@ struct PlaybackScreen: View {
                 PlaybackControls(
                     player: player,
                     title: title,
-                    stats: stats,
                     isBuffering: isBuffering,
                     subs: subs,
                     showSettings: $showSettings,

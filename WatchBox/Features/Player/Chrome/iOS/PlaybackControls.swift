@@ -12,7 +12,6 @@ import SwiftVLC
 struct PlaybackControls: View {
     let player: Player
     let title: String
-    let stats: SwarmStats?
     var isBuffering: Bool = false
     let subs: SubtitlesController
     /// Lives with the screen, so Esc can close the panel before the player.
@@ -26,27 +25,32 @@ struct PlaybackControls: View {
     let onClose: () -> Void
 
     @State private var showEpisodes = false
+    /// The panel opened from the CC button starts on subtitles.
+    @State private var panelOnSubtitles = false
+
+    private var canRotate: Bool { UIDevice.current.userInterfaceIdiom != .pad && !Platform.isMac }
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                TopBar(title: title, isLandscape: isLandscape,
-                       onToggleOrientation: onToggleOrientation,
-                       onSettings: { showSettings = true },
-                       episodes: episodes,
-                       onShowEpisodes: { showEpisodes = true },
+                TopBar(title: title,
+                       onSubtitles: { panelOnSubtitles = true; showSettings = true },
+                       onSettings: { panelOnSubtitles = false; showSettings = true },
                        onCast: onCast,
                        onClose: onClose)
                 Spacer(minLength: 0)
                 TransportRow(player: player, isBuffering: isBuffering)
                 Spacer(minLength: 0)
-                BottomBar(player: player, stats: stats, isBuffering: isBuffering)
+                BottomBar(player: player, isBuffering: isBuffering,
+                          episodes: episodes, onShowEpisodes: { showEpisodes = true })
             }
             .foregroundStyle(.white)
 
             if showSettings {
                 PlaybackSettingsPanel(player: player, subs: subs,
-                                      onAudioSelected: onAudioSelected) { showSettings = false }
+                                      onAudioSelected: onAudioSelected,
+                                      opensOnSubtitles: panelOnSubtitles,
+                                      onRotate: canRotate ? onToggleOrientation : nil) { showSettings = false }
                     .transition(.opacity)
             }
         }
@@ -64,18 +68,16 @@ struct PlaybackControls: View {
     }
 }
 
+/// Close and the title, then at most three tools: subtitles, TV, settings.
 private struct TopBar: View {
     let title: String
-    var isLandscape = false
-    var onToggleOrientation: () -> Void = {}
+    let onSubtitles: () -> Void
     let onSettings: () -> Void
-    var episodes: EpisodePlaylist? = nil
-    var onShowEpisodes: () -> Void = {}
     var onCast: (() -> Void)? = nil
     let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Button(action: onClose) { icon("xmark") }
                 .accessibilityLabel("Close")
 
@@ -83,26 +85,12 @@ private struct TopBar: View {
                 .font(Platform.isMac ? .headline.weight(.semibold) : .subheadline.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.leading, 4)
+                .padding(.leading, 2)
 
             Spacer(minLength: 0)
 
-            if let episodes {
-                Button(action: onShowEpisodes) { icon("list.bullet") }
-                    .accessibilityLabel("Episodes")
-                if let next = episodes.next {
-                    Button { episodes.onPlay(next) } label: { icon("forward.end.fill") }
-                        .accessibilityLabel("Next episode")
-                }
-            }
-
-            if UIDevice.current.userInterfaceIdiom != .pad, !Platform.isMac {
-                Button(action: onToggleOrientation) {
-                    icon(isLandscape ? "arrow.down.right.and.arrow.up.left"
-                                     : "arrow.up.left.and.arrow.down.right")
-                }
-                .accessibilityLabel(isLandscape ? "Rotate to portrait" : "Rotate to landscape")
-            }
+            Button(action: onSubtitles) { icon("captions.bubble") }
+                .accessibilityLabel("Subtitles")
             if let onCast, !Platform.isMac {
                 Button(action: onCast) { icon("tv") }
                     .accessibilityLabel("Play on TV or computer")
@@ -123,7 +111,7 @@ private struct TopBar: View {
         Image(systemName: name)
             .font(Platform.isMac ? .headline.weight(.bold) : .subheadline.weight(.bold))
             .foregroundStyle(.white)
-            .frame(width: Platform.isMac ? 44 : 40, height: Platform.isMac ? 44 : 40)
+            .frame(width: 44, height: 44)
             .background(.ultraThinMaterial, in: Circle())
     }
 }
@@ -187,13 +175,29 @@ private struct TransportRow: View {
 
 private struct BottomBar: View {
     let player: Player
-    let stats: SwarmStats?
     let isBuffering: Bool
+    var episodes: EpisodePlaylist? = nil
+    var onShowEpisodes: () -> Void = {}
 
     var body: some View {
-        VStack(spacing: Platform.isMac ? 16 : 12) {
+        VStack(spacing: Platform.isMac ? 14 : 10) {
+            if episodes != nil || isBuffering {
+                HStack(spacing: 10) {
+                    if let episodes {
+                        pill("Episodes", systemImage: "rectangle.stack", action: onShowEpisodes)
+                    }
+                    if isBuffering {
+                        Text("Loading…")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                    Spacer(minLength: 0)
+                    if let next = episodes?.next {
+                        pill("Next episode", systemImage: "forward.end.fill") { episodes?.onPlay(next) }
+                    }
+                }
+            }
             SeekRow(player: player)
-            if let stats { StatsRow(stats: stats, isBuffering: isBuffering) }
         }
         .padding(.horizontal, Platform.isMac ? 32 : 20)
         .padding(.top, Platform.isMac ? 28 : 16)
@@ -202,6 +206,18 @@ private struct BottomBar: View {
             LinearGradient(colors: [.clear, .black.opacity(0.75)],
                            startPoint: .top, endPoint: .bottom)
         )
+    }
+
+    private func pill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(.ultraThinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -233,8 +249,10 @@ private struct SeekRow: View {
             .controlSize(Platform.isMac ? .large : .regular)
             .disabled(!player.isSeekable)
 
-            Text(timecode(knownDuration))
+            // Time left, the number a viewer actually wants.
+            Text("-" + timecode(max(.zero, knownDuration - elapsed)))
                 .font(Platform.isMac ? .subheadline.monospacedDigit() : .caption.monospacedDigit())
+                .accessibilityLabel("Time left")
         }
         .onChange(of: player.duration, initial: true) { _, new in
             if let new, new > .zero { knownDuration = new }
@@ -267,39 +285,11 @@ private struct SeekRow: View {
     }
 }
 
-private struct StatsRow: View {
-    let stats: SwarmStats
-    let isBuffering: Bool
-
-    var body: some View {
-        HStack(spacing: 16) {
-            if isBuffering {
-                Label(stats.connectedPeers == 0 ? "Connecting…" : "Buffering…",
-                      systemImage: "arrow.triangle.2.circlepath")
-            }
-            Label("\(stats.connectedPeers)", systemImage: "person.2.fill")
-            Label(ByteFormat.rate(stats.downloadRate), systemImage: "arrow.down.circle.fill")
-            Spacer(minLength: 0)
-        }
-        .font(Platform.isMac ? .caption.monospacedDigit() : .caption2.monospacedDigit())
-        .foregroundStyle(.white.opacity(0.75))
-        .labelStyle(.titleAndIcon)
-    }
-}
-
 // MARK: - Preview
 
 private struct PlaybackControlsPreview: View {
     @State private var player = Player()
     let buffering: Bool
-
-    private var sampleStats: SwarmStats {
-        var stats = SwarmStats()
-        stats.connectedPeers = 48
-        stats.downloadRate = 3_400_000
-        stats.progress = 0.02
-        return stats
-    }
 
     var body: some View {
         ZStack {
@@ -309,7 +299,6 @@ private struct PlaybackControlsPreview: View {
             PlaybackControls(
                 player: player,
                 title: "Masters of the Universe",
-                stats: sampleStats,
                 isBuffering: buffering,
                 subs: SubtitlesController(),
                 showSettings: .constant(false),

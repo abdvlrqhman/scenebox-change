@@ -12,9 +12,14 @@ struct PlaybackSettingsPanel: View {
     let player: Player
     let subs: SubtitlesController
     var onAudioSelected: (Track) -> Void = { _ in }
+    /// Opened from the CC button: subtitles first (language, size, sync).
+    var opensOnSubtitles = false
+    /// Phones only: the screen turns from here rather than from a top-bar icon.
+    var onRotate: (() -> Void)? = nil
     let onClose: () -> Void
 
-    private enum Page { case root, subtitles, versions }
+    private enum Page { case root, captions, subtitles, versions }
+    @Environment(AppSettings.self) private var settings
     @State private var page: Page = .root
     /// Language whose versions are listed, and where Back returns to.
     @State private var versionsLanguage: String?
@@ -39,6 +44,19 @@ struct PlaybackSettingsPanel: View {
                         if hasActiveSubtitle { subtitleDelaySection }
                         speedSection
                         aspectSection
+                        if let onRotate {
+                            SettingsSection(title: "Screen") {
+                                NavRow(title: "Rotate", value: "") {
+                                    onClose()
+                                    onRotate()
+                                }
+                            }
+                        }
+                    case .captions:
+                        header(title: "Subtitles")
+                        subtitleNavSection
+                        sizeSection
+                        if hasActiveSubtitle { subtitleDelaySection }
                     case .subtitles:
                         header(title: "Subtitles")
                         subtitleSection
@@ -58,16 +76,22 @@ struct PlaybackSettingsPanel: View {
         }
         .foregroundStyle(.white)
         .animation(.easeInOut(duration: 0.15), value: page)
+        .onAppear {
+            guard opensOnSubtitles else { return }
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { page = .captions }
+        }
         #if os(tvOS)
         .onExitCommand {
-            if page == .root { onClose() } else { goBack() }
+            if page == home { onClose() } else { goBack() }
         }
         #endif
     }
 
     private func header(title: String) -> some View {
         HStack(spacing: 14) {
-            if page != .root {
+            if page != home {
                 #if os(tvOS)
                 Button { goBack() } label: { Image(systemName: "chevron.left") }
                     .buttonStyle(TVCircleButtonStyle(diameter: 46))
@@ -85,7 +109,7 @@ struct PlaybackSettingsPanel: View {
             Text(title)
                 .font(.title3.weight(.bold))
             Spacer()
-            if page == .root {
+            if page == home {
                 #if os(tvOS)
                 Button(action: onClose) { Image(systemName: "xmark") }
                     .buttonStyle(TVCircleButtonStyle(diameter: 46))
@@ -127,8 +151,41 @@ struct PlaybackSettingsPanel: View {
         }
     }
 
+    /// Where Back ends up: the page the panel opened on.
+    private var home: Page { opensOnSubtitles ? .captions : .root }
+
     private func goBack() {
-        page = page == .versions ? versionsReturn : .root
+        page = page == .versions ? versionsReturn : home
+    }
+
+    private static let sizes: [(name: String, spoken: String, scale: Double)] = [
+        ("S", "Small", 0.75), ("M", "Medium", 1.0), ("L", "Large", 1.25), ("XL", "Extra large", 1.5),
+    ]
+
+    /// Subtitle size, applied at once (it used to wait for the next video).
+    private var sizeSection: some View {
+        SettingsSection(title: "Size") {
+            HStack(spacing: 8) {
+                ForEach(Self.sizes.indices, id: \.self) { index in
+                    let size = Self.sizes[index]
+                    let on = abs(settings.subtitleScale - size.scale) < 0.01
+                    Button {
+                        settings.subtitleScale = size.scale
+                        player.setSubtitleScale(SubtitleScale(Float(size.scale)))
+                    } label: {
+                        Text(size.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(on ? Color.black : Color.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(on ? Color.white : Color.white.opacity(0.1),
+                                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(size.spoken)
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                }
+            }
+        }
     }
 
     private func showVersions(of language: String, returningTo origin: Page) {
@@ -283,14 +340,14 @@ struct PlaybackSettingsPanel: View {
         SettingsSection(title: "Language") {
             OptionRow(title: "Off", selected: !hasActiveSubtitle) {
                 subs.apply(nil, on: player)
-                page = .root
+                page = home
             }
 
             ForEach(subs.embeddedTracks(of: player)) { track in
                 OptionRow(title: trackLabel(for: track),
                           selected: subs.embeddedID == track.id) {
                     subs.selectEmbedded(track, on: player)
-                    page = .root
+                    page = home
                 }
             }
 
@@ -319,7 +376,7 @@ struct PlaybackSettingsPanel: View {
                         if count > 1 {
                             showVersions(of: code, returningTo: .subtitles)
                         } else {
-                            page = .root
+                            page = home
                         }
                     }
                 }

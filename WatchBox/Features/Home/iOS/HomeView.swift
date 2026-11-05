@@ -13,21 +13,12 @@ struct HomeView: View {
     @State private var model = HomeModel()
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
+    @Environment(ProfileStore.self) private var profiles
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let message = model.errorMessage, model.shelves.isEmpty, !model.isLoading {
-                    VStack(spacing: 0) {
-                        header
-                        EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load titles",
-                                       message: message, actionTitle: "Try again") { model.reload() }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                } else {
-                    feed
-                }
-            }
+            // What's on the device always shows; only the catalog rows need the network.
+            feed
             .background(Theme.background)
             .statusBarScrim()
             .toolbar(.hidden, for: .navigationBar)
@@ -41,27 +32,64 @@ struct HomeView: View {
         .onChange(of: progress.items.first?.id, initial: true) { _, _ in
             model.loadBecauseYouWatched(progress.items.first)
         }
+        .onChange(of: progress.continueItems.first, initial: true) { _, item in
+            model.loadUpNext(item, watched: item.map { progress.watchedEpisodes(for: $0.id) } ?? [])
+        }
     }
 
+    /// The serif wordmark and who's watching.
     private var header: some View {
-        RootHeader(title: "SceneBox") {
-            HeaderIconButton(systemImage: "magnifyingglass", label: "Search") {
-                TabRouter.shared.openSearch()
+        HStack {
+            Text("SceneBox")
+                .font(.display(30, weight: .medium, relativeTo: .title1))
+                .italic()
+                .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            if let profile = profiles.selected {
+                Button { TabRouter.shared.tab = .profile } label: {
+                    ProfileAvatar(profile: profile, size: 36)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressable)
+                .accessibilityLabel("Profile and settings")
             }
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 6)
+    }
+
+    /// The top of Home: what to play next for a returning viewer, the marquee for a new one.
+    @ViewBuilder
+    private var top: some View {
+        if let upNext = model.upNext {
+            UpNextHero(upNext: upNext)
+        } else if !featured.isEmpty {
+            FeaturedMarquee(items: featured)
+        }
+    }
+
+    private var heroImage: URL? {
+        if let upNext = model.upNext {
+            return upNext.episode?.thumbnailURL ?? upNext.detail?.backdropURL ?? upNext.progress.posterURL
+        }
+        return featured.first?.backdropURL
     }
 
     private var feed: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Platform.isMac ? 34 : 28) {
-                    header
-                        .padding(.bottom, -12)          // the marquee sits close under the title
-                    if !featured.isEmpty {
-                        FeaturedMarquee(items: featured)
+                LazyVStack(alignment: .leading, spacing: Platform.isMac ? 34 : 30) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        header
+                        top
                     }
-                    if !progress.continueItems.isEmpty {
-                        ContinueWatchingShelf(items: progress.continueItems)
+                    // Light from the artwork on top falls onto the black.
+                    .background(alignment: .top) { AmbientBackdrop(url: heroImage, height: 640).padding(.top, -80) }
+                    let others = Array(progress.continueItems.dropFirst(model.upNext == nil ? 0 : 1))
+                    if !others.isEmpty {
+                        KeepWatchingList(items: others)
                     }
                     if !unwatchedWatchlist.isEmpty {
                         PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist, showsSavedBadge: false)
@@ -69,7 +97,9 @@ struct HomeView: View {
                     if let because = model.becauseYouWatched {
                         PosterShelf(title: because.title, items: because.items, seeAll: because.destination)
                     }
-                    if model.shelves.isEmpty {
+                    if model.shelves.isEmpty, let message = model.errorMessage, !model.isLoading {
+                        OfflineRow(message: message) { model.reload() }
+                    } else if model.shelves.isEmpty {
                         // Placeholders keep the layout still while the catalog loads.
                         ForEach(0..<3, id: \.self) { _ in PlaceholderShelf() }
                     } else {
@@ -354,13 +384,13 @@ private struct RankedCard: View {
     let width: CGFloat
 
     var body: some View {
-        let size = width * 1.7
-        let metrics = UIFont.systemFont(ofSize: size, weight: .black)
-        HStack(alignment: .bottom, spacing: -width * 0.16) {
+        let size = width * 1.25
+        let serif = UIFont.systemFont(ofSize: size, weight: .light).fontDescriptor.withDesign(.serif)
+        let metrics = serif.map { UIFont(descriptor: $0, size: size) } ?? UIFont.systemFont(ofSize: size, weight: .light)
+        HStack(alignment: .bottom, spacing: -width * 0.08) {
             Text(String(rank))   // Western digits in every locale, like the posters
-                .font(.display(size, weight: .black))
-                .foregroundStyle(.linearGradient(colors: [.white.opacity(0.92), .white.opacity(0.1)],
-                                                 startPoint: .top, endPoint: .bottom))
+                .font(.system(size: size, weight: .light, design: .serif))
+                .foregroundStyle(.white.opacity(0.9))
                 .fixedSize()
                 // Trim the line box to the digits so they stand on the poster's bottom edge.
                 .padding(.top, metrics.capHeight - metrics.ascender)
@@ -400,3 +430,234 @@ private struct PlaceholderShelf: View {
 }
 
 #endif
+
+// MARK: - Up next
+
+/// The next thing to watch: a CinemaScope frame, the serif title, the episode
+/// in words, and one Play that goes straight to video.
+private struct UpNextHero: View {
+    let upNext: HomeModel.UpNext
+    @Environment(WatchlistStore.self) private var watchlist
+    @Environment(DownloadStore.self) private var downloads
+
+    private var item: MediaResult {
+        let p = upNext.progress
+        return MediaResult(id: p.id, type: p.mediaType, name: upNext.detail?.name ?? p.title,
+                           year: nil, posterURL: p.posterURL, description: nil)
+    }
+
+    /// Resuming this exact episode (or the movie), not starting the next one.
+    private var isResuming: Bool {
+        let p = upNext.progress
+        guard !p.isFinished else { return false }
+        return p.mediaType == .movie || p.episodeID == upNext.episode?.id
+    }
+
+    private var minutesLeft: Int? {
+        let p = upNext.progress
+        guard isResuming, p.durationSeconds > 0 else { return nil }
+        let minutes = Int(((p.durationSeconds - p.positionSeconds) / 60).rounded())
+        return minutes > 0 ? minutes : nil
+    }
+
+    private var playTitle: String {
+        guard let episode = upNext.episode else { return isResuming ? "Resume" : "Play" }
+        return isResuming ? "Resume episode \(episode.episode)" : "Play episode \(episode.episode)"
+    }
+
+    private var isDownloaded: Bool {
+        downloads.isDownloaded(mediaID: upNext.progress.id, episodeLabel: upNext.episode?.label)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear
+                .aspectRatio(Theme.scopeAspect, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    KFImage(upNext.episode?.thumbnailURL ?? upNext.detail?.backdropURL ?? upNext.progress.posterURL)
+                        .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1200, height: 600)))
+                        .resizable()
+                        .fade(duration: 0.25)
+                        .placeholder { Theme.surface }
+                        .scaledToFill()
+                }
+                .clipped()
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Up next")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                Text(item.name)
+                    .font(.display(40, relativeTo: .largeTitle))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                meta
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+                HStack(spacing: 12) {
+                    NavigationLink(value: PlayTitle(item: item)) {
+                        VStack(spacing: 1) {
+                            Label(playTitle, systemImage: "play.fill")
+                                .font(.headline)
+                            if let minutesLeft {
+                                Text(minutesLeft >= 60 ? "\(minutesLeft / 60)h \(minutesLeft % 60)m left" : "\(minutesLeft) min left")
+                                    .font(.caption.weight(.semibold))
+                                    .opacity(0.6)
+                            }
+                        }
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: minutesLeft == nil ? 52 : 60)
+                        .background(Theme.accent, in: Capsule())
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.pressable)
+                    let saved = watchlist.contains(item.id)
+                    Button {
+                        watchlist.toggle(id: item.id, mediaType: item.type, title: item.name, posterURL: item.posterURL)
+                    } label: {
+                        Image(systemName: saved ? "checkmark" : "plus")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 52, height: 52)
+                            .overlay(Circle().strokeBorder(Color.white.opacity(0.24), lineWidth: 1))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.pressable)
+                    .sensoryFeedback(.selection, trigger: saved)
+                    .accessibilityLabel(saved ? "Remove from Watchlist" : "Add to Watchlist")
+                }
+                .padding(.top, 10)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        }
+    }
+
+    /// "Season 1, episode 4  Cancer Man  46 min  Ready offline": the episode in words.
+    private var meta: Text {
+        var parts: [Text] = []
+        if let episode = upNext.episode {
+            parts.append(Text("Season \(episode.season), episode \(episode.episode)"))
+            if !episode.name.isEmpty {
+                parts.append(Text(episode.name).font(.system(.subheadline, design: .serif)).italic().foregroundStyle(.white))
+            }
+        }
+        if let runtime = upNext.detail?.runtime, !isResuming { parts.append(Text(runtime)) }
+        if isDownloaded { parts.append(Text("Ready offline")) }
+        guard var line = parts.first else { return Text(" ") }
+        for part in parts.dropFirst() { line = line + Text("   ") + part }
+        return line
+    }
+}
+
+// MARK: - Keep watching
+
+/// Everything else in progress, as a hairline list; a row plays where you left off.
+private struct KeepWatchingList: View {
+    let items: [WatchProgress]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Keep watching")
+                .sectionTitleStyle()
+                .padding(.bottom, 8)
+            ForEach(items) { item in
+                NavigationLink(value: PlayTitle(item: item.mediaResult)) { row(item) }
+                    .buttonStyle(.pressable)
+                    .contextMenu {
+                        NavigationLink(value: item.mediaResult) {
+                            Label("Go to Title", systemImage: "info.circle")
+                        }
+                        Button(role: .destructive) {
+                            WatchProgressStore.shared.remove(id: item.id)
+                        } label: {
+                            Label("Remove", systemImage: "xmark.circle")
+                        }
+                    }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func row(_ item: WatchProgress) -> some View {
+        HStack(spacing: 14) {
+            // Cinemeta keeps a wide backdrop per IMDb title; other ids fall back to the poster.
+            let wide = item.id.hasPrefix("tt") ? URL(string: "https://images.metahub.space/background/medium/\(item.id)/img") : nil
+            KFImage(wide ?? item.posterURL)
+                .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 360, height: 150)))
+                .resizable()
+                .placeholder { Theme.surface }
+                .scaledToFill()
+                .frame(width: 116, height: 116 / Theme.scopeAspect)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.stillCorner, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.display(19, weight: .medium, relativeTo: .headline))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(line(for: item))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                Capsule()
+                    .fill(Color.white.opacity(0.18))
+                    .frame(height: 2)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { geo in
+                            Capsule().fill(Theme.accent).frame(width: geo.size.width * item.fraction)
+                        }
+                    }
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 12)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private func line(for item: WatchProgress) -> String {
+        let left = max(0, item.durationSeconds - item.positionSeconds)
+        let minutes = Int((left / 60).rounded())
+        let time = minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes) min left"
+        guard let season = item.season, let episode = item.episode else { return time }
+        return "Season \(season), episode \(episode)   \(time)"
+    }
+}
+
+// MARK: - Offline
+
+/// The catalog didn't load: one line, not a page. Everything above it still works.
+private struct OfflineRow: View {
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(Theme.textSecondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("You're offline")
+                    .font(.body.weight(.semibold))
+                Text("Downloads still play. \(message)")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button("Retry", action: onRetry)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .padding(16)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner, style: .continuous))
+        .padding(.horizontal, 20)
+    }
+}

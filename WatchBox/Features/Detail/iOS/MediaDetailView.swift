@@ -12,8 +12,11 @@ struct MediaDetailView: View {
     let mediaID: String
     let type: MediaType
     let fallbackTitle: String
+    /// Opened from a Play on Home: start playing as soon as the page has loaded.
+    var autoplay = false
 
     @State private var model: MediaDetailModel
+    @State private var didAutoplay = false
     @State private var streamer = StreamCoordinator()
     @State private var pendingPlay: (() -> Void)?
     @State private var isAutoResolving = false
@@ -30,10 +33,11 @@ struct MediaDetailView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dismiss) private var dismiss
 
-    init(mediaID: String, type: MediaType, fallbackTitle: String) {
+    init(mediaID: String, type: MediaType, fallbackTitle: String, autoplay: Bool = false) {
         self.mediaID = mediaID
         self.type = type
         self.fallbackTitle = fallbackTitle
+        self.autoplay = autoplay
         _model = State(initialValue: MediaDetailModel(mediaID: mediaID, type: type))
     }
 
@@ -83,6 +87,11 @@ struct MediaDetailView: View {
             .onDisappear { MacWindow.setTitle("") }
             #endif
             .task { model.load() }
+            .onChange(of: model.isReady, initial: true) { _, ready in
+                guard ready, autoplay, !didAutoplay, let detail = model.detail else { return }
+                didAutoplay = true
+                watch(episode: resumeEpisode(for: detail))
+            }
             .onDisappear {
                 cancelAutoResolve()
                 if !streamer.isPresenting { streamer.stop() }
@@ -655,20 +664,8 @@ struct MediaDetailView: View {
     private var savedProgress: WatchProgress? { progressStore.progress(for: mediaID) }
 
     private func resumeEpisode(for detail: MediaDetail) -> Episode? {
-        guard detail.type != .movie else { return nil }
-        let watched = progressStore.watchedEpisodes(for: mediaID)
-        guard let saved = savedProgress, let epID = saved.episodeID,
-              let idx = detail.episodes.firstIndex(where: { $0.id == epID })
-        else {
-            guard !watched.isEmpty else { return firstEpisode(of: detail) }
-            return detail.episodes.first { !watched.contains($0.label) } ?? firstEpisode(of: detail)
-        }
-        if saved.isFinished {
-            let following = detail.episodes[(idx + 1)...]
-            if let next = following.first(where: { !watched.contains($0.label) }) { return next }
-            return following.first ?? detail.episodes[idx]
-        }
-        return detail.episodes[idx]
+        detail.resumeEpisode(saved: savedProgress, watched: progressStore.watchedEpisodes(for: mediaID),
+                             fallback: firstEpisode(of: detail))
     }
 
     private func setWatched(_ watched: Bool, episode: Episode, detail: MediaDetail) {

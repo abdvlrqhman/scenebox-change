@@ -87,6 +87,19 @@ final class HomeModel {
     /// Bumped on every load so a genre row from before a refresh can't land in the new list.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var becauseSourceID: String?
+    @ObservationIgnored private var upNextTask: Task<Void, Never>?
+
+    /// The one thing Home offers first: the newest item in progress and what Play starts.
+    struct UpNext: Equatable {
+        let progress: WatchProgress
+        var detail: MediaDetail? = nil
+        var episode: Episode? = nil
+
+        static func == (a: UpNext, b: UpNext) -> Bool {
+            a.progress == b.progress && a.detail?.id == b.detail?.id && a.episode?.id == b.episode?.id
+        }
+    }
+    private(set) var upNext: UpNext?
 
     init(settings: AppSettings? = nil) {
         let settings = settings ?? .shared
@@ -116,6 +129,18 @@ final class HomeModel {
 
     /// Fills a genre row the first time it scrolls into view; an empty or
     /// failed one drops out until the next refresh.
+    /// Looks up the title's episodes so Up next can name the episode Play starts.
+    func loadUpNext(_ item: WatchProgress?, watched: Set<String>) {
+        upNextTask?.cancel()
+        guard let item else { upNext = nil; return }
+        if upNext?.progress.id != item.id { upNext = UpNext(progress: item) }
+        upNextTask = Task { [search] in
+            guard let detail = try? await search.detail(id: item.id, type: item.mediaType), !Task.isCancelled else { return }
+            let episode = detail.resumeEpisode(saved: item, watched: watched, fallback: detail.episodes.first)
+            upNext = UpNext(progress: item, detail: detail, episode: episode)
+        }
+    }
+
     func loadGenreShelf(_ id: String) {
         guard requestedGenres.insert(id).inserted,
               let spec = genreShelves.first(where: { $0.id == id }) else { return }

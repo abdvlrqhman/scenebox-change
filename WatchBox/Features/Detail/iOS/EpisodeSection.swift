@@ -28,7 +28,7 @@ struct EpisodeSection: View {
     private var cardWidth: CGFloat { Platform.isMac ? 300 : 280 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             header
 
             let episodes = detail.episodes(inSeason: selectedSeason)
@@ -104,28 +104,32 @@ struct EpisodeSection: View {
         .onChange(of: selectedSeason) { _, _ in selection.removeAll() }
     }
 
-    /// Season chips, then download choices (or Cancel while selecting).
+    /// "Season  1 2 3 4 5": the numerals switch seasons; then download choices (or Cancel).
     private var header: some View {
-        HStack(spacing: 4) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(detail.seasons, id: \.self) { season in
-                        let on = season == selectedSeason
-                        Button { selectedSeason = season } label: {
-                            Text(seasonName(season))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(on ? Color.black : Color.white)
-                                .padding(.horizontal, 14)
-                                .frame(height: 36)
-                                .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
-                                .frame(minHeight: 44)
-                                .contentShape(Rectangle())
+        HStack(alignment: .center, spacing: 6) {
+            Text(detail.seasons.count > 1 ? "Season" : seasonName(selectedSeason))
+                .sectionTitleStyle()
+                .lineLimit(1)
+            if detail.seasons.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(detail.seasons, id: \.self) { season in
+                            let on = season == selectedSeason
+                            Button { selectedSeason = season } label: {
+                                Text(season == 0 ? "Specials" : "\(season)")
+                                    .font(.title3.weight(on ? .semibold : .regular))
+                                    .foregroundStyle(on ? Color.white : Theme.textTertiary)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.pressable)
+                            .accessibilityLabel(seasonName(season))
+                            .accessibilityAddTraits(on ? .isSelected : [])
                         }
-                        .buttonStyle(.pressable)
-                        .accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
-                .padding(.leading, 16)
+            } else {
+                Spacer(minLength: 0)
             }
             if isSelecting {
                 Button("Cancel") {
@@ -134,7 +138,7 @@ struct EpisodeSection: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .tint(.white)
-                .padding(.trailing, 16)
+                .padding(.trailing, 12)
             } else {
                 Menu {
                     let available = downloadable(in: detail.episodes(inSeason: selectedSeason))
@@ -158,11 +162,10 @@ struct EpisodeSection: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Download episodes")
-                .padding(.trailing, 12)
+                .padding(.trailing, 8)
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Seasons")
+        .padding(.leading, 20)
     }
 
     private func selectionBar(for episodes: [Episode]) -> some View {
@@ -315,7 +318,13 @@ private struct EpisodeRow: View {
     var onToggleSelection: () -> Void = {}
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 14) {
+            Text("\(episode.episode)")
+                .font(.display(28, weight: .light, relativeTo: .title1))
+                .foregroundStyle(isCurrent ? Color.white : Theme.textTertiary)
+                .frame(minWidth: 28, alignment: .leading)
+                .accessibilityHidden(true)
+
             // The still is the play button, like the row around it.
             Button(action: selection != nil ? onToggleSelection : onWatch) { thumbnail }
                 .buttonStyle(.pressable)
@@ -323,11 +332,11 @@ private struct EpisodeRow: View {
                 .accessibilityLabel("Play episode \(episode.episode)")
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(episode.episode). \(episode.name)")
-                    .font(.subheadline.weight(.semibold))
+                Text(episode.name)
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
                 Text(statusLine)
-                    .font(.footnote.weight(.medium))
+                    .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
             }
@@ -339,24 +348,26 @@ private struct EpisodeRow: View {
                     if downloadState == .idle {
                         SelectionMark(isSelected: selected)
                     } else {
-                        EpisodeDownloadGlyph(state: downloadState, size: 26, download: download)
+                        EpisodeDownloadGlyph(state: downloadState, size: 24, download: download)
                     }
                 }
                 .frame(width: 44, height: 44)
-            } else {
+            } else if downloadState != .completed {
+                // Downloaded episodes say so in their line; no badge needed.
                 Button(action: onDownload) {
-                    EpisodeDownloadGlyph(state: downloadState, size: 26, download: download)
+                    EpisodeDownloadGlyph(state: downloadState, size: 24, download: download)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(downloadState != .idle || episode.isUnaired)
                 .opacity(episode.isUnaired ? 0.4 : 1)
-                .accessibilityLabel(downloadState.isDownloaded ? "Downloaded" : "Download")
+                .accessibilityLabel(downloadState == .pending ? "Downloading" : "Download")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5).padding(.leading, 20) }
         .contentShape(Rectangle())
         .opacity(selection != nil && downloadState != .idle ? 0.55 : 1)
         .onTapGesture {
@@ -364,15 +375,18 @@ private struct EpisodeRow: View {
         }
     }
 
+    /// The episode you're part-way through gets the white numeral.
+    private var isCurrent: Bool { watchFraction != nil && !isWatched }
+
     /// "48m   Watched", "33m left", "48m   Downloaded", "Airs Oct 21": state in words, not badges.
     private var statusLine: String {
         if let released = episode.released, episode.isUnaired {
             return "Airs \(released.formatted(date: .abbreviated, time: .omitted))"
         }
         if let watchFraction, !isWatched, let minutes = runtimeMinutes {
-            return "\(max(1, Int((Double(minutes) * (1 - watchFraction)).rounded())))m left"
+            return "\(max(1, Int((Double(minutes) * (1 - watchFraction)).rounded()))) min left"
         }
-        let length = runtimeMinutes.map { "\($0)m" }
+        let length = runtimeMinutes.map { "\($0) min" }
         let state = isWatched ? "Watched" : downloadState == .completed ? "Downloaded" : nil
         let parts = [length, state].compactMap { $0 }
         if parts.isEmpty, let released = episode.released {
@@ -382,9 +396,9 @@ private struct EpisodeRow: View {
     }
 
     private var thumbnail: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Theme.stillCorner, style: .continuous)
             .fill(Theme.surface)
-            .frame(width: 122, height: 69)
+            .frame(width: 104, height: 58)
             .overlay {
                 KFImage(episode.thumbnailURL)
                     .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 360, height: 204)))
@@ -396,26 +410,14 @@ private struct EpisodeRow: View {
                             .foregroundStyle(.white.opacity(0.2))
                     }
                     .scaledToFill()
-                    .opacity(isWatched ? 0.45 : 1)
+                    .opacity(isWatched ? 0.5 : 1)
             }
             .overlay(alignment: .bottom) {
                 if let watchFraction, !isWatched {
                     ArtworkProgress(fraction: watchFraction).padding(4)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if isWatched { WatchedBadge(size: 18).padding(4) }
-            }
-            .overlay {
-                if selection == nil, !episode.isUnaired {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(.black.opacity(0.45), in: Circle())
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.stillCorner, style: .continuous))
     }
 }
 

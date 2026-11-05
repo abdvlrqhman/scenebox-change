@@ -10,7 +10,7 @@ name: Build IPA
 on:
   push:
     branches: ["**"]
-    paths-ignore: ["website/**", "**.md"]
+    paths-ignore: ["website/**", "docs/**", "**.md"]
   pull_request:
   workflow_dispatch:
 

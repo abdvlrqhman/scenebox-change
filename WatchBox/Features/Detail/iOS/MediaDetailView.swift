@@ -238,9 +238,9 @@ struct MediaDetailView: View {
 
                 actions(for: detail)
                 if let synopsis = detail.description, !synopsis.isEmpty {
-                    ExpandableText(text: synopsis, lineLimit: 2, font: .callout, color: Theme.textSecondary)
+                    ExpandableText(text: synopsis, lineLimit: 3, font: .synopsis, color: .white.opacity(0.82))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 20)
                 }
                 if detail.type == .series, !detail.seasons.isEmpty {
                     EpisodeSection(
@@ -303,7 +303,7 @@ struct MediaDetailView: View {
                     }
                     .foregroundStyle(Theme.onAccent)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
+                    .frame(height: timeLeft == nil ? 52 : 60)
                     .background(Theme.accent, in: Capsule())
                     .contentShape(Capsule())
                 }
@@ -365,7 +365,7 @@ struct MediaDetailView: View {
             }
         }
         .frame(maxWidth: Platform.isMac ? 480 : .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .disabled(busy)
         .opacity(busy ? 0.6 : 1)
     }
@@ -439,9 +439,8 @@ struct MediaDetailView: View {
             .font(.system(size: 19, weight: .semibold))
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 56, height: 56)
-            .background(Theme.surface, in: Circle())
-            .overlay(Circle().strokeBorder(Theme.hairline))
+            .frame(width: 52, height: 52)
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.24), lineWidth: 1))
             .contentShape(Circle())
     }
 
@@ -760,7 +759,7 @@ struct MediaDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("More Like This")
                     .sectionTitleStyle()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                 HorizontalShelfScroller {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(model.similar) { item in
@@ -769,7 +768,7 @@ struct MediaDetailView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
                 }
             }
         }
@@ -793,7 +792,7 @@ struct MediaDetailView: View {
                 CreditLine(label: "Awards", value: awards)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 }
 
@@ -802,21 +801,22 @@ private struct BannerHeader: View {
     let fallbackTitle: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let height: CGFloat = Platform.isMac ? 460 : 420
+    /// Room for the status bar and the glass top bar over the frame.
+    private let chromeAllowance: CGFloat = 92
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        VStack(alignment: .leading, spacing: 16) {
             if !Platform.isMac {
-                let height = self.height
                 let reduceMotion = self.reduceMotion
                 // The image sits in an overlay so its fill size can never widen
                 // the page; the clear frame alone decides the layout.
                 Color.clear
+                    .aspectRatio(Theme.scopeAspect, contentMode: .fit)
                     .frame(maxWidth: .infinity)
-                    .frame(height: height)
+                    .padding(.top, chromeAllowance)
                     .overlay {
                         KFImage(detail?.backdropURL)
-                            .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1400, height: 1100)))
+                            .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1400, height: 900)))
                             .cacheOriginalImage()
                             .resizable()
                             .fade(duration: 0.25)
@@ -824,60 +824,51 @@ private struct BannerHeader: View {
                             .scaledToFill()
                     }
                     .clipped()
-                    .overlay {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .black.opacity(0.55), location: 0.0),
-                                .init(color: .clear, location: 0.28),
-                                .init(color: Theme.background.opacity(0.7), location: 0.68),
-                                .init(color: Theme.background, location: 1.0),
-                            ],
-                            startPoint: .top, endPoint: .bottom
-                        )
+                    .overlay(alignment: .top) {
+                        LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: chromeAllowance)
                     }
-                    // Runs at render time, so scrolling doesn't re-evaluate the view:
-                    // pull down to stretch, scroll up for a gentle parallax.
+                    // The frame dissolves into its own light instead of ending on a hard edge.
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.72),
+                                                 .init(color: .clear, location: 1)],
+                                         startPoint: .top, endPoint: .bottom))
+                    // Pull down to stretch, in answer to the finger only.
                     .visualEffect { content, proxy in
                         let minY = reduceMotion ? 0 : proxy.frame(in: .scrollView).minY
-                        return content
-                            .scaleEffect(minY > 0 ? 1 + minY / height : 1, anchor: .bottom)
-                            .offset(y: minY > 0 ? 0 : -minY * 0.4)
+                        return content.scaleEffect(minY > 0 ? 1 + minY / 300 : 1, anchor: .bottom)
                     }
             }
 
             titleTreatment
-                .padding(.horizontal, 16)
-                .padding(.bottom, 4)
+                .padding(.horizontal, 20)
         }
-        .frame(height: height, alignment: .bottomLeading)
+        .padding(.top, Platform.isMac ? 120 : 0)
+        .background(alignment: .top) {
+            AmbientBackdrop(url: detail?.backdropURL ?? detail?.posterURL, height: 620)
+        }
     }
 
     private var titleTreatment: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let logoURL = detail?.logoURL {
-                KFImage(logoURL)
-                    .setProcessor(TrimTransparentEdges())
-                    .resizable()
-                    .placeholder { titleText }
-                    .scaledToFit()
-                    .frame(maxWidth: Platform.isMac ? 360 : 260, maxHeight: Platform.isMac ? 130 : 90, alignment: .bottomLeading)
-            } else {
-                titleText
-            }
-
+        VStack(alignment: .leading, spacing: 10) {
+            Text(detail?.name ?? fallbackTitle)
+                .font(.display(40, relativeTo: .largeTitle))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .accessibilityAddTraits(.isHeader)
             if let detail {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(facts(detail).joined(separator: "   "))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     if let rating = detail.imdbRating {
                         Label(String(format: "%.1f", rating), systemImage: "star.fill")
                             .labelStyle(.titleAndIcon)
                             .accessibilityLabel(String(format: "Rated %.1f", rating))
                     }
-                    Text(facts(detail).joined(separator: "   "))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .font(.subheadline)
+                .foregroundStyle(Theme.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -891,13 +882,6 @@ private struct BannerHeader: View {
         return [detail.year, length, genres.isEmpty ? nil : genres, HomeModel.topTenPlaces[detail.id]].compactMap { $0 }
     }
 
-    private var titleText: some View {
-        Text(detail?.name ?? fallbackTitle)
-            .font(.largeTitle.weight(.bold))
-            .foregroundStyle(.white)
-            .lineLimit(3)
-            .minimumScaleFactor(0.7)
-    }
 }
 
 private struct CastRow: View {
@@ -905,73 +889,52 @@ private struct CastRow: View {
     let names: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Cast & crew")
                 .sectionTitleStyle()
-                .padding(.horizontal, 16)
-
-            HorizontalShelfScroller {
-                LazyHStack(alignment: .top, spacing: 12) {
-                    if members.isEmpty {
-                        ForEach(names, id: \.self) { name in
-                            personTile(name: name, role: nil, photo: nil)
-                        }
-                    } else {
-                        ForEach(members) { member in
-                            NavigationLink(value: member) {
-                                personTile(name: member.name, role: member.role, photo: member.photoURL)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                .padding(.bottom, 6)
+            if members.isEmpty {
+                ForEach(names.prefix(8), id: \.self) { name in
+                    personRow(name: name, role: nil, photo: nil)
                 }
-                .padding(.horizontal, 16)
+            } else {
+                ForEach(members.prefix(10)) { member in
+                    NavigationLink(value: member) {
+                        personRow(name: member.name, role: member.role, photo: member.photoURL)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+        .padding(.horizontal, 20)
     }
 
-    private func personTile(name: String, role: String?, photo: URL?) -> some View {
-        VStack(spacing: 8) {
-            Circle()
-                .fill(Theme.surface)
-                .frame(width: 64, height: 64)
-                .overlay {
-                    if let photo {
-                        KFImage(photo)
-                            .resizable()
-                            .placeholder { initialsLabel(name) }
-                            .scaledToFill()
-                    } else {
-                        initialsLabel(name)
-                    }
-                }
-                .clipShape(Circle())
-
+    /// "Bryan Cranston ... Walter White", over a hairline.
+    private func personRow(name: String, role: String?, photo: URL?) -> some View {
+        HStack(spacing: 12) {
+            if let photo {
+                KFImage(photo)
+                    .resizable()
+                    .placeholder { Theme.surface }
+                    .scaledToFill()
+                    .frame(width: 36, height: 36)
+                    .clipShape(Circle())
+            }
             Text(name)
-                .font(.caption2)
+                .font(.body.weight(.semibold))
                 .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .frame(width: 80)
+                .lineLimit(1)
+            Spacer(minLength: 12)
             if let role, !role.isEmpty {
                 Text(role)
-                    .font(.caption2)
+                    .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
                     .lineLimit(1)
-                    .frame(width: 80)
             }
         }
-    }
-
-    private func initialsLabel(_ name: String) -> some View {
-        Text(Self.initials(name))
-            .font(.headline)
-            .foregroundStyle(.white.opacity(0.7))
-    }
-
-    private static func initials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
+        .frame(minHeight: 44)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
+        .contentShape(Rectangle())
     }
 }
 

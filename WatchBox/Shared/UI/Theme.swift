@@ -83,6 +83,20 @@ extension View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    /// Under a glass top bar, scrolled text stops at a hard edge instead of smearing (iOS 26).
+    @ViewBuilder
+    func hardTopScrollEdge() -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
     /// Glass for controls that sit over imagery or video, never on plain black.
     @ViewBuilder
     func glassChrome<S: Shape>(in shape: S) -> some View {

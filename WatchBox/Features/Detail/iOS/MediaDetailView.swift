@@ -280,6 +280,7 @@ struct MediaDetailView: View {
             }
             .padding(.bottom, 40)
         }
+        .hardTopScrollEdge()
         .onChange(of: scrollToEpisodes) { _, go in
             guard go else { return }
             scrollToEpisodes = false

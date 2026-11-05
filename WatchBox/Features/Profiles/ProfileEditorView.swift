@@ -241,6 +241,8 @@ struct ProfileEditorView: View {
                                 Circle().strokeBorder(.white, lineWidth: 3).padding(-5)
                             }
                         }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(ProfileTileStyle())
                 .accessibilityLabel(i < colorNames.count ? colorNames[i] : "Colour \(i + 1)")

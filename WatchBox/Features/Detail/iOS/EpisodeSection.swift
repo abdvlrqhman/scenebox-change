@@ -354,7 +354,7 @@ private struct EpisodeRow: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5).padding(.leading, 20) }
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5).padding(.horizontal, Theme.gutter) }
         .contentShape(Rectangle())
         .opacity(selection != nil && downloadState != .idle ? 0.55 : 1)
         .onTapGesture {

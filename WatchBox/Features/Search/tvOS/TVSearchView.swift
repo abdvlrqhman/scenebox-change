@@ -65,7 +65,7 @@ struct TVSearchView: View {
 
     @ViewBuilder
     private var content: some View {
-        if model.isLoading && model.results.isEmpty {
+        if model.isAwaitingResults && model.results.isEmpty {
             centered { ProgressView().tint(.white).controlSize(.large) }
         } else if model.results.isEmpty, let message = model.errorMessage {
             centered {

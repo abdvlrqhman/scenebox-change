@@ -278,7 +278,7 @@ struct SearchResults: View {
 
     @ViewBuilder
     var body: some View {
-        if model.isLoading && model.results.isEmpty {
+        if model.isAwaitingResults && model.results.isEmpty {
             placeholderGrid
         } else if model.results.isEmpty, let message = model.errorMessage {
             EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load", message: message,

@@ -41,6 +41,8 @@ final class SearchModel {
 
     private(set) var results: [MediaResult] = []
     private(set) var isLoading = false
+    /// Loading tiles show until the first answer is due; after that an empty page says so.
+    private(set) var isAwaitingResults = false
     private(set) var isLoadingMore = false
     private(set) var errorMessage: String?
     /// Kinds whose search failed while others answered ("TV shows didn't load").
@@ -81,6 +83,7 @@ final class SearchModel {
         exhausted = []
         rowsByType = [:]
         isLoading = true
+        isAwaitingResults = true
 
         task = Task { [search, feed, genre] in
             if searching, !immediate {
@@ -88,6 +91,7 @@ final class SearchModel {
                 guard !Task.isCancelled else { return }
             }
             isLoading = true
+            isAwaitingResults = true
 
             var rows = [[MediaResult]](repeating: [], count: types.count)
             var failed = false
@@ -115,6 +119,7 @@ final class SearchModel {
                     guard !Task.isCancelled else { return }
                     if i < 0 {
                         graceOver = true
+                        isAwaitingResults = false
                     } else {
                         answered += 1
                         if answered == types.count { group.cancelAll() }   // ends the grace timer early
@@ -141,6 +146,7 @@ final class SearchModel {
                 : nil
             missingKinds = results.isEmpty ? [] : failedTypes
             isLoading = false
+            isAwaitingResults = false
         }
     }
 

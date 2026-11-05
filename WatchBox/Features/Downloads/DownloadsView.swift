@@ -585,28 +585,29 @@ private struct DownloadItemRow: View {
                     .font(.caption).monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
             } else {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(ByteFormat.size(download.record.totalBytes))
+                        .font(.caption).monospacedDigit()
+                        .foregroundStyle(Theme.textTertiary)
                     if let watchFraction {
                         ProgressView(value: watchFraction)
                             .tint(.white.opacity(0.7))
                             .frame(maxWidth: 140)
                     }
-                    Text(ByteFormat.size(download.record.totalBytes))
-                        .font(.caption).monospacedDigit()
-                        .foregroundStyle(Theme.textTertiary)
                 }
             }
         default:
-            VStack(alignment: .leading, spacing: 4) {
-                ProgressView(value: download.progress)
-                    .tint(download.phase == .failed ? Theme.danger : Theme.accent)
-                    .opacity(download.phase == .queued || download.phase == .paused ? 0.5 : 1)
+            // Words first, then the bar, like the show rows above.
+            VStack(alignment: .leading, spacing: 6) {
                 Text(detailLine)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(download.phase == .failed ? Theme.danger : Theme.textTertiary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                ProgressView(value: download.progress)
+                    .tint(download.phase == .failed ? Theme.danger : Theme.accent)
+                    .opacity(download.phase == .queued || download.phase == .paused ? 0.5 : 1)
             }
         }
     }

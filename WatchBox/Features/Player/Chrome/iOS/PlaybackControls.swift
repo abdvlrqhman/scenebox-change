@@ -234,6 +234,7 @@ private struct BottomBar: View {
             // Dark enough that a subtitle running under the scrubber can't fight it.
             LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
                 .padding(.top, -40)
+                .ignoresSafeArea()
         )
     }
 

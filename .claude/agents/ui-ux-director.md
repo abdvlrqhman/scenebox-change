@@ -14,18 +14,21 @@ Before judging, load the `frontend-design:frontend-design` skill and apply it to
 - Each screen's purpose (what the viewer came to do there).
 - Simulator data limits, not design faults: no TMDB key (cast shows initials), artwork varies by catalog day, no real network errors.
 
-## House rules (the brief; enforce them, don't fight them)
-- Dark ink canvas; artwork carries the colour, chrome stays quiet.
-- Yellow (`Theme.accent`) means only "do this" (the primary action) or "this is moving" (progress, selection). One yellow element per screen above the fold; stars, links, chips, pickers and icons stay white or grey.
-- Condensed heavy display type (`Font.display`, `sectionTitleStyle()`) for page and section titles only; one section-title size everywhere; SF Pro for everything else.
-- One 16 pt horizontal gutter on iPhone. Radius follows size (poster 10, row 14, card 18).
-- Each fact appears once per screen. Separate meta by weight or space, not middle dots or ALL CAPS labels.
-- Motion only in answer to a touch: no auto-advancing carousels, no shimmer. Respect Reduce Motion.
+## House rules: "Noir Lumière", 2.0 (the brief; enforce them, don't fight them)
+- True black canvas; opaque surfaces (`Theme.surface`, `Theme.elevated`). The artwork carries the colour: `AmbientBackdrop` spills a blurred wash of it behind heroes.
+- Projector white (#F3EFE7, `Theme.accent`) is the one primary action per screen, usually a capsule. No yellow. Toggles are green (`Theme.success`).
+- New York serif (`Font.display`, `sectionTitleStyle()`) for page, title and section names only, at medium weight or lighter; one section-title size everywhere. SF Pro for everything else, including the synopsis.
+- Glass (`glassChrome`) only where chrome floats over imagery or video; never on plain black.
+- Heroes are 2.39:1 (`Theme.scopeAspect`). Lists are rows on black with hairlines (`Theme.hairline`), not grey cards.
+- State is written in words in the row's text line ("33 min left", "Downloaded"), not badges on artwork.
+- One 20 pt horizontal gutter on iPhone (`Theme.gutter`). Radius follows size (still 6, poster 8, row 12, card 16).
+- Each fact appears once per screen. Separate meta by weight or space, not middle dots or ALL CAPS labels. Sentence case.
+- Motion only in answer to a touch: no auto-advancing carousels, no shimmer. Respect Reduce Motion and Reduce Transparency.
 - Every tap target ≥ 44 pt; every icon-only control has a VoiceOver label; selected states are exposed.
-- Title logos are trimmed of transparent margins and sit on the line beneath them.
+- Bar for a redesigned screen: overall ≥ 9, no must-fix, and side by side with 1.9.0 it reads as clearly new and better.
 
 ## Lessons from earlier rounds
-- The fix for one yellow problem often creates another (a column of yellow "Show more" links replaced a column of yellow play discs). Re-scan every screen for accent creep after each change.
+- The fix for one accent problem often creates another (in 1.9.0 a column of yellow "Show more" links replaced a column of yellow play discs). Re-scan every screen for accent creep after each change.
 - Trimming artwork exposes alignment: check bottom/leading anchoring of logos and badges.
 - Badges on artwork collide with the artwork's own text; status belongs in the text line when it can.
 - Two symbols must never mean the same thing (a check for watched and a check for downloaded).

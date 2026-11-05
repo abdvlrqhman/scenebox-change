@@ -1,0 +1,34 @@
+/* Shared mockup kit: SceneBox tokens (Theme.swift) and iPhone chrome at 440×956 pt.
+   Inter stands in for SF Pro, Barlow Condensed for SF Pro Condensed Heavy. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800;900&display=block');
+:root {
+  --ink: #0d0d12; --surface: #1a1a21; --elevated: #25252e; --hair: rgba(255,255,255,.08);
+  --t2: rgba(255,255,255,.62); --t3: rgba(255,255,255,.38);
+  --accent: #EEE600; --on-accent: #0b0b0b; --success: #30d158; --gutter: 16px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { width: 440px; height: 956px; overflow: hidden; position: relative; background: var(--ink); color: #fff;
+  font: 15px/1.35 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -0.005em; }
+.display { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; letter-spacing: -0.01em; line-height: .95; }
+.status { position: absolute; top: 0; left: 0; right: 0; height: 54px; z-index: 50; display: flex; align-items: center;
+  justify-content: space-between; padding: 14px 34px 0 46px; font: 600 17px Inter; }
+.status .island { position: absolute; left: 50%; top: 11px; width: 126px; height: 37px; margin-left: -63px; background: #000; border-radius: 20px; }
+.status .icons { display: flex; gap: 6px; align-items: center; }
+.status .bars { width: 18px; height: 11px; background: linear-gradient(90deg,#fff 0 20%,transparent 20% 27%,#fff 27% 47%,transparent 47% 54%,#fff 54% 74%,transparent 74% 81%,#fff 81%);
+  clip-path: polygon(0 75%,20% 75%,20% 100%,0 100%,0 75%, 27% 50%,47% 50%,47% 100%,27% 100%,27% 50%, 54% 25%,74% 25%,74% 100%,54% 100%,54% 25%, 81% 0,100% 0,100% 100%,81% 100%,81% 0); }
+.status .batt { width: 27px; height: 13px; border: 1.5px solid rgba(255,255,255,.5); border-radius: 4px; padding: 1.5px; }
+.status .batt i { display: block; height: 100%; width: 80%; background: #fff; border-radius: 1.5px; }
+.tabbar { position: absolute; left: 20px; right: 20px; bottom: 28px; height: 64px; border-radius: 32px; z-index: 40;
+  background: rgba(38,38,46,.78); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: space-around; padding: 0 6px; }
+.tabbar .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font: 600 10.5px Inter; color: #fff; height: 54px; justify-content: center; border-radius: 27px; }
+.tabbar .tab.on { background: rgba(255,255,255,.1); color: var(--accent); }
+.tabbar svg { width: 24px; height: 24px; }
+.home-indicator { position: absolute; bottom: 8px; left: 50%; width: 140px; height: 5px; margin-left: -70px; background: #fff; border-radius: 3px; z-index: 60; }
+.poster { border-radius: 10px; background: var(--surface) center/cover; outline: 1px solid var(--hair); outline-offset: -1px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 99px; background: rgba(255,255,255,.12); font: 600 13px Inter; }
+.round { width: 52px; height: 52px; border-radius: 26px; background: var(--surface); border: 1px solid var(--hair); display: grid; place-items: center; }
+.cta { height: 52px; border-radius: 26px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; gap: 8px; font: 700 17px Inter; }
+.scrim-b { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, transparent, var(--ink)); }
+.t2 { color: var(--t2); } .t3 { color: var(--t3); }

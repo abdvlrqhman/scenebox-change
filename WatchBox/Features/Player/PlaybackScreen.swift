@@ -76,6 +76,16 @@ struct PlaybackScreen: View {
     #endif
 
     var body: some View {
+        screen
+            // Subtitles picked while casting go to the TV by themselves.
+            .onChange(of: subs.fileOnScreen) { _, file in
+                guard cast.isActive, file != cast.sentSubtitleFile, !cast.isSendingSubtitles else { return }
+                Task { await cast.sendSubtitles(file) }
+            }
+    }
+
+    /// Split from `body` so the type checker can take the long modifier chain.
+    private var screen: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
@@ -234,11 +244,6 @@ struct PlaybackScreen: View {
         .animation(.easeInOut(duration: 0.25), value: advancingTo)
         .animation(.easeInOut(duration: 0.25), value: cast.isActive)
         .toast($toast)
-        // Subtitles picked while casting go to the TV by themselves.
-        .onChange(of: subs.fileOnScreen) { _, file in
-            guard cast.isActive, file != cast.sentSubtitleFile, !cast.isSendingSubtitles else { return }
-            Task { await cast.sendSubtitles(file) }
-        }
         .onChange(of: cast.computerPlays) { _, _ in
             // A computer is playing it from the page: one player at a time.
             if player.isPlaying { player.pause() }

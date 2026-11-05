@@ -3,6 +3,7 @@
 //  SceneBox
 //
 
+#if !os(tvOS)
 import SwiftUI
 
 /// The player's scrubber: a 3 pt hairline with a projector-white thumb that
@@ -55,3 +56,4 @@ struct HairlineScrubber: View {
         }
     }
 }
+#endif

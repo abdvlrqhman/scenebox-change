@@ -54,7 +54,9 @@ struct StreamPlayerContainer: View {
             if phase == .active { streamer.revive() }
         }
         #if DEBUG
-        .overlay(alignment: .topTrailing) { DiagnosticsOverlay() }
+        .overlay(alignment: .topTrailing) {
+            if !UserDefaults.standard.bool(forKey: "SBScreenshots") { DiagnosticsOverlay() }
+        }
         #endif
     }
 }

@@ -608,8 +608,11 @@ struct PlaybackScreen: View {
     private func applyScreenshotFlags() {
         let defaults = UserDefaults.standard
         if defaults.bool(forKey: "SBPlayerPause") {
-            player.pause()
-            chrome.reveal(autoHide: false)
+            Task {
+                try? await Task.sleep(for: .seconds(2))     // VLC ignores a pause right as it starts
+                player.pause()
+                chrome.reveal(autoHide: false)
+            }
         }
         if defaults.bool(forKey: "SBCastPicker") { openCastPicker() }
         if defaults.bool(forKey: "SBCastPreview"), !cast.isActive {

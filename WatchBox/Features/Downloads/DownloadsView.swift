@@ -61,6 +61,7 @@ struct DownloadsView: View {
     @State private var streamer = StreamCoordinator()
     @State private var pendingDelete: DeleteRequest?
     @State private var expanded: Set<String> = []
+    @State private var confirmRemoveWatched = false
     #if !os(tvOS)
     @State private var openedTitle: MediaResult?
     @Environment(\.openMediaDetail) private var openMediaDetail
@@ -148,67 +149,115 @@ struct DownloadsView: View {
 
     #if !os(tvOS)
     private func list(_ groups: [DownloadGroup]) -> some View {
-        List {
+        // Ready to watch first; what's still coming after.
+        let ready = groups.filter { $0.items.allSatisfy { $0.phase == .completed } }
+        let coming = groups.filter { $0.items.contains { $0.phase != .completed } }
+        let watchedDone = store.downloads.filter { $0.phase == .completed && isWatched($0) }
+        return List {
             if store.hasPendingWork || groups.contains(where: { $0.items.contains { $0.phase == .paused || $0.phase == .failed } }) {
                 TransferSummary(store: store)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 8, leading: Theme.gutter, bottom: 12, trailing: Theme.gutter))
                     .listRowBackground(Theme.background)
                     .listRowSeparator(.hidden)
             }
 
-            ForEach(groups) { group in
-                if group.items.count == 1, let download = group.items.first {
-                    DownloadItemRow(download: download, style: .standalone,
-                                    watched: isWatched(download), watchFraction: watchFraction(download),
-                                    onPrimary: { primaryAction(for: download) })
-                        .contentShape(Rectangle())
-                        .onTapGesture { if download.phase == .completed { play(download) } }
-                        .listRowBackground(Theme.background)
-                        .listRowSeparatorTint(Theme.hairline)
-                        .swipeActions { deleteButton { pendingDelete = .one(download) } }
-                        .contextMenu { itemMenu(download) }
-                } else {
+            if !ready.isEmpty {
+                sectionTitle("Ready offline")
+                groupRows(ready)
+            }
+            if !coming.isEmpty {
+                sectionTitle("Downloading")
+                groupRows(coming)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Using \(ByteFormat.size(store.diskUsage)) on this device")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                if !watchedDone.isEmpty {
+                    let bytes = watchedDone.reduce(Int64(0)) { $0 + $1.record.totalBytes }
                     Button {
-                        withAnimation(Theme.smooth) { toggle(group.id) }
+                        confirmRemoveWatched = true
                     } label: {
-                        GroupHeaderRow(group: group, isExpanded: expanded.contains(group.id),
-                                       watchedCount: group.items.filter { isWatched($0) }.count)
+                        Text("Remove watched (\(watchedDone.count), \(ByteFormat.size(bytes)))")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 44)
+                            .background(Theme.elevated, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(expanded.contains(group.id) ? Theme.surface : Theme.background)
-                    .listRowSeparator(expanded.contains(group.id) ? .hidden : .visible)
-                    .listRowSeparatorTint(Theme.hairline)
-                    .swipeActions { deleteButton { pendingDelete = .group(group) } }
-                    .contextMenu { groupMenu(group) }
-
-                    if expanded.contains(group.id) {
-                        ForEach(group.items) { download in
-                            DownloadItemRow(download: download, style: .episode,
-                                            watched: isWatched(download), watchFraction: watchFraction(download),
-                                            onPrimary: { primaryAction(for: download) })
-                                .listRowBackground(Theme.surface)
-                                .listRowSeparator(download.id == group.items.last?.id ? .visible : .hidden)
-                                .listRowSeparatorTint(Theme.hairline)
-                                .swipeActions { deleteButton { pendingDelete = .one(download) } }
-                                .contextMenu { itemMenu(download) }
+                    .confirmationDialog("Remove \(watchedDone.count) watched downloads?",
+                                        isPresented: $confirmRemoveWatched, titleVisibility: .visible) {
+                        Button("Remove \(ByteFormat.size(bytes))", role: .destructive) {
+                            watchedDone.forEach { store.remove($0) }
                         }
+                    } message: {
+                        Text("They stay in your history; download them again any time.")
                     }
                 }
             }
-
-            Text("Using \(ByteFormat.size(store.diskUsage)) on this device")
-                .font(.footnote)
-                .foregroundStyle(Theme.textTertiary)
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Theme.background)
-                .listRowSeparator(.hidden)
-                .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowBackground(Theme.background)
+            .listRowSeparator(.hidden)
+            .padding(.vertical, 12)
         }
         .listStyle(.plain)
         .hideScrollBackground()
         .refreshable { store.refreshDiskUsage() }
         .sensoryFeedback(.success, trigger: store.downloads.filter { $0.phase == .completed }.count) { old, new in
             new > old
+        }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .sectionTitleStyle()
+            .padding(.top, 10)
+            .listRowBackground(Theme.background)
+            .listRowSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private func groupRows(_ groups: [DownloadGroup]) -> some View {
+        ForEach(groups) { group in
+            if group.items.count == 1, let download = group.items.first {
+                DownloadItemRow(download: download, style: .standalone,
+                                watched: isWatched(download), watchFraction: watchFraction(download),
+                                onPrimary: { primaryAction(for: download) })
+                    .contentShape(Rectangle())
+                    .onTapGesture { if download.phase == .completed { play(download) } }
+                    .listRowBackground(Theme.background)
+                    .listRowSeparatorTint(Theme.hairline)
+                    .swipeActions { deleteButton { pendingDelete = .one(download) } }
+                    .contextMenu { itemMenu(download) }
+            } else {
+                Button {
+                    withAnimation(Theme.smooth) { toggle(group.id) }
+                } label: {
+                    GroupHeaderRow(group: group, isExpanded: expanded.contains(group.id),
+                                   watchedCount: group.items.filter { isWatched($0) }.count)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(expanded.contains(group.id) ? Theme.surface : Theme.background)
+                .listRowSeparator(expanded.contains(group.id) ? .hidden : .visible)
+                .listRowSeparatorTint(Theme.hairline)
+                .swipeActions { deleteButton { pendingDelete = .group(group) } }
+                .contextMenu { groupMenu(group) }
+
+                if expanded.contains(group.id) {
+                    ForEach(group.items) { download in
+                        DownloadItemRow(download: download, style: .episode,
+                                        watched: isWatched(download), watchFraction: watchFraction(download),
+                                        onPrimary: { primaryAction(for: download) })
+                            .listRowBackground(Theme.surface)
+                            .listRowSeparator(download.id == group.items.last?.id ? .visible : .hidden)
+                            .listRowSeparatorTint(Theme.hairline)
+                            .swipeActions { deleteButton { pendingDelete = .one(download) } }
+                            .contextMenu { itemMenu(download) }
+                    }
+                }
+            }
         }
     }
 

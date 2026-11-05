@@ -51,6 +51,8 @@ launch -SBInitialTab library -SBPlayDownload $INCEPTION -SBCastPreview YES;  sho
 # The player turns the screen sideways; the capture stays portrait.
 for f in 13-player 14-cast-picker 15-cast-playing; do sips -r 270 "$OUT/$f.png" >/dev/null 2>&1 || true; done
 
+launch -SBShowFirstRun YES;               shot 18-first-run 8
+
 # A new viewer: same profile, nothing watched, saved or downloaded.
 xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 python3 "$(dirname "$0")/seed_screenshots.py" "$DATA" --empty

@@ -220,7 +220,8 @@ final class AppSettings {
     nonisolated static let defaultStreamingPort = 8888
     nonisolated static let streamingPortRange = 1024...65535
 
-    var wifiOnly = false {
+    /// On by default: downloads wait for Wi-Fi unless told otherwise.
+    var wifiOnly = true {
         didSet {
             persist(wifiOnly, .wifiOnly)
             // Not from init: DownloadStore.shared's init reads AppSettings.shared.
@@ -305,7 +306,7 @@ final class AppSettings {
             let stored = defaults.integer(forKey: Key.streamingPort.rawValue)
             streamingPort = Self.streamingPortRange.contains(stored) ? stored : Self.defaultStreamingPort
         }
-        wifiOnly = defaults.bool(forKey: Key.wifiOnly.rawValue)
+        wifiOnly = defaults.object(forKey: Key.wifiOnly.rawValue) as? Bool ?? true
         if defaults.object(forKey: Key.maxSimultaneousDownloads.rawValue) != nil {
             let stored = defaults.integer(forKey: Key.maxSimultaneousDownloads.rawValue)
             maxSimultaneousDownloads = Self.simultaneousDownloadOptions.contains(stored) ? stored : 3

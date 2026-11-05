@@ -14,11 +14,24 @@ struct RootView: View {
     @State private var profiles = ProfileStore.shared
     @State private var externalStreamer: StreamCoordinator?
     @State private var links = DeepLinkRouter.shared
+    @AppStorage("SBDidFirstRun") private var didFirstRun = false
+
+    /// Screenshot runs skip the first-run setup unless they ask for it (`-SBShowFirstRun`).
+    private var showsFirstRun: Bool {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "SBShowFirstRun") { return true }
+        return !didFirstRun && !defaults.bool(forKey: "SBScreenshots")
+    }
 
     var body: some View {
         Group {
             if profiles.selected != nil {
-                RootTabView()
+                if showsFirstRun {
+                    FirstRunView { withAnimation(Theme.smooth) { didFirstRun = true } }
+                        .environment(AppSettings.shared)
+                } else {
+                    RootTabView()
+                }
             } else {
                 ProfilePickerView()
             }

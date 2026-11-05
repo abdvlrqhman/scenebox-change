@@ -118,7 +118,7 @@ struct DownloadsView: View {
         }
         #endif
         .onAppear {
-            if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.map(\.id)) }
+            if UserDefaults.standard.bool(forKey: "SBExpandAll") { expanded = Set(groups.flatMap { ["ready-\($0.id)", "coming-\($0.id)"] }) }
             #if DEBUG
             // `-SBPlayDownload <id>` opens that download in the player (screenshots).
             if let id = UserDefaults.standard.string(forKey: "SBPlayDownload"),
@@ -150,18 +150,18 @@ struct DownloadsView: View {
 
     #if !os(tvOS)
     private func list(_ groups: [DownloadGroup]) -> some View {
-        // Ready to watch first; what's still coming after.
-        let ready = groups.filter { $0.items.allSatisfy { $0.phase == .completed } }
-        let coming = groups.filter { $0.items.contains { $0.phase != .completed } }
+        // Ready to watch first; what's still coming after. A show can be in both.
+        let ready = DownloadGroup.make(from: store.downloads.filter { $0.phase == .completed })
+        let coming = DownloadGroup.make(from: store.downloads.filter { $0.phase != .completed })
         let watchedDone = store.downloads.filter { $0.phase == .completed && isWatched($0) }
         return List {
             if !ready.isEmpty {
                 sectionTitle("Ready offline")
-                groupRows(ready)
+                groupRows(ready, section: "ready")
             }
             if !coming.isEmpty {
                 downloadingHeader
-                groupRows(coming)
+                groupRows(coming, section: "coming")
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -249,8 +249,10 @@ struct DownloadsView: View {
     }
 
     @ViewBuilder
-    private func groupRows(_ groups: [DownloadGroup]) -> some View {
+    private func groupRows(_ groups: [DownloadGroup], section: String) -> some View {
         ForEach(groups) { group in
+            // Expanding a show in one section leaves it alone in the other.
+            let key = "\(section)-\(group.id)"
             if group.items.count == 1, let download = group.items.first {
                 DownloadItemRow(download: download, style: .standalone,
                                 watched: isWatched(download), watchFraction: watchFraction(download),
@@ -263,19 +265,19 @@ struct DownloadsView: View {
                     .contextMenu { itemMenu(download) }
             } else {
                 Button {
-                    withAnimation(Theme.smooth) { toggle(group.id) }
+                    withAnimation(Theme.smooth) { toggle(key) }
                 } label: {
-                    GroupHeaderRow(group: group, isExpanded: expanded.contains(group.id),
+                    GroupHeaderRow(group: group, isExpanded: expanded.contains(key),
                                    watchedCount: group.items.filter { isWatched($0) }.count)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(expanded.contains(group.id) ? Theme.surface : Theme.background)
-                .listRowSeparator(expanded.contains(group.id) ? .hidden : .visible)
+                .listRowBackground(expanded.contains(key) ? Theme.surface : Theme.background)
+                .listRowSeparator(expanded.contains(key) ? .hidden : .visible)
                 .listRowSeparatorTint(Theme.hairline)
                 .swipeActions { deleteButton { pendingDelete = .group(group) } }
                 .contextMenu { groupMenu(group) }
 
-                if expanded.contains(group.id) {
+                if expanded.contains(key) {
                     ForEach(group.items) { download in
                         DownloadItemRow(download: download, style: .episode,
                                         watched: isWatched(download), watchFraction: watchFraction(download),

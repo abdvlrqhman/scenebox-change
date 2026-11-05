@@ -59,7 +59,7 @@ struct ProfileView: View {
                     Toggle("Play the best version automatically", isOn: $settings.autoSelectSource)
                         .tint(toggleTint)
                 } header: {
-                    Text("How SceneBox plays things")
+                    Text("How SceneBox plays things").sectionTitleStyle().textCase(nil)
                 } footer: {
                     Text("Skip the release list and start the best match automatically.")
                 }
@@ -79,7 +79,7 @@ struct ProfileView: View {
                             #endif
                     }
                 } header: {
-                    Text("Debrid")
+                    Text("Debrid").sectionTitleStyle().textCase(nil)
                 } footer: {
                     if let hint = settings.debridProvider.keyHint {
                         Text("Key: \(hint)")
@@ -108,13 +108,9 @@ struct ProfileView: View {
                     Toggle("Fill screen (crop)", isOn: $settings.fillScreen)
                         .tint(toggleTint)
                 } header: {
-                    Text("Playback & subtitles")
+                    Text("Playback & subtitles").sectionTitleStyle().textCase(nil)
                 } footer: {
-                    Text("""
-                    Default audio is used when a title was made in that language (or its language is unknown); a foreign title keeps its original audio instead of a dub. Subtitles in your default language are fetched from OpenSubtitles as soon as you press play.
-
-                    Player buffer is how many seconds the player holds ahead. Larger smooths slow downloads but starts slower; 3 seconds suits most connections.
-                    """)
+                    Text("Default audio is used when a title was made in that language (or its language is unknown); a foreign title keeps its original audio instead of a dub. Subtitles in your default language are fetched as soon as you press play.")
                 }
 
                 Section {
@@ -137,7 +133,7 @@ struct ProfileView: View {
                     }
                     #endif
                 } header: {
-                    Text("Downloads")
+                    Text("Downloads").sectionTitleStyle().textCase(nil)
                 } footer: {
                     #if os(iOS)
                     Text("Extra downloads wait in a queue and start automatically. iOS normally freezes an app a few seconds after you leave it, which drops every peer; background mode keeps SceneBox running while downloads are active by playing silent audio that mixes with your music. Smart uses short pulses to save battery; switch to Always-on audio if downloads still stop. Closing SceneBox from the app switcher always stops downloads. The Live Activity shows progress on the Lock Screen, but iOS may mark it failed while a torrent is still looking for peers; downloads carry on regardless.")
@@ -172,7 +168,7 @@ struct ProfileView: View {
                     .disabled(streamCacheBytes == 0)
                     Toggle("Keep fully streamed videos", isOn: $settings.keepFinishedStreams)
                 } header: {
-                    Text("Storage")
+                    Text("Storage").sectionTitleStyle().textCase(nil)
                 } footer: {
                     Text("New downloads won't start past the download limit. The cache keeps recently streamed video (so re-opening starts instantly; the oldest goes past the stream cache limit) plus downloaded and translated subtitles. Clearing it keeps your downloads and your saved subtitle choices. With \"Keep fully streamed videos\" on, a video that finished downloading while you watched moves from the cache to Downloads, to play offline.")
                 }
@@ -198,7 +194,7 @@ struct ProfileView: View {
                     Toggle("Extra public providers", isOn: $settings.extraSourceProviders)
                         .tint(toggleTint)
                 } header: {
-                    Text("Stream sources")
+                    Text("Stream sources").sectionTitleStyle().textCase(nil)
                 } footer: {
                     if settings.enabledSources.isEmpty {
                         Text("Turn on at least one source.")
@@ -217,7 +213,7 @@ struct ProfileView: View {
                         .textInputAutocapitalization(.never)
                         #endif
                 } header: {
-                    Text("Actor photos")
+                    Text("Actor photos").sectionTitleStyle().textCase(nil)
                 } footer: {
                     Text("A free TMDB key adds cast photos and filmographies.")
                 }
@@ -263,7 +259,7 @@ struct ProfileView: View {
                             #endif
                     }
                 } header: {
-                    Text("Source privacy")
+                    Text("Source privacy").sectionTitleStyle().textCase(nil)
                 } footer: {
                     Text("Comet and StremThru are community-run servers. The Stremio protocol puts your debrid key in every request to them, so whoever runs the server can read it. Off: they're used peer-to-peer only (Comet is skipped). Torrentio's official server always receives the key.")
                 }
@@ -295,9 +291,9 @@ struct ProfileView: View {
                         Text("20 s").tag(20000)
                     }
                 } header: {
-                    Text("Network")
+                    Text("Network").sectionTitleStyle().textCase(nil)
                 } footer: {
-                    Text("Ports \(AppSettings.streamingPortRange.lowerBound)–\(AppSettings.streamingPortRange.upperBound); if it's busy the app picks a free one automatically. Custom trackers are announced in addition to each torrent's own.")
+                    Text("Ports \(AppSettings.streamingPortRange.lowerBound)–\(AppSettings.streamingPortRange.upperBound); if it's busy the app picks a free one automatically. Custom trackers are announced in addition to each torrent's own. Player buffer is how many seconds the player holds ahead; 3 seconds suits most connections.")
                 }
                 }
 
@@ -305,19 +301,21 @@ struct ProfileView: View {
                     contactRow("Support", email: "spontaneousarray@gmail.com")
                     NavigationLink("Credits") { CreditsView() }
                 } header: {
-                    Text("About")
+                    Text("About").sectionTitleStyle().textCase(nil)
                 } footer: {
                     Text("SceneBox \(appVersion) (\(buildNumber))")
                 }
                 }
                 #if !os(tvOS)
-                .listRowBackground(Theme.surface)
+                .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.hairline)
+                .listRowInsets(EdgeInsets(top: 0, leading: Theme.gutter, bottom: 0, trailing: Theme.gutter))
                 #endif
             }
             .hideScrollBackground()
             #if !os(tvOS)
             .contentMargins(.top, 4, for: .scrollContent)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .scrollDismissesKeyboard(.interactively)
             #endif
             }
@@ -440,6 +438,7 @@ struct ProfileView: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 20)
+        .padding(.horizontal, Theme.gutter)
         #endif
     }
 

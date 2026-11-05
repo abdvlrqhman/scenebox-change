@@ -18,7 +18,7 @@ struct FirstRunView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Welcome\(profiles.selected.map { ", \($0.name)" } ?? "")")
+                    Text(welcome)
                         .font(.display(40, relativeTo: .title1))
                         .accessibilityAddTraits(.isHeader)
                     Text("Three choices, then Play just plays. You can change them later in Settings, from your avatar.")
@@ -81,9 +81,12 @@ struct FirstRunView: View {
                 }
 
                 group("Downloads") {
-                    Toggle("Download over Wi-Fi only", isOn: $settings.wifiOnly)
-                        .tint(Theme.success)
-                        .frame(minHeight: 44)
+                    Toggle(isOn: $settings.wifiOnly) {
+                        Text("Download over Wi-Fi only").font(.body.weight(.semibold))
+                    }
+                    .tint(Theme.success)
+                    .frame(minHeight: 48)
+                    .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
                 }
 
                 Button(action: onDone) {
@@ -118,6 +121,12 @@ struct FirstRunView: View {
             .ignoresSafeArea()
         }
         .onAppear { usesDebrid = settings.debridProvider != .none }
+    }
+
+    /// "Welcome, Sara", or just "Welcome" for the placeholder name a skipped profile gets.
+    private var welcome: String {
+        guard let name = profiles.selected?.name, name != "Me" else { return "Welcome" }
+        return "Welcome, \(name)"
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

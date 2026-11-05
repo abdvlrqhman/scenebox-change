@@ -225,7 +225,8 @@ final class DownloadStore {
         if let busy = downloads.first(where: {
             $0.id != download.id && !$0.record.isDebrid && $0.record.torrentKey == key && $0.phase.isActive
         }) {
-            return "Starts after \(busy.record.episodeLabel ?? busy.record.title)"
+            let label = busy.record.episodeLabel?.replacingOccurrences(of: "E", with: " E") ?? busy.record.title
+            return "Starts after \(label)"
         }
         if retiringTorrents[key] != nil { return "Queued · starting soon" }
         return nil

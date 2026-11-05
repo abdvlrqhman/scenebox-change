@@ -18,7 +18,7 @@ final class SearchModel {
             switch self {
             case .all: "All"
             case .movie: "Movies"
-            case .series: "TV Shows"
+            case .series: "TV shows"
             case .anime: "Anime"
             }
         }
@@ -110,7 +110,7 @@ final class SearchModel {
                     rows[i] = items
                     let partial = searching ? Self.rankedBySearchRelevance(rows, query: trimmed)
                                             : (rows.first ?? [])
-                    if !partial.isEmpty { results = partial }
+                    if !searching, !partial.isEmpty { results = partial }
                 }
             }
             guard !Task.isCancelled else { return }

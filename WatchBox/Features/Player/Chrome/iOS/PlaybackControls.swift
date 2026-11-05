@@ -231,8 +231,9 @@ private struct BottomBar: View {
         .padding(.top, Platform.isMac ? 28 : 16)
         .padding(.bottom, Platform.isMac ? 24 : 12)
         .background(
-            LinearGradient(colors: [.clear, .black.opacity(0.75)],
-                           startPoint: .top, endPoint: .bottom)
+            // Dark enough that a subtitle running under the scrubber can't fight it.
+            LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
+                .padding(.top, -40)
         )
     }
 

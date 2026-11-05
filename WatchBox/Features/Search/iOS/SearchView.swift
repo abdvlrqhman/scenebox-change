@@ -125,7 +125,7 @@ struct SearchScreen: View {
                 if model.isSearching {
                     chip("All", on: resultType == nil) { resultType = nil }
                     chip("Movies", on: resultType == .movie) { resultType = .movie }
-                    chip("TV Shows", on: resultType == .series) { resultType = .series }
+                    chip("TV shows", on: resultType == .series) { resultType = .series }
                     chip("Anime", on: resultType == .anime) { resultType = .anime }
                 } else {
                     ForEach(SearchModel.Scope.browseScopes) { scope in

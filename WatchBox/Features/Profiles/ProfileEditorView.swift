@@ -108,7 +108,7 @@ struct ProfileEditorView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     VStack(spacing: 8) {
-                        Text(isFirst ? "Who's watching?" : (existing == nil ? "Add profile" : "Edit profile"))
+                        Text(isFirst ? "Who’s watching?" : (existing == nil ? "Add profile" : "Edit profile"))
                             .font(.display(40, relativeTo: .title1))
                             .foregroundStyle(.white)
                         if isFirst {
@@ -234,7 +234,7 @@ struct ProfileEditorView: View {
                     colorIndex = i
                 } label: {
                     Circle()
-                        .fill(Profile.colors[i])
+                        .fill(Profile.colors[i].opacity(0.55))      // as the avatar shows it on black
                         .frame(width: 40, height: 40)
                         .overlay {
                             if colorIndex == i {

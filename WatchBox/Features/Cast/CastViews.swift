@@ -34,7 +34,7 @@ struct CastSheet: View {
                         if let computerPageURL { computerSection(computerPageURL) }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.gutter)
                 .padding(.top, 4)
                 .padding(.bottom, 24)
             }
@@ -109,8 +109,8 @@ struct CastSheet: View {
                 .foregroundStyle(Theme.textSecondary)
             Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner))
+        .padding(.vertical, 12)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
     }
 
     // MARK: Folded options
@@ -212,8 +212,8 @@ private struct Foldout<Content: View>: View {
             .buttonStyle(.plain)
             if isOpen { content }
         }
-        .padding(14)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner))
+        .padding(.vertical, 12)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
     }
 }
 
@@ -225,10 +225,8 @@ private struct DeviceRow: View {
         HStack(spacing: 14) {
             Image(systemName: device.isComputer ? "laptopcomputer" : "tv")
                 .font(.title3)
-                .foregroundStyle(isReachable ? Theme.onAccent : Theme.textTertiary)
+                .foregroundStyle(isReachable ? Color.white : Theme.textTertiary)
                 .frame(width: 44, height: 44)
-                .background(isReachable ? Theme.accent : Theme.elevated,
-                            in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text(device.displayName)
                     .font(.body.weight(.semibold))
@@ -246,13 +244,13 @@ private struct DeviceRow: View {
                     .foregroundStyle(Theme.textTertiary)
             }
         }
-        .padding(12)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner))
-        .contentShape(RoundedRectangle(cornerRadius: Theme.rowCorner))
+        .padding(.vertical, 8)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 0.5) }
+        .contentShape(Rectangle())
     }
 
     private var detail: String {
-        let text = [device.manufacturer, device.model].filter { !$0.isEmpty }.joined(separator: " · ")
+        let text = [device.manufacturer, device.model].filter { !$0.isEmpty }.joined(separator: "  ")
         return text.isEmpty ? "Ready" : text
     }
 }

@@ -83,7 +83,7 @@ struct HomeView: View {
                         KeepWatchingList(items: others)
                     }
                     if !unwatchedWatchlist.isEmpty {
-                        PosterShelf(title: "Your Watchlist", items: unwatchedWatchlist, showsSavedBadge: false)
+                        PosterShelf(title: "Your watchlist", items: unwatchedWatchlist, showsSavedBadge: false)
                     }
                     if let because = model.becauseYouWatched {
                         PosterShelf(title: because.title, items: because.items, seeAll: because.destination)

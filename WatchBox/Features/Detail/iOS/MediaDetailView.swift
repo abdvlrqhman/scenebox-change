@@ -818,7 +818,7 @@ private struct BannerHeader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Room for the status bar and the glass top bar over the frame.
-    private let chromeAllowance: CGFloat = 92
+    private let chromeAllowance: CGFloat = 64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {

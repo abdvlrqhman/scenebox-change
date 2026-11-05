@@ -214,7 +214,7 @@ final class HomeModel {
             var places: [String: String] = [:]
             for shelf in built where shelf.isRanked {
                 for (index, item) in shelf.shown.enumerated() where places[item.id] == nil {
-                    places[item.id] = "#\(index + 1) in \(shelf.type == .series ? "Shows" : "Movies")"
+                    places[item.id] = "#\(index + 1) in \(shelf.type == .series ? "shows" : "movies")"
                 }
             }
             Self.topTenPlaces = places

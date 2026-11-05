@@ -65,7 +65,7 @@ extension Font {
     /// numerals. Scales with Dynamic Type relative to `style`; heavy weights
     /// from the old condensed display face settle to medium.
     static func display(_ size: CGFloat, weight: Font.Weight = .medium,
-                        relativeTo style: UIFont.TextStyle = .largeTitle) -> Font {
+                        relativeTo style: UIFont.TextStyle = .title1) -> Font {
         let heavy: [Font.Weight] = [.heavy, .black, .bold, .semibold]
         let tone: Font.Weight = heavy.contains(weight) ? .medium : weight
         return .system(size: UIFontMetrics(forTextStyle: style).scaledValue(for: size), weight: tone, design: .serif)

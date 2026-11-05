@@ -220,7 +220,7 @@ private struct FeaturedPage: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(item.name)
-                    .font(.display(40, relativeTo: .largeTitle))
+                    .font(.display(40, relativeTo: .title1))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
@@ -399,7 +399,6 @@ private struct PlaceholderShelf: View {
     }
 }
 
-#endif
 
 // MARK: - Up next
 
@@ -460,7 +459,7 @@ private struct UpNextHero: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Theme.textTertiary)
                 Text(item.name)
-                    .font(.display(40, relativeTo: .largeTitle))
+                    .font(.display(40, relativeTo: .title1))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
@@ -617,3 +616,4 @@ private struct OfflineRow: View {
         .padding(.horizontal, 20)
     }
 }
+#endif

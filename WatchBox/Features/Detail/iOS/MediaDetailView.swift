@@ -852,7 +852,7 @@ private struct BannerHeader: View {
     private var titleTreatment: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(detail?.name ?? fallbackTitle)
-                .font(.display(40, relativeTo: .largeTitle))
+                .font(.display(40, relativeTo: .title1))
                 .foregroundStyle(.white)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)

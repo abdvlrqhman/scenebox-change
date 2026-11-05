@@ -19,7 +19,7 @@ struct FirstRunView: View {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Welcome\(profiles.selected.map { ", \($0.name)" } ?? "")")
-                        .font(.display(40, relativeTo: .largeTitle))
+                        .font(.display(40, relativeTo: .title1))
                         .accessibilityAddTraits(.isHeader)
                     Text("Three choices, then Play just plays. You can change them later in Settings, from your avatar.")
                         .font(.synopsis)

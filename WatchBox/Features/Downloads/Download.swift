@@ -48,19 +48,17 @@ final class Download: Identifiable {
         switch phase {
         case .queued:
             if let failureMessage { failureMessage }   // e.g. "Starts after S1E2"
-            else { progress > 0 ? "Queued · \(ByteFormat.percentDetailed(progress))" : "Queued" }
+            else { progress > 0 ? "Queued at \(ByteFormat.percentDetailed(progress))" : "Queued" }
         case .resolving: "Preparing…"
         case .downloading:
-            if record.isDebrid {
-                "Debrid · \(ByteFormat.rate(downloadRate))"
+            if !record.isDebrid, connectedPeers == 0 {
+                "Connecting…"
             } else {
-                connectedPeers == 0
-                    ? "Looking for peers…"
-                    : "\(connectedPeers) peers · \(ByteFormat.rate(downloadRate))"
+                "Downloading at \(ByteFormat.rate(downloadRate))"
             }
         case .paused:
             if let failureMessage { failureMessage }   // e.g. "Waiting for Wi-Fi"
-            else { progress > 0 ? "Paused · \(ByteFormat.percentDetailed(progress))" : "Paused" }
+            else { progress > 0 ? "Paused at \(ByteFormat.percentDetailed(progress))" : "Paused" }
         case .completed: ByteFormat.size(record.totalBytes)
         case .failed: failureMessage ?? "Failed"
         }
@@ -71,6 +69,6 @@ final class Download: Identifiable {
         let done = record.isDebrid
             ? min(max(downloadedBytes, 0), record.totalBytes)
             : Int64(min(max(progress, 0), 1) * Double(record.totalBytes))
-        return "\(ByteFormat.size(done)) / \(ByteFormat.size(record.totalBytes)) · \(ByteFormat.percentDetailed(progress))"
+        return "\(ByteFormat.size(done)) of \(ByteFormat.size(record.totalBytes))"
     }
 }

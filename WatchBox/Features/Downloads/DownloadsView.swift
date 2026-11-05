@@ -88,7 +88,8 @@ struct DownloadsView: View {
                 EmptyStateView(
                     systemImage: "arrow.down.circle",
                     title: "No downloads yet",
-                    message: "Tap Download on a movie or episode to keep it on this device for offline viewing.")
+                    message: "Tap Download on a movie or episode to keep it on this device for offline viewing.",
+                    actionTitle: "Find something to watch") { TabRouter.shared.openSearch() }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     #if os(tvOS)
                     .frame(minHeight: 500)   // hosted in Library's ScrollView
@@ -154,19 +155,12 @@ struct DownloadsView: View {
         let coming = groups.filter { $0.items.contains { $0.phase != .completed } }
         let watchedDone = store.downloads.filter { $0.phase == .completed && isWatched($0) }
         return List {
-            if store.hasPendingWork || groups.contains(where: { $0.items.contains { $0.phase == .paused || $0.phase == .failed } }) {
-                TransferSummary(store: store)
-                    .listRowInsets(EdgeInsets(top: 8, leading: Theme.gutter, bottom: 12, trailing: Theme.gutter))
-                    .listRowBackground(Theme.background)
-                    .listRowSeparator(.hidden)
-            }
-
             if !ready.isEmpty {
                 sectionTitle("Ready offline")
                 groupRows(ready)
             }
             if !coming.isEmpty {
-                sectionTitle("Downloading")
+                downloadingHeader
                 groupRows(coming)
             }
 
@@ -179,7 +173,7 @@ struct DownloadsView: View {
                     Button {
                         confirmRemoveWatched = true
                     } label: {
-                        Text("Remove watched (\(watchedDone.count), \(ByteFormat.size(bytes)))")
+                        Text("Remove \(watchedDone.count) watched download\(watchedDone.count == 1 ? "" : "s") (\(ByteFormat.size(bytes)))")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16)
@@ -208,6 +202,42 @@ struct DownloadsView: View {
         .sensoryFeedback(.success, trigger: store.downloads.filter { $0.phase == .completed }.count) { old, new in
             new > old
         }
+    }
+
+    /// "Downloading" with Pause all / Resume all beside it and one line of where things stand.
+    private var downloadingHeader: some View {
+        let pending = store.downloads.filter(\.phase.isPending)
+        let total = pending.reduce(Int64(0)) { $0 + $1.record.totalBytes }
+        let done = pending.reduce(Int64(0)) { $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes)) }
+        let canResume = store.downloads.contains { $0.phase == .paused || $0.phase == .failed }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Downloading")
+                    .sectionTitleStyle()
+                Spacer(minLength: 8)
+                if !pending.isEmpty {
+                    Button("Pause all") { store.pauseAll() }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(minHeight: 44)
+                } else if canResume {
+                    Button("Resume all") { store.resumeAll() }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(minHeight: 44)
+                }
+            }
+            if !pending.isEmpty {
+                Text("\(pending.count) downloading, \(ByteFormat.size(done)) of \(ByteFormat.size(total))")
+                    .font(.subheadline)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .padding(.top, 10)
+        .listRowBackground(Theme.background)
+        .listRowSeparator(.hidden)
+        .buttonStyle(.plain)
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -477,12 +507,12 @@ private struct GroupHeaderRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            PosterImage(url: group.posterURL, cornerRadius: 8)
-                .frame(width: 58)
+            PosterImage(url: group.posterURL, cornerRadius: Theme.posterCorner)
+                .frame(width: 56)
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(group.title)
-                    .font(.headline)
+                    .font(.display(19, weight: .medium, relativeTo: .headline))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(summary)
@@ -490,7 +520,10 @@ private struct GroupHeaderRow: View {
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
                 if group.pendingCount > 0, group.totalBytes > 0 {
-                    ProgressView(value: Double(group.doneBytes), total: Double(group.totalBytes))
+                    let coming = group.items.filter { $0.phase != .completed }
+                    let total = coming.reduce(Int64(0)) { $0 + $1.record.totalBytes }
+                    let done = coming.reduce(Int64(0)) { $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes)) }
+                    ProgressView(value: Double(done), total: Double(max(total, 1)))
                         .tint(Theme.accent)
                         .padding(.top, 2)
                 } else {
@@ -542,7 +575,7 @@ private struct DownloadItemRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(titleLine)
-                        .font(style == .standalone ? .headline : .subheadline.weight(.semibold))
+                        .font(style == .standalone ? .display(19, weight: .medium, relativeTo: .headline) : .subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if watched, style == .standalone { WatchedBadge(size: 16) }
@@ -578,8 +611,8 @@ private struct DownloadItemRow: View {
     private var leading: some View {
         switch style {
         case .standalone:
-            PosterImage(url: download.record.posterURL, cornerRadius: 8)
-                .frame(width: 58)
+            PosterImage(url: download.record.posterURL, cornerRadius: Theme.posterCorner)
+                .frame(width: 56)
                 .overlay(alignment: .bottom) {
                     if let watchFraction { ArtworkProgress(fraction: watchFraction).padding(4) }
                 }

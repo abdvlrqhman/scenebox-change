@@ -121,7 +121,8 @@ private struct WatchlistSection: View {
             EmptyStateView(
                 systemImage: "bookmark",
                 title: "No saved titles",
-                message: "Add movies and shows to your Watchlist from their detail pages.")
+                message: "Add movies and shows to your Watchlist from their detail pages.",
+                actionTitle: "Find something to watch") { TabRouter.shared.openSearch() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #if os(tvOS)
                 .frame(minHeight: 500)   // hosted in a ScrollView: give it room
@@ -246,10 +247,10 @@ private struct WatchlistRow: View {
     private var titleFont: Font { .title3.weight(.semibold) }
     private var subtitleFont: Font { .callout }
     #else
-    private var posterWidth: CGFloat { 58 }
+    private var posterWidth: CGFloat { 56 }
     private var rowSpacing: CGFloat { 14 }
-    private var titleFont: Font { .subheadline.weight(.semibold) }
-    private var subtitleFont: Font { .caption }
+    private var titleFont: Font { .display(19, weight: .medium, relativeTo: .headline) }
+    private var subtitleFont: Font { .subheadline }
     #endif
 }
 
@@ -283,7 +284,7 @@ private struct HistorySection: View {
     private func row(_ item: WatchProgress) -> some View {
         HStack(spacing: 14) {
             PosterImage(url: item.posterURL, cornerRadius: Theme.posterCorner)
-                .frame(width: 44)
+                .frame(width: 56)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
                     .font(.display(19, weight: .medium, relativeTo: .headline))

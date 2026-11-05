@@ -108,13 +108,13 @@ struct ProfileEditorView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     VStack(spacing: 8) {
-                        Text(isFirst ? "Create your profile" : (existing == nil ? "Add profile" : "Edit profile"))
-                            .font(.largeTitle.weight(.bold))
+                        Text(isFirst ? "Who's watching?" : (existing == nil ? "Add profile" : "Edit profile"))
+                            .font(.display(40, relativeTo: .title1))
                             .foregroundStyle(.white)
                         if isFirst {
-                            Text("Everyone gets their own watch history and list.")
+                            Text("Everyone gets their own history, Up next and list.")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                     }
                     .padding(.top, 32)
@@ -134,7 +134,7 @@ struct ProfileEditorView: View {
                         .foregroundStyle(.white)
                         .tint(.white)
                         .padding()
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.rowCorner, style: .continuous))
                         .onChange(of: name) { _, new in
                             if new.count > Profile.maxNameLength { name = String(new.prefix(Profile.maxNameLength)) }
                         }
@@ -147,16 +147,30 @@ struct ProfileEditorView: View {
                             if saving || profiles.isWorking {
                                 ProgressView().tint(Theme.onAccent)
                             } else {
-                                Text(existing == nil ? "Create" : "Save").fontWeight(.semibold)
+                                Text(existing == nil ? "Create" : "Save").font(.headline)
                             }
                         }
+                        .foregroundStyle(Theme.onAccent)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .frame(height: 52)
+                        .background(Theme.accent, in: Capsule())
+                        .opacity(canSave ? 1 : 0.4)
+                        .contentShape(Capsule())
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-                    .foregroundStyle(Theme.onAccent)
+                    .buttonStyle(.pressable)
                     .disabled(!canSave)
+
+                    if isFirst, existing == nil {
+                        // A name can wait: "Me" until it's changed in Settings.
+                        Button("Skip for now") {
+                            if name.trimmingCharacters(in: .whitespaces).isEmpty { name = "Me" }
+                            save()
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(minHeight: 44)
+                        .disabled(saving || profiles.isWorking)
+                    }
 
                     if existing != nil {
                         Button("Delete profile", role: .destructive) { confirmDelete = true }

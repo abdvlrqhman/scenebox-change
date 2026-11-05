@@ -17,6 +17,8 @@ struct EpisodeSection: View {
     let onDownload: (Episode) -> Void
     var onDownloadEpisodes: ([Episode]) -> Void = { _ in }
     var onSetWatched: (Episode, Bool) -> Void = { _, _ in }
+    /// The show's usual episode length, for "33m left" and "48m Watched".
+    var runtimeMinutes: Int? = nil
     @Environment(DownloadStore.self) private var downloads
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var isSelecting = false
@@ -26,9 +28,8 @@ struct EpisodeSection: View {
     private var cardWidth: CGFloat { Platform.isMac ? 300 : 280 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             header
-                .padding(.horizontal, 16)
 
             let episodes = detail.episodes(inSeason: selectedSeason)
             if isSelecting, !episodes.isEmpty {
@@ -82,6 +83,7 @@ struct EpisodeSection: View {
                                    isWatched: watched,
                                    watchFraction: episodeFraction(episode),
                                    selection: selectionState(for: episode, state: state),
+                                   runtimeMinutes: runtimeMinutes,
                                    onWatch: { onWatch(episode) },
                                    onDownload: { onDownload(episode) },
                                    onToggleSelection: { toggle(episode, state: state) })
@@ -92,9 +94,8 @@ struct EpisodeSection: View {
                                 Label(watched ? "Mark as Unwatched" : "Mark as Watched",
                                       systemImage: watched ? "eye.slash" : "checkmark.circle")
                             }
-                        }
-                        if episode.id != episodes.last?.id {
-                            Divider().overlay(.white.opacity(0.08)).padding(.leading, 16)
+                        } preview: {
+                            EpisodePeek(episode: episode)   // the synopsis the compact row leaves out
                         }
                     }
                 }
@@ -103,11 +104,29 @@ struct EpisodeSection: View {
         .onChange(of: selectedSeason) { _, _ in selection.removeAll() }
     }
 
+    /// Season chips, then download choices (or Cancel while selecting).
     private var header: some View {
-        HStack(spacing: 12) {
-            Text("Episodes")
-                .sectionTitleStyle()
-            Spacer()
+        HStack(spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(detail.seasons, id: \.self) { season in
+                        let on = season == selectedSeason
+                        Button { selectedSeason = season } label: {
+                            Text(seasonName(season))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(on ? Color.black : Color.white)
+                                .padding(.horizontal, 14)
+                                .frame(height: 36)
+                                .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.pressable)
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+                .padding(.leading, 16)
+            }
             if isSelecting {
                 Button("Cancel") {
                     isSelecting = false
@@ -115,6 +134,7 @@ struct EpisodeSection: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .tint(.white)
+                .padding(.trailing, 16)
             } else {
                 Menu {
                     let available = downloadable(in: detail.episodes(inSeason: selectedSeason))
@@ -134,19 +154,15 @@ struct EpisodeSection: View {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
                         .foregroundStyle(.white)
-                        .frame(minWidth: 32, minHeight: 32)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Download episodes")
+                .padding(.trailing, 12)
             }
-            Picker("Season", selection: $selectedSeason) {
-                ForEach(detail.seasons, id: \.self) { season in
-                    Text(seasonName(season)).tag(season)
-                }
-            }
-            .pickerStyle(.menu)
-            .tint(.white)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Seasons")
     }
 
     private func selectionBar(for episodes: [Episode]) -> some View {
@@ -293,37 +309,27 @@ private struct EpisodeRow: View {
     var watchFraction: Double? = nil
     /// nil when not selecting; otherwise whether this row is ticked.
     var selection: Bool? = nil
+    var runtimeMinutes: Int? = nil
     let onWatch: () -> Void
     let onDownload: () -> Void
     var onToggleSelection: () -> Void = {}
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             // The still is the play button, like the row around it.
             Button(action: selection != nil ? onToggleSelection : onWatch) { thumbnail }
                 .buttonStyle(.pressable)
                 .disabled(selection == nil && episode.isUnaired)
                 .accessibilityLabel("Play episode \(episode.episode)")
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text("\(episode.episode). \(episode.name)")
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-
-                }
-
-                if let overview = episode.overview, !overview.isEmpty {
-                    ExpandableText(text: overview, lineLimit: 3,
-                                   font: .caption, color: .secondary)
-                }
-
-                if let released = episode.released {
-                    let date = released.formatted(date: .abbreviated, time: .omitted)
-                    Text(episode.isUnaired ? "Airs \(date)" : date)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(episode.episode). \(episode.name)")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(statusLine)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 0)
@@ -333,14 +339,14 @@ private struct EpisodeRow: View {
                     if downloadState == .idle {
                         SelectionMark(isSelected: selected)
                     } else {
-                        EpisodeDownloadGlyph(state: downloadState, size: 28, download: download)
+                        EpisodeDownloadGlyph(state: downloadState, size: 26, download: download)
                     }
                 }
                 .frame(width: 44, height: 44)
             } else {
                 Button(action: onDownload) {
                     EpisodeDownloadGlyph(state: downloadState, size: 26, download: download)
-                        .frame(width: 44, height: 63)           // centred on the still
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -350,7 +356,7 @@ private struct EpisodeRow: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .opacity(selection != nil && downloadState != .idle ? 0.55 : 1)
         .onTapGesture {
@@ -358,10 +364,27 @@ private struct EpisodeRow: View {
         }
     }
 
+    /// "48m   Watched", "33m left", "48m   Downloaded", "Airs Oct 21": state in words, not badges.
+    private var statusLine: String {
+        if let released = episode.released, episode.isUnaired {
+            return "Airs \(released.formatted(date: .abbreviated, time: .omitted))"
+        }
+        if let watchFraction, !isWatched, let minutes = runtimeMinutes {
+            return "\(max(1, Int((Double(minutes) * (1 - watchFraction)).rounded())))m left"
+        }
+        let length = runtimeMinutes.map { "\($0)m" }
+        let state = isWatched ? "Watched" : downloadState == .completed ? "Downloaded" : nil
+        let parts = [length, state].compactMap { $0 }
+        if parts.isEmpty, let released = episode.released {
+            return released.formatted(date: .abbreviated, time: .omitted)
+        }
+        return parts.joined(separator: "   ")
+    }
+
     private var thumbnail: some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(Theme.surface)
-            .frame(width: 112, height: 63)
+            .frame(width: 122, height: 69)
             .overlay {
                 KFImage(episode.thumbnailURL)
                     .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 360, height: 204)))
@@ -502,5 +525,33 @@ private struct EpisodeCard: View {
             .opacity(selection != nil && downloadState != .idle ? 0.55 : 1)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// Long-press preview of an episode: the still and the synopsis the row leaves out.
+private struct EpisodePeek: View {
+    let episode: Episode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            KFImage(episode.thumbnailURL)
+                .resizable()
+                .placeholder { Theme.surface }
+                .aspectRatio(16 / 9, contentMode: .fill)
+                .frame(width: 320, height: 180)
+                .clipped()
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(episode.episode). \(episode.name)")
+                    .font(.headline)
+                if let overview = episode.overview, !overview.isEmpty {
+                    Text(overview)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .padding([.horizontal, .bottom], 14)
+        }
+        .frame(width: 320, alignment: .leading)
+        .background(Theme.surface)
     }
 }

@@ -44,6 +44,11 @@ final class StreamCoordinator {
     /// Starting is slow and another good source exists: the loading screen
     /// offers "Try another source".
     private(set) var canTryAnotherSource = false
+    /// Set by the title page: closes the player and opens the version list.
+    @ObservationIgnored var onChooseVersion: (() -> Void)?
+    @ObservationIgnored private var retryLast: (() -> Void)?
+    var canRetry: Bool { retryLast != nil }
+    var canChooseVersion: Bool { onChooseVersion != nil }
 
     @ObservationIgnored private var session: LibtorrentSession?
     @ObservationIgnored private var prepareTask: Task<Void, Never>?
@@ -87,6 +92,10 @@ final class StreamCoordinator {
 
     /// The viewer gave up on this source: note it (it sinks in the list for
     /// this session) and start the next best one.
+    func retry() { retryLast?() }
+
+    func chooseAnotherVersion() { onChooseVersion?() }
+
     func tryAnotherSource() {
         guard let next = switchToNextSource else { return }
         if let id = currentStreamID { Task { await SwarmHealth.shared.markFailed(id) } }
@@ -96,8 +105,8 @@ final class StreamCoordinator {
     var preparingStatus: String? {
         if let preparing { return preparing }
         guard bufferProgress != nil, errorMessage == nil else { return nil }
-        guard stats.connectedPeers > 0 else { return "Connecting to sources…" }
-        return "\(stats.connectedPeers) source\(stats.connectedPeers == 1 ? "" : "s") · \(ByteFormat.rate(stats.downloadRate))"
+        guard stats.connectedPeers > 0 else { return "Connecting…" }
+        return "Loading at \(ByteFormat.rate(stats.downloadRate))"
     }
 
     func play(_ stream: TorrentStream, title: String, backdropURL: URL?, logoURL: URL? = nil,
@@ -107,6 +116,12 @@ final class StreamCoordinator {
               originalAudioLanguage: String? = nil,
               fallbacks: [TorrentStream] = []) {
         let subtitleContext = subtitleContext?.withRelease(stream.title).withSource(SourceKey.make(stream))
+        retryLast = { [weak self] in
+            self?.play(stream, title: title, backdropURL: backdropURL, logoURL: logoURL,
+                       subtitleContext: subtitleContext, episodes: episodes, startAt: startAt,
+                       resumeFraction: resumeFraction, progress: progress,
+                       originalAudioLanguage: originalAudioLanguage, fallbacks: fallbacks)
+        }
         prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         prepareTask?.cancel()
@@ -122,7 +137,7 @@ final class StreamCoordinator {
                           startAt: startAt, resumeFraction: resumeFraction,
                           progress: progress, originalAudioLanguage: originalAudioLanguage,
                           fallbacks: Array(fallbacks.dropFirst()))
-                self.preparing = "Trying the next best source…"
+                self.preparing = "Trying another version…"
             }
         }
         canTryAnotherSource = false
@@ -149,7 +164,7 @@ final class StreamCoordinator {
         self.errorMessage = nil
         self.target = nil
         self.stats = SwarmStats()
-        self.preparing = "Fetching sources from peers…"
+        self.preparing = "Starting…"
         self.bufferProgress = nil
         self.isPresenting = true
 
@@ -199,7 +214,7 @@ final class StreamCoordinator {
                 guard !Task.isCancelled else { await session.stop(); return }
                 self.session = session
 
-                preparing = "Starting stream…"
+                preparing = "Almost ready…"
                 let url = try await session.startStreaming(port: UInt16(settings.streamingPort),
                                                            resumeFraction: resumeFraction)
                 guard !Task.isCancelled else { await session.stop(); return }
@@ -313,6 +328,7 @@ final class StreamCoordinator {
                     startAt: Duration = .zero, progress: WatchProgressContext? = nil,
                     originalAudioLanguage: String? = nil) {
         stop()   // a streamed episode may be playing before this one
+        retryLast = nil
         prefetchSubtitles(subtitleContext)
         episodePlaylist = episodes
         self.title = title
@@ -478,13 +494,13 @@ final class StreamCoordinator {
         if let engineError = error as? TorrentEngineError {
             switch engineError {
             case .failedToStart:
-                return "This torrent link could not be started. Try a different source."
+                return "This version couldn’t be started."
             case .metadataTimeout:
-                return "Couldn’t reach enough peers for this release. Try a different source; one with more seeders usually connects faster."
+                return "This version isn’t reachable right now."
             case .noPlayableFile:
-                return "This release has no playable video file."
+                return "This version has no playable video."
             case .bufferTimeout:
-                return "This release isn’t serving data — no seeders reachable right now. Try another source with more seeders."
+                return "This version stopped sending video."
             }
         }
         return error.localizedDescription

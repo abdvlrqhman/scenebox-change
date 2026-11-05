@@ -55,7 +55,8 @@ final class AppSettings {
         return bases
     }
 
-    var autoSelectSource = false {
+    /// On by default: Play plays; the version list is a fallback.
+    var autoSelectSource = true {
         didSet { persist(autoSelectSource, .autoSelectSource) }
     }
 
@@ -345,7 +346,7 @@ final class AppSettings {
             stremthruHost = host
         }
         extraSourceProviders = defaults.bool(forKey: Key.extraSourceProviders.rawValue)
-        autoSelectSource = defaults.bool(forKey: Key.autoSelectSource.rawValue)
+        autoSelectSource = defaults.object(forKey: Key.autoSelectSource.rawValue) as? Bool ?? true
         if let raw = defaults.array(forKey: Key.enabledSources.rawValue) as? [String] {
             enabledSources = Set(raw.compactMap(StreamProvider.init(rawValue:)))
         }

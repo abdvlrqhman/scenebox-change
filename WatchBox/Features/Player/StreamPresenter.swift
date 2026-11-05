@@ -45,6 +45,8 @@ struct StreamPlayerContainer: View {
                     onStartNow: streamer.startNow,
                     canTryAnother: streamer.canTryAnotherSource,
                     onTryAnother: streamer.tryAnotherSource,
+                    onRetry: streamer.canRetry ? streamer.retry : nil,
+                    onChooseVersion: streamer.canChooseVersion ? streamer.chooseAnotherVersion : nil,
                     onClose: streamer.stop
                 )
             }
@@ -99,6 +101,8 @@ private struct PreparingPlayerView: View {
     var onStartNow: () -> Void = {}
     var canTryAnother = false
     var onTryAnother: () -> Void = {}
+    var onRetry: (() -> Void)? = nil
+    var onChooseVersion: (() -> Void)? = nil
     let onClose: () -> Void
 
     var body: some View {
@@ -139,7 +143,7 @@ private struct PreparingPlayerView: View {
                         if canTryAnother {
                             // Slow to start: the next best source is one tap away.
                             Button(action: onTryAnother) {
-                                Label("Try another source", systemImage: "arrow.triangle.2.circlepath")
+                                Label("Try another version", systemImage: "arrow.triangle.2.circlepath")
                                     .font(.subheadline.weight(.semibold))
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 8)
@@ -211,15 +215,35 @@ private struct PreparingPlayerView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.largeTitle)
-                .foregroundStyle(.yellow)
+                .foregroundStyle(Theme.warning)
             Text(error ?? "")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
-            Button("Close", action: onClose)
+            // Never a lone Close: the way on comes first.
+            if let onChooseVersion {
+                Button(action: onChooseVersion) {
+                    Label("Choose another version", systemImage: "list.bullet")
+                        .font(.headline)
+                        .frame(maxWidth: 280, minHeight: 44)
+                }
                 .buttonStyle(.borderedProminent)
-                .tint(.white)
-                .foregroundStyle(.black)
+                .tint(Theme.accent)
+                .foregroundStyle(Theme.onAccent)
+            }
+            HStack(spacing: 12) {
+                if let onRetry {
+                    Button(action: onRetry) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                            .frame(minHeight: 36)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                }
+                Button("Close", action: onClose)
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+            }
         }
         .frame(maxWidth: min(width, 360))
     }

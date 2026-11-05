@@ -54,6 +54,9 @@ struct MediaDetailView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar(Platform.isMac ? .hidden : .automatic, for: .navigationBar)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) { titleActions }
+            }
             .overlay(alignment: .topLeading) {
                 if Platform.isMac {
                     Button { dismiss() } label: {
@@ -234,16 +237,11 @@ struct MediaDetailView: View {
                 BannerHeader(detail: detail, fallbackTitle: fallbackTitle)
 
                 actions(for: detail)
-                metadata(for: detail)
                 if let synopsis = detail.description, !synopsis.isEmpty {
-                    ExpandableText(text: synopsis, lineLimit: 3, font: .callout, color: Theme.textSecondary)
+                    ExpandableText(text: synopsis, lineLimit: 2, font: .callout, color: Theme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                 }
-                if !model.castMembers.isEmpty || !detail.cast.isEmpty {
-                    CastRow(members: model.castMembers, names: detail.cast)
-                }
-                crew(for: detail)
                 if detail.type == .series, !detail.seasons.isEmpty {
                     EpisodeSection(
                         detail: detail,
@@ -255,10 +253,15 @@ struct MediaDetailView: View {
                         onWatch: { watch(episode: $0) },
                         onDownload: { requestDownload(episode: $0) },
                         onDownloadEpisodes: { downloadEpisodes($0) },
-                        onSetWatched: { setWatched($1, episode: $0, detail: detail) }
+                        onSetWatched: { setWatched($1, episode: $0, detail: detail) },
+                        runtimeMinutes: detail.runtime.flatMap { Int($0.prefix { $0.isNumber }) }
                     )
                     .id("episodes")
                 }
+                if !model.castMembers.isEmpty || !detail.cast.isEmpty {
+                    CastRow(members: model.castMembers, names: detail.cast)
+                }
+                crew(for: detail)
                 moreLikeThis
             }
             .padding(.bottom, 40)
@@ -273,102 +276,92 @@ struct MediaDetailView: View {
     }
 
     private func actions(for detail: MediaDetail) -> some View {
-        let watchFraction = watchProgressFraction(for: detail)
         let busy = streamer.isPreparing || isAutoResolving || batchStatus != nil
-        return HStack(spacing: 12) {
-            Button {
-                watch(episode: resumeEpisode(for: detail))
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "play.fill")
-                    ViewThatFits(in: .horizontal) {
-                        Text(resumeLabel(for: detail) ?? "Watch")
-                            .lineLimit(1)
-                        Text(resumeLabel(for: detail, compact: true) ?? "Watch")
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
-                    // A movie's download shows beside the button already.
-                    if detail.type != .movie, isWatchTargetDownloaded(for: detail) {
-                        Image(systemName: "arrow.down.circle.fill").font(.caption)
-                    }
-                }
-                .font(.headline)
-                .foregroundStyle(Theme.onAccent)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .overlay(alignment: .bottom) {
-                    if let watchFraction {
-                        WatchProgressBar(fraction: watchFraction)
-                            .foregroundStyle(Theme.onAccent)
-                            .frame(height: 3)
-                            .padding(.horizontal, 28)
-                            .padding(.bottom, 8)
-                    }
-                }
-                .background(Theme.accent, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.pressable)
-            .layoutPriority(1)          // the main action keeps its label; the rest are icons
-
-            if detail.type == .series {
-                Menu {
-                    if let episode = firstEpisode(of: detail) {
-                        Button {
-                            requestDownload(episode: episode)
-                        } label: {
-                            Label("Download \(episode.label)", systemImage: "arrow.down.circle")
+        let timeLeft = timeLeftText(for: detail)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Button {
+                    watch(episode: resumeEpisode(for: detail))
+                } label: {
+                    VStack(spacing: 1) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                            ViewThatFits(in: .horizontal) {
+                                Text(resumeLabel(for: detail) ?? "Play")
+                                    .lineLimit(1)
+                                Text(resumeLabel(for: detail, compact: true) ?? "Play")
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                            }
+                        }
+                        .font(.headline)
+                        if let timeLeft {
+                            Text(timeLeft)
+                                .font(.caption.weight(.semibold))
+                                .opacity(0.72)
                         }
                     }
-                    let season = detail.episodes(inSeason: model.selectedSeason)
-                    Button {
-                        downloadEpisodes(season)
+                    .foregroundStyle(Theme.onAccent)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(Theme.accent, in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.pressable)
+                .layoutPriority(1)          // the main action keeps its label; the rest are icons
+                .accessibilityHint(timeLeft ?? "")
+
+                if detail.type == .series {
+                    Menu {
+                        if let episode = resumeEpisode(for: detail) ?? firstEpisode(of: detail) {
+                            Button {
+                                requestDownload(episode: episode)
+                            } label: {
+                                Label("Download \(episode.label)", systemImage: "arrow.down.circle")
+                            }
+                        }
+                        let season = detail.episodes(inSeason: model.selectedSeason)
+                        Button {
+                            downloadEpisodes(season)
+                        } label: {
+                            Label(model.selectedSeason == 0 ? "Download All Specials" : "Download Season \(model.selectedSeason)",
+                                  systemImage: "square.and.arrow.down.on.square")
+                        }
+                        .disabled(downloadableEpisodes(season).isEmpty)
                     } label: {
-                        Label(model.selectedSeason == 0 ? "Download All Specials" : "Download Season \(model.selectedSeason)",
-                              systemImage: "square.and.arrow.down.on.square")
+                        actionIcon("arrow.down.circle", tint: .white)
                     }
-                    .disabled(downloadableEpisodes(season).isEmpty)
-                } label: {
-                    actionIcon("arrow.down.circle", tint: .white)
+                    .accessibilityLabel("Download")
+                } else {
+                    let downloaded = downloads.isDownloaded(mediaID: mediaID)
+                    Button {
+                        requestDownload(episode: firstEpisode(of: detail))
+                    } label: {
+                        actionIcon(downloaded ? "arrow.down.circle.fill" : "arrow.down.circle",
+                                   tint: downloaded ? Theme.success : .white)
+                    }
+                    .buttonStyle(.pressable)
+                    .accessibilityLabel(downloaded ? "Downloaded" : "Download")
                 }
-                .accessibilityLabel("Download")
-            } else {
-                let downloaded = downloads.isDownloaded(mediaID: mediaID)
+
                 Button {
-                    requestDownload(episode: firstEpisode(of: detail))
+                    watchlist.toggle(id: mediaID, mediaType: type,
+                                     title: detail.name.isEmpty ? fallbackTitle : detail.name,
+                                     posterURL: detail.posterURL)
                 } label: {
-                    actionIcon(downloaded ? "arrow.down.circle.fill" : "arrow.down.circle",
-                               tint: downloaded ? Theme.success : .white)
+                    actionIcon(isInWatchlist ? "checkmark" : "plus", tint: .white)
                 }
                 .buttonStyle(.pressable)
-                .accessibilityLabel(downloaded ? "Downloaded" : "Download")
+                .sensoryFeedback(.selection, trigger: isInWatchlist)
+                .accessibilityLabel(isInWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
             }
 
-            Button {
-                watchlist.toggle(id: mediaID, mediaType: type,
-                                 title: detail.name.isEmpty ? fallbackTitle : detail.name,
-                                 posterURL: detail.posterURL)
-            } label: {
-                actionIcon(isInWatchlist ? "bookmark.fill" : "bookmark", tint: isInWatchlist ? Theme.accent : .white)
-            }
-            .buttonStyle(.pressable)
-            .sensoryFeedback(.selection, trigger: isInWatchlist)
-            .accessibilityLabel(isInWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
-
-            if detail.type == .movie {
-                let watched = progressStore.isMovieWatched(mediaID)
-                Button {
-                    progressStore.setMovieWatched(!watched, id: mediaID,
-                                                  title: detail.name.isEmpty ? fallbackTitle : detail.name,
-                                                  posterURL: detail.posterURL)
-                    toast = ToastMessage(text: watched ? "Marked as unwatched" : "Marked as watched",
-                                         systemImage: watched ? "eye.slash" : "checkmark.circle.fill")
-                } label: {
-                    actionIcon(watched ? "checkmark.circle.fill" : "checkmark.circle", tint: watched ? Theme.accent : .white)
-                }
-                .buttonStyle(.pressable)
-                .accessibilityLabel(watched ? "Mark as unwatched" : "Mark as watched")
+            // What the round buttons mean right now, in words.
+            let status = statusLine(for: detail)
+            if !status.isEmpty {
+                Text(status)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
         .frame(maxWidth: Platform.isMac ? 480 : .infinity, alignment: .leading)
@@ -377,13 +370,76 @@ struct MediaDetailView: View {
         .opacity(busy ? 0.6 : 1)
     }
 
+    /// "Downloaded   In your Watchlist   Watched", for movies (episodes show their own).
+    private func statusLine(for detail: MediaDetail) -> String {
+        guard detail.type == .movie else { return isInWatchlist ? "In your Watchlist" : "" }
+        var parts: [String] = []
+        if downloads.isDownloaded(mediaID: mediaID) { parts.append("Downloaded") }
+        if isInWatchlist { parts.append("In your Watchlist") }
+        if progressStore.isMovieWatched(mediaID) { parts.append("Watched") }
+        return parts.joined(separator: "   ")
+    }
+
+    /// "33m left" or "1h 20m left" for what Resume would play.
+    private func timeLeftText(for detail: MediaDetail) -> String? {
+        guard watchProgressFraction(for: detail) != nil, let saved = savedProgress, saved.durationSeconds > 0 else { return nil }
+        let minutes = Int(((saved.durationSeconds - saved.positionSeconds) / 60).rounded())
+        guard minutes > 0 else { return nil }
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes)m left"
+    }
+
+    private func toggleMovieWatched(_ detail: MediaDetail) {
+        let watched = progressStore.isMovieWatched(mediaID)
+        progressStore.setMovieWatched(!watched, id: mediaID,
+                                      title: detail.name.isEmpty ? fallbackTitle : detail.name,
+                                      posterURL: detail.posterURL)
+        toast = ToastMessage(text: watched ? "Marked as unwatched" : "Marked as watched",
+                             systemImage: watched ? "eye.slash" : "checkmark.circle.fill")
+    }
+
+    #if os(iOS)
+    /// Share and the overflow menu: second-tier actions, out of Play's way.
+    @ViewBuilder private var titleActions: some View {
+        if let detail = model.detail {
+            if mediaID.hasPrefix("tt"), let url = URL(string: "https://www.imdb.com/title/\(mediaID)/") {
+                ShareLink(item: url, subject: Text(displayTitle)) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
+            }
+            Menu {
+                Button {
+                    model.requestReleases(intent: .watch, episode: resumeEpisode(for: detail))
+                } label: {
+                    Label("Choose Another Version", systemImage: "list.bullet")
+                }
+                if let trailer = detail.trailerURL {
+                    Button { openURL(trailer) } label: {
+                        Label("Watch Trailer", systemImage: "play.rectangle")
+                    }
+                }
+                if detail.type == .movie {
+                    let watched = progressStore.isMovieWatched(mediaID)
+                    Button { toggleMovieWatched(detail) } label: {
+                        Label(watched ? "Mark as Unwatched" : "Mark as Watched",
+                              systemImage: watched ? "eye.slash" : "checkmark.circle")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel("More")
+        }
+    }
+    #endif
+
     /// The round companions to the play button: same height, quiet surface.
     private func actionIcon(_ name: String, tint: Color) -> some View {
         Image(systemName: name)
             .font(.system(size: 19, weight: .semibold))
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 52, height: 52)
+            .frame(width: 56, height: 56)
             .background(Theme.surface, in: Circle())
             .overlay(Circle().strokeBorder(Theme.hairline))
             .contentShape(Circle())
@@ -566,6 +622,11 @@ struct MediaDetailView: View {
             .withSource(SourceKey.make(stream))
 
         let playlist = makeEpisodePlaylist(current: episode, detail: detail)
+        // A version that won't start hands back to the version list, from the player's error card.
+        streamer.onChooseVersion = {
+            pendingPlay = { model.requestReleases(intent: .watch, episode: episode) }
+            streamer.stop()
+        }
 
         let startAt = resumeAt
         resumeAt = .zero
@@ -623,7 +684,7 @@ struct MediaDetailView: View {
             return "Resume"
         }
         guard let ep = resumeEpisode(for: detail) else { return nil }
-        let code = "S\(ep.season)E\(ep.episode)"
+        let code = "S\(ep.season) E\(ep.episode)"
         if compact { return code }
         let resuming = savedProgress.map { !$0.isFinished && $0.episodeID == ep.id } ?? false
         return resuming ? "Resume \(code)" : "Watch \(code)"
@@ -688,32 +749,6 @@ struct MediaDetailView: View {
                 // Close the player first; the source list opens once it's gone.
                 pendingPlay = { model.requestReleases(intent: .watch, episode: episode) }
                 streamer.stop()
-            }
-        }
-    }
-
-    /// What the line under the title doesn't say: Top 10 place, watched, trailer.
-    @ViewBuilder
-    private func metadata(for detail: MediaDetail) -> some View {
-        let watchedMovie = detail.type == .movie && progressStore.isMovieWatched(mediaID)
-        if HomeModel.topTenPlaces[mediaID] != nil || watchedMovie || detail.trailerURL != nil {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    if let place = HomeModel.topTenPlaces[mediaID] {
-                        Chip(text: place, systemImage: "flame.fill")
-                    }
-                    if watchedMovie {
-                        Chip(text: "Watched", systemImage: "checkmark", tint: .white)
-                    }
-                    if let trailer = detail.trailerURL {
-                        Button { openURL(trailer) } label: {
-                            Chip(text: "Trailer", systemImage: "play.rectangle.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Play trailer on YouTube")
-                    }
-                }
-                .padding(.horizontal, 16)
             }
         }
     }
@@ -830,21 +865,30 @@ private struct BannerHeader: View {
                 titleText
             }
 
-            let summary = detail?.summaryLine ?? ""
-            if detail?.imdbRating != nil || !summary.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    if let rating = detail?.imdbRating {
+            if let detail {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    if let rating = detail.imdbRating {
                         Label(String(format: "%.1f", rating), systemImage: "star.fill")
                             .labelStyle(.titleAndIcon)
                             .accessibilityLabel(String(format: "Rated %.1f", rating))
                     }
-                    if !summary.isEmpty { Text(summary).lineLimit(2) }
+                    Text(facts(detail).joined(separator: "   "))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.8))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "2008–2013   5 seasons   Crime, Drama   #3 in Shows": spaced, not dotted.
+    private func facts(_ detail: MediaDetail) -> [String] {
+        let seasons = detail.seasons.filter { $0 > 0 }.count
+        let length = detail.type == .series ? (seasons > 0 ? "\(seasons) season\(seasons == 1 ? "" : "s")" : nil) : detail.runtime
+        let genres = detail.genres.prefix(2).joined(separator: ", ")
+        return [detail.year, length, genres.isEmpty ? nil : genres, HomeModel.topTenPlaces[detail.id]].compactMap { $0 }
     }
 
     private var titleText: some View {
@@ -862,7 +906,7 @@ private struct CastRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Cast")
+            Text("Cast & crew")
                 .sectionTitleStyle()
                 .padding(.horizontal, 16)
 

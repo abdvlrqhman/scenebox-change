@@ -40,11 +40,12 @@ struct CastSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
-            .navigationTitle("Cast")
+            .navigationTitle("Play on TV")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .tint(.white)
                 }
             }
         }
@@ -61,9 +62,7 @@ struct CastSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("Nearby screens")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.textSecondary)
-                    .textCase(.uppercase)
+                    .sectionTitleStyle()
                 Spacer()
                 if discovery.isScanning {
                     ProgressView().controlSize(.mini)
@@ -232,7 +231,7 @@ private struct DeviceRow: View {
                 .background(isReachable ? Theme.accent : Theme.elevated,
                             in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
-                Text(device.name)
+                Text(device.displayName)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isReachable ? .white : Theme.textSecondary)
                     .lineLimit(1)
@@ -391,7 +390,7 @@ struct CastingOverlay: View {
         HStack(spacing: 6) {
             Image(systemName: cast.device?.isComputer == true ? "laptopcomputer" : "tv")
                 .symbolEffect(.pulse, isActive: cast.phase == .connecting || cast.phase == .buffering)
-            Text(cast.device?.name ?? "TV").lineLimit(1)
+            Text(cast.device?.displayName ?? "TV").lineLimit(1)
         }
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
@@ -413,28 +412,20 @@ struct CastingOverlay: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if subtitlesChanged || cast.isSendingSubtitles {
-                Button(action: onSendSubtitles) {
-                    Label(cast.isSendingSubtitles ? "Sending subtitles…" : "Send new subtitles to the TV",
-                          systemImage: "captions.bubble.fill")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Theme.accent.opacity(0.16), in: Capsule())
-                        .foregroundStyle(Theme.accent)
-                }
-                .buttonStyle(.plain)
-                .disabled(cast.isSendingSubtitles)
-                .padding(.top, 4)
+            if cast.isSendingSubtitles {
+                Label("Sending subtitles to the TV…", systemImage: "captions.bubble")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.top, 4)
             }
         }
     }
 
     private var statusText: String {
         switch cast.phase {
-        case .idle, .connecting: "Connecting to \(cast.device?.name ?? "the TV")…"
+        case .idle, .connecting: "Connecting to \(cast.device?.displayName ?? "the TV")…"
         case .buffering: "Loading on the TV…"
-        case .playing: "Playing on \(cast.device?.name ?? "the TV")"
+        case .playing: "Playing on \(cast.device?.displayName ?? "the TV")"
         case .paused: "Paused"
         case .finished: "Finished"
         case .failed(let message): message
@@ -479,10 +470,10 @@ struct CastingOverlay: View {
                 Button { cast.togglePause() } label: {
                     Image(systemName: cast.phase == .playing || cast.phase == .buffering ? "pause.fill" : "play.fill")
                         .contentTransition(.symbolEffect(.replace))
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(Theme.onAccent)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.white)
                         .frame(width: 72, height: 72)
-                        .background(Theme.accent, in: Circle())
+                        .glassChrome(in: Circle())
                 }
                 .accessibilityLabel(cast.phase == .playing || cast.phase == .buffering ? "Pause" : "Play")
                 Button { cast.skip(by: 10) } label: {
@@ -519,6 +510,13 @@ struct CastingOverlay: View {
             .background(.ultraThinMaterial, in: Circle())
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
+    }
+}
+extension RendererDescription {
+    /// "[TV] Samsung 7 Series (55)" reads as "Samsung 7 Series (55)".
+    var displayName: String {
+        let trimmed = name.replacingOccurrences(of: #"^\[[^\]]*\]\s*"#, with: "", options: .regularExpression)
+        return trimmed.isEmpty ? name : trimmed
     }
 }
 #endif

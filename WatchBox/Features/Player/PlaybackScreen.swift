@@ -234,6 +234,11 @@ struct PlaybackScreen: View {
         .animation(.easeInOut(duration: 0.25), value: advancingTo)
         .animation(.easeInOut(duration: 0.25), value: cast.isActive)
         .toast($toast)
+        // Subtitles picked while casting go to the TV by themselves.
+        .onChange(of: subs.fileOnScreen) { _, file in
+            guard cast.isActive, file != cast.sentSubtitleFile, !cast.isSendingSubtitles else { return }
+            Task { await cast.sendSubtitles(file) }
+        }
         .onChange(of: cast.computerPlays) { _, _ in
             // A computer is playing it from the page: one player at a time.
             if player.isPlaying { player.pause() }

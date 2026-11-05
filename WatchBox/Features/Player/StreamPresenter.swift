@@ -45,8 +45,10 @@ struct StreamPlayerContainer: View {
                     onStartNow: streamer.startNow,
                     canTryAnother: streamer.canTryAnotherSource,
                     onTryAnother: streamer.tryAnotherSource,
-                    onRetry: streamer.canRetry ? streamer.retry : nil,
-                    onChooseVersion: streamer.canChooseVersion ? streamer.chooseAnotherVersion : nil,
+                    canRetry: streamer.canRetry,
+                    onRetry: streamer.retry,
+                    canChooseVersion: streamer.canChooseVersion,
+                    onChooseVersion: streamer.chooseAnotherVersion,
                     onClose: streamer.stop
                 )
             }
@@ -101,8 +103,10 @@ private struct PreparingPlayerView: View {
     var onStartNow: () -> Void = {}
     var canTryAnother = false
     var onTryAnother: () -> Void = {}
-    var onRetry: (() -> Void)? = nil
-    var onChooseVersion: (() -> Void)? = nil
+    var canRetry = false
+    var onRetry: () -> Void = {}
+    var canChooseVersion = false
+    var onChooseVersion: () -> Void = {}
     let onClose: () -> Void
 
     var body: some View {
@@ -221,7 +225,7 @@ private struct PreparingPlayerView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
             // Never a lone Close: the way on comes first.
-            if let onChooseVersion {
+            if canChooseVersion {
                 Button(action: onChooseVersion) {
                     Label("Choose another version", systemImage: "list.bullet")
                         .font(.headline)
@@ -232,7 +236,7 @@ private struct PreparingPlayerView: View {
                 .foregroundStyle(Theme.onAccent)
             }
             HStack(spacing: 12) {
-                if let onRetry {
+                if canRetry {
                     Button(action: onRetry) {
                         Label("Retry", systemImage: "arrow.clockwise")
                             .frame(minHeight: 36)

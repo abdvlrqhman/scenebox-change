@@ -92,6 +92,8 @@ final class SearchModel {
             var rows = [[MediaResult]](repeating: [], count: types.count)
             var failed = false
             var failedTypes: [MediaType] = []
+            var answered = 0
+            var graceOver = !searching
             await withTaskGroup(of: (Int, [MediaResult]?).self) { group in
                 for (i, type) in types.enumerated() {
                     group.addTask {
@@ -104,13 +106,24 @@ final class SearchModel {
                         return (i, items)
                     }
                 }
+                if searching {
+                    // Results land together so they don't reshuffle, but one slow catalog
+                    // mustn't hold back the rest: after 1.5 s show whatever has answered.
+                    group.addTask { try? await Task.sleep(for: .seconds(1.5)); return (-1, nil) }
+                }
                 for await (i, items) in group {
                     guard !Task.isCancelled else { return }
-                    guard let items else { failed = true; failedTypes.append(types[i]); continue }
-                    rows[i] = items
+                    if i < 0 {
+                        graceOver = true
+                    } else {
+                        answered += 1
+                        if answered == types.count { group.cancelAll() }   // ends the grace timer early
+                        guard let items else { failed = true; failedTypes.append(types[i]); continue }
+                        rows[i] = items
+                    }
                     let partial = searching ? Self.rankedBySearchRelevance(rows, query: trimmed)
                                             : (rows.first ?? [])
-                    if !searching, !partial.isEmpty { results = partial }
+                    if graceOver, !partial.isEmpty { results = partial }
                 }
             }
             guard !Task.isCancelled else { return }

@@ -114,6 +114,18 @@ final class DownloadStore {
         }
     }
 
+    /// Downloads made before episode names and stills were kept get them from the show's page.
+    func fillEpisodeDetails(mediaID: String, episodes: [Episode]) {
+        var changed = false
+        for download in downloads where download.record.mediaID == mediaID && download.record.episodeName == nil {
+            guard let episode = episodes.first(where: { $0.label == download.record.episodeLabel }) else { continue }
+            download.record.episodeName = episode.name
+            download.record.stillURLString = episode.thumbnailURL?.absoluteString
+            changed = true
+        }
+        if changed { save() }
+    }
+
     /// Labels ("S1E3") of a show's episodes that are on the phone.
     func completedEpisodeLabels(mediaID: String) -> Set<String> {
         Set(downloads.compactMap {

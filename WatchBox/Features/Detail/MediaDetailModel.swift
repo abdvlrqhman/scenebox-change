@@ -82,6 +82,7 @@ final class MediaDetailModel {
                 let fetched = try await search.detail(id: mediaID, type: type)
                 guard !Task.isCancelled else { return }
                 detail = fetched
+                DownloadStore.shared.fillEpisodeDetails(mediaID: mediaID, episodes: fetched.episodes)
                 selectedSeason = fetched.seasons.first ?? 1
 
                 await Self.prefetch([fetched.backdropURL, fetched.logoURL])

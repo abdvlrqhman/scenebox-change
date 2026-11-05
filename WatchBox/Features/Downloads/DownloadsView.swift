@@ -440,66 +440,6 @@ struct DownloadsView: View {
 
 #if !os(tvOS)
 /// Total transfer state with the bulk controls.
-private struct TransferSummary: View {
-    let store: DownloadStore
-
-    var body: some View {
-        let pending = store.downloads.filter(\.phase.isPending)
-        let active = pending.filter(\.phase.isActive)
-        let rate = active.reduce(0) { $0 + $1.downloadRate }
-        let total = pending.reduce(Int64(0)) { $0 + $1.record.totalBytes }
-        let done = pending.reduce(Int64(0)) {
-            $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes))
-        }
-        let canResume = store.downloads.contains { $0.phase == .paused || $0.phase == .failed }
-
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(pending.isEmpty ? "Paused" : "\(pending.count) in progress")
-                        .font(.display(22, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text(pending.isEmpty
-                         ? "Resume to keep downloading."
-                         : (rate > 0 ? "\(ByteFormat.rate(rate)) · \(active.count) active" : "Connecting to peers…"))
-                        .font(.subheadline)
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                        .contentTransition(.numericText())
-                }
-                Spacer(minLength: 8)
-                if !pending.isEmpty {
-                    Button { store.pauseAll() } label: {
-                        Label("Pause all", systemImage: "pause.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
-                } else if canResume {
-                    Button { store.resumeAll() } label: {
-                        Label("Resume all", systemImage: "arrow.down")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-                    .foregroundStyle(Theme.onAccent)
-                }
-            }
-            if total > 0 {
-                ProgressView(value: Double(done), total: Double(max(total, 1)))
-                    .tint(Theme.accent)
-                Text("\(ByteFormat.size(done)) of \(ByteFormat.size(total))")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .font(.subheadline.weight(.semibold))
-        .padding(16)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous).strokeBorder(Theme.hairline))
-        .animation(Theme.smooth, value: pending.count)
-    }
-}
-
 private struct GroupHeaderRow: View {
     let group: DownloadGroup
     let isExpanded: Bool

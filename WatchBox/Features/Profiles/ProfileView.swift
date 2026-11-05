@@ -26,7 +26,7 @@ struct ProfileView: View {
         NavigationStack {
             VStack(spacing: 0) {
             #if !os(tvOS)
-            RootHeader(title: "Profile") {
+            RootHeader(title: "Settings") {
                 HStack(spacing: 8) {
                     profileMenu
                     Button("Done") { dismiss() }
@@ -37,6 +37,7 @@ struct ProfileView: View {
             }
             #endif
             Form {
+                Group {
                 PageTitleRow("Profile")
                 if let profile = profiles.selected {
                     Section {
@@ -52,6 +53,39 @@ struct ProfileView: View {
                         }
                     }
                     #endif
+                }
+
+                Section {
+                    Toggle("Play the best version automatically", isOn: $settings.autoSelectSource)
+                        .tint(toggleTint)
+                } header: {
+                    Text("How SceneBox plays things")
+                } footer: {
+                    Text("Skip the release list and start the best match automatically.")
+                }
+
+                Section {
+                    Picker("Service", selection: $settings.debridProvider) {
+                        ForEach(DebridProvider.allCases) { provider in
+                            Text(provider.title).tag(provider)
+                        }
+                    }
+                    if settings.debridProvider.requiresKey {
+                        SecureField("API key", text: $settings.debridAPIKey)
+                            .autocorrectionDisabled()
+                            .tint(.white)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                    }
+                } header: {
+                    Text("Debrid")
+                } footer: {
+                    if let hint = settings.debridProvider.keyHint {
+                        Text("Key: \(hint)")
+                    } else {
+                        Text("Stream cached torrents at full speed instead of peer-to-peer.")
+                    }
                 }
 
                 Section {
@@ -73,13 +107,6 @@ struct ProfileView: View {
                     SubtitleSizePreview(scale: settings.subtitleScale)
                     Toggle("Fill screen (crop)", isOn: $settings.fillScreen)
                         .tint(toggleTint)
-                    Picker("Player buffer", selection: $settings.networkCacheMilliseconds) {
-                        Text("2 s").tag(2000)
-                        Text("3 s").tag(3000)
-                        Text("5 s").tag(5000)
-                        Text("10 s").tag(10000)
-                        Text("20 s").tag(20000)
-                    }
                 } header: {
                     Text("Playback & subtitles")
                 } footer: {
@@ -148,39 +175,6 @@ struct ProfileView: View {
                     Text("Storage")
                 } footer: {
                     Text("New downloads won't start past the download limit. The cache keeps recently streamed video (so re-opening starts instantly; the oldest goes past the stream cache limit) plus downloaded and translated subtitles. Clearing it keeps your downloads and your saved subtitle choices. With \"Keep fully streamed videos\" on, a video that finished downloading while you watched moves from the cache to Downloads, to play offline.")
-                }
-
-                Section {
-                    Toggle("Play the best version automatically", isOn: $settings.autoSelectSource)
-                        .tint(toggleTint)
-                } header: {
-                    Text("Streaming")
-                } footer: {
-                    Text("Skip the release list and start the best match automatically.")
-                }
-
-                Section {
-                    Picker("Service", selection: $settings.debridProvider) {
-                        ForEach(DebridProvider.allCases) { provider in
-                            Text(provider.title).tag(provider)
-                        }
-                    }
-                    if settings.debridProvider.requiresKey {
-                        SecureField("API key", text: $settings.debridAPIKey)
-                            .autocorrectionDisabled()
-                            .tint(.white)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                    }
-                } header: {
-                    Text("Debrid")
-                } footer: {
-                    if let hint = settings.debridProvider.keyHint {
-                        Text("Key: \(hint)")
-                    } else {
-                        Text("Stream cached torrents at full speed instead of peer-to-peer.")
-                    }
                 }
 
                 Section {
@@ -293,6 +287,13 @@ struct ProfileView: View {
                     NavigationLink("Custom trackers") {
                         TrackerEditor()
                     }
+                    Picker("Player buffer", selection: $settings.networkCacheMilliseconds) {
+                        Text("2 s").tag(2000)
+                        Text("3 s").tag(3000)
+                        Text("5 s").tag(5000)
+                        Text("10 s").tag(10000)
+                        Text("20 s").tag(20000)
+                    }
                 } header: {
                     Text("Network")
                 } footer: {
@@ -308,6 +309,9 @@ struct ProfileView: View {
                 } footer: {
                     Text("SceneBox \(appVersion) (\(buildNumber))")
                 }
+                }
+                .listRowBackground(Theme.surface)
+                .listRowSeparatorTint(Theme.hairline)
             }
             .hideScrollBackground()
             #if !os(tvOS)

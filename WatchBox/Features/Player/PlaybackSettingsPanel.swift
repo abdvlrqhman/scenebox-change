@@ -43,7 +43,7 @@ struct PlaybackSettingsPanel: View {
                     case .root:
                         header(title: "Playback")
                         if includesTracks {
-                            if !player.audioTracks.isEmpty { audioSection }
+                            if uniqueTracks(player.audioTracks).count > 1 { audioSection }
                             subtitleNavSection
                             sizeSection           // tvOS has no CC page, so size lives here too
                             if hasActiveSubtitle { subtitleDelaySection }
@@ -59,14 +59,15 @@ struct PlaybackSettingsPanel: View {
                             }
                         }
                     case .captions:
-                        // One tap picks a language; no second page to find it.
+                        // Subtitles first (what CC is for), then how they look, then audio
+                        // when there's a choice. The long tail of languages sits one tap away.
                         header(title: "Audio & subtitles")
-                        if !player.audioTracks.isEmpty { audioSection }
-                        subtitleSection
+                        subtitleQuickSection
                         sizeSection
                         if hasActiveSubtitle { subtitleDelaySection }
+                        if uniqueTracks(player.audioTracks).count > 1 { audioSection }
                     case .subtitles:
-                        header(title: "Subtitles")
+                        header(title: opensOnSubtitles ? "All languages" : "Subtitles")
                         subtitleSection
                     case .versions:
                         header(title: versionsTitle)
@@ -115,7 +116,9 @@ struct PlaybackSettingsPanel: View {
                 #endif
             }
             Text(title)
-                .font(.title3.weight(.bold))
+                .font(.display(24, weight: .regular, relativeTo: .title2))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Spacer()
             if page == home {
                 #if os(tvOS)
@@ -238,11 +241,12 @@ struct PlaybackSettingsPanel: View {
     /// "Translate English to Arabic": for when no version in the language fits.
     /// Shows where a translation stands, since it runs on after the player closes.
     @ViewBuilder
-    private func translateRow(to language: String) -> some View {
+    private func translateRow(to language: String, onlyWhenNeeded: Bool = false) -> some View {
         #if canImport(Translation) && os(iOS)
-        if subs.canTranslate(to: language, player: player) {
+        let state = subs.translationState(to: language, player: player)
+        if subs.canTranslate(to: language, player: player),
+           !onlyWhenNeeded || state != .none || subs.versions(for: language, player: player).isEmpty {
             let name = SubtitleLanguage.displayName(for: language)
-            let state = subs.translationState(to: language, player: player)
             let running: Bool = { if case .running = state { return true } else { return false } }()
             Button {
                 subs.translate(to: language, player: player)
@@ -283,7 +287,7 @@ struct PlaybackSettingsPanel: View {
     private func detail(for state: TranslationCenter.State) -> String {
         switch state {
         case .none:
-            "On this iPhone, offline after the first time. Whole sentences are translated, and the timing comes from the English version, so it stays in sync."
+            "Made on this iPhone from the English subtitles, so it stays in sync."
         case .running:
             "Tap to show it now. Lines fill in as they're translated, and it keeps going if you close the player."
         case .paused:
@@ -349,7 +353,7 @@ struct PlaybackSettingsPanel: View {
     }
 
     private var subtitleSection: some View {
-        SettingsSection(title: page == .captions ? "Subtitles" : "Language") {
+        SettingsSection(title: "Languages") {
             OptionRow(title: "Off", selected: !hasActiveSubtitle) {
                 subs.apply(nil, on: player)
                 page = home
@@ -374,30 +378,111 @@ struct PlaybackSettingsPanel: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(subs.byLanguage, id: \.language) { group in
-                if let code = group.tracks.first?.languageCode {
-                    let count = group.tracks.count
-                    let active = group.tracks.contains { $0.id == subs.selectedID }
-                    OptionRow(title: count > 1 ? "\(group.language) · \(count) versions" : group.language,
-                              selected: active) {
-                        // Show the best version at once; with a choice, open the
-                        // list so another can be tried.
-                        if !active, let best = subs.versions(for: code, player: player).first {
-                            subs.apply(best, on: player)
-                        }
-                        if count > 1 {
-                            showVersions(of: code, returningTo: page)
-                        } else {
-                            page = home
-                        }
-                    }
-                }
-            }
+            ForEach(sortedLanguages, id: \.language) { group in languageRow(group) }
             // Always reachable, including when the default language has no
             // versions at all.
-            let defaultLanguage = AppSettings.shared.preferredSubtitleLanguage
+            let defaultLanguage = settings.preferredSubtitleLanguage
             if !defaultLanguage.isEmpty { translateRow(to: defaultLanguage) }
-            if page == .captions { versionRow }
+        }
+    }
+
+    /// The CC page's list: Off, the languages worth one tap, what's built into
+    /// the video, then "More languages" for the rest.
+    private var subtitleQuickSection: some View {
+        let pinned = pinnedLanguages
+        let others = subs.byLanguage.count - pinned.count
+        return SettingsSection(title: "Subtitles") {
+            OptionRow(title: "Off", selected: !hasActiveSubtitle) { subs.apply(nil, on: player) }
+            ForEach(pinned, id: \.language) { group in languageRow(group) }
+            ForEach(subs.embeddedTracks(of: player)) { track in
+                OptionRow(title: trackLabel(for: track), detail: "In the video",
+                          selected: subs.embeddedID == track.id) {
+                    subs.selectEmbedded(track, on: player)
+                }
+            }
+            if subs.isLoading {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Finding subtitles…")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .frame(minHeight: 44)
+            } else if let message = subs.statusMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if others > 0 {
+                NavRow(title: "More languages", value: "\(others)") { page = .subtitles }
+            }
+            let defaultLanguage = settings.preferredSubtitleLanguage
+            if !defaultLanguage.isEmpty { translateRow(to: defaultLanguage, onlyWhenNeeded: true) }
+        }
+    }
+
+    /// The viewer's language, the one showing, then English; each once, in that order.
+    private var pinnedLanguages: [(language: String, tracks: [SubtitleTrack])] {
+        let preferred = SubtitleLanguage.canonical(settings.preferredSubtitleLanguage)
+        let showing = subs.selectedTrack.map { SubtitleLanguage.canonical($0.languageCode) }
+        var seen = Set<String>()
+        return [preferred, showing, "eng"].compactMap { code in
+            guard let code, !code.isEmpty, seen.insert(code).inserted else { return nil }
+            return subs.byLanguage.first { group in
+                group.tracks.first.map { SubtitleLanguage.canonical($0.languageCode) } == code
+            }
+        }
+    }
+
+    /// Pinned languages first, the rest A to Z.
+    private var sortedLanguages: [(language: String, tracks: [SubtitleTrack])] {
+        let pinned = pinnedLanguages
+        let pinnedNames = Set(pinned.map(\.language))
+        return pinned + subs.byLanguage
+            .filter { !pinnedNames.contains($0.language) }
+            .sorted { $0.language.localizedStandardCompare($1.language) == .orderedAscending }
+    }
+
+    /// Tapping the language shows its best version; "12 versions" opens the list
+    /// to try another, so choosing never jumps pages by surprise.
+    @ViewBuilder
+    private func languageRow(_ group: (language: String, tracks: [SubtitleTrack])) -> some View {
+        if let code = group.tracks.first?.languageCode {
+            let count = group.tracks.count
+            let active = group.tracks.contains { $0.id == subs.selectedID }
+            #if os(tvOS)
+            OptionRow(title: count > 1 ? "\(group.language), \(count) versions" : group.language,
+                      selected: active) {
+                if !active, let best = subs.versions(for: code, player: player).first {
+                    subs.apply(best, on: player)
+                }
+                if count > 1 { showVersions(of: code, returningTo: page) }
+            }
+            #else
+            HStack(spacing: 4) {
+                OptionRow(title: group.language, selected: active) {
+                    if !active, let best = subs.versions(for: code, player: player).first {
+                        subs.apply(best, on: player)
+                    }
+                }
+                if count > 1 {
+                    Button { showVersions(of: code, returningTo: page) } label: {
+                        HStack(spacing: 4) {
+                            Text("\(count) versions")
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(minHeight: 44)
+                        .padding(.leading, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(count) \(group.language) versions")
+                }
+            }
+            #endif
         }
     }
 
@@ -534,9 +619,9 @@ struct SettingsSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.5))
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.55))
                 #if os(tvOS)
                 .padding(.leading, 16)   // line the header up with the row text inset
                 #endif
@@ -547,6 +632,8 @@ struct SettingsSection<Content: View>: View {
 
 struct OptionRow: View {
     let title: String
+    /// Quiet text before the checkmark ("In the video").
+    var detail: String? = nil
     let selected: Bool
     let action: () -> Void
 
@@ -562,14 +649,20 @@ struct OptionRow: View {
                     .font(.body)
                     .lineLimit(1)
                 Spacer(minLength: 8)
+                if let detail {
+                    Text(detail)
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
                 if selected {
                     Image(systemName: "checkmark")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.accent)
                 }
             }
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
-            .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -689,8 +782,8 @@ struct NavRow: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.4))
             }
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
-            .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
         #endif

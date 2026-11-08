@@ -252,28 +252,39 @@ let videoTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 1) + ebmlNumber([0x83], 
 let frenchTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 2) + ebmlNumber([0x83], 2) + ebmlNumber([0x88], 1) + ebmlText([0x22, 0xB5, 0x9C], "fre") + ebmlText([0x53, 0x6E], "Français"))
 let englishTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 3) + ebmlNumber([0x83], 2) + ebmlNumber([0x88], 0) + ebmlText([0x22, 0xB5, 0x9C], "eng") + ebmlText([0x53, 0x6E], "English 5.1"))
 let undTrack = ebmlElement([0xAE], ebmlNumber([0xD7], 4) + ebmlNumber([0x83], 2) + ebmlText([0x22, 0xB5, 0x9C], "und"))
-let trackEntries = videoTrack + frenchTrack + englishTrack + undTrack
-let trackCRC: [UInt8] = [0xBF, 0x84] + withUnsafeBytes(of: MatroskaAudio.crc32(trackEntries).littleEndian, Array.init)
-var mkvBytes = ebmlElement([0x1A, 0x45, 0xDF, 0xA3], ebmlText([0x42, 0x82], "matroska"))
-mkvBytes += [0x18, 0x53, 0x80, 0x67, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF] as [UInt8]   // segment, size unknown
-mkvBytes += ebmlElement([0x15, 0x49, 0xA9, 0x66], ebmlNumber([0x2A, 0xD7, 0xB1], 1))
-mkvBytes += ebmlElement([0x16, 0x54, 0xAE, 0x6B], trackCRC + trackEntries)
-mkvBytes += ebmlElement([0x1F, 0x43, 0xB6, 0x75], ebmlNumber([0xE7], 0))
-mkvBytes += [UInt8](repeating: 0x55, count: 5000)
-let mkv = Data(mkvBytes)
+let arabicSubs = ebmlElement([0xAE], ebmlNumber([0xD7], 5) + ebmlNumber([0x83], 0x11) + ebmlNumber([0x88], 0) + ebmlText([0x22, 0xB5, 0x9C], "ara"))
+let englishSubs = ebmlElement([0xAE], ebmlNumber([0xD7], 6) + ebmlNumber([0x83], 0x11) + ebmlNumber([0x88], 1) + ebmlText([0x22, 0xB5, 0x9C], "eng"))
+func matroska(_ entries: [UInt8]) -> Data {
+    let crc: [UInt8] = [0xBF, 0x84] + withUnsafeBytes(of: MatroskaAudio.crc32(entries).littleEndian, Array.init)
+    var bytes = ebmlElement([0x1A, 0x45, 0xDF, 0xA3], ebmlText([0x42, 0x82], "matroska"))
+    bytes += [0x18, 0x53, 0x80, 0x67, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF] as [UInt8]   // segment, size unknown
+    bytes += ebmlElement([0x15, 0x49, 0xA9, 0x66], ebmlNumber([0x2A, 0xD7, 0xB1], 1))
+    bytes += ebmlElement([0x16, 0x54, 0xAE, 0x6B], crc + entries)
+    bytes += ebmlElement([0x1F, 0x43, 0xB6, 0x75], ebmlNumber([0xE7], 0))
+    bytes += [UInt8](repeating: 0x55, count: 5000)
+    return Data(bytes)
+}
+let mkv = matroska(videoTrack + frenchTrack + englishTrack + undTrack + arabicSubs + englishSubs)
 check(MatroskaAudio.crc32(Array("123456789".utf8)) == 0xCBF4_3926, "CRC-32 check value")
 let mkvAudio = MatroskaAudio.audioTracks(in: mkv)
 check(mkvAudio == [.init(language: "fre", name: "Français", isDefault: true), .init(language: "eng", name: "English 5.1", isDefault: false),
                    .init(language: "und", name: nil, isDefault: true)], "MKV audio tracks read (got \(mkvAudio))")
-check(MatroskaAudio.patch(head: mkv, choosing: 0) == nil, "already the TV's track: nothing to rewrite")
+check(MatroskaAudio.subtitleTracks(in: mkv) == [.init(language: "ara", name: nil, isDefault: false), .init(language: "eng", name: nil, isDefault: true)],
+      "MKV subtitle tracks read")
+check(MatroskaAudio.patch(head: matroska(videoTrack + frenchTrack), choosing: 0) == nil, "one voice, no subtitles: nothing to rewrite")
 check(MatroskaAudio.audioTracks(in: Data("not a video".utf8)).isEmpty && MatroskaAudio.patch(head: mkv.prefix(60), choosing: 1) == nil,
       "not Matroska / track list cut off: left alone")
+check([2, 9, 127, 128, 129, 200, 16_384, 20_000].allSatisfy { MatroskaAudio.voidElement(length: $0)?.count == $0 }
+      && MatroskaAudio.voidElement(length: 1) == nil && MatroskaAudio.voidElement(length: 128)?.prefix(2) == [0xEC, 0xFE]
+      && MatroskaAudio.voidElement(length: 129)?.prefix(3) == [0xEC, 0x40, 0x7E],
+      "EBML Void of any exact length")
 if let patch = MatroskaAudio.patch(head: mkv, choosing: 1) {
     var whole = mkv
     MatroskaAudio.apply(patch, to: &whole, at: 0)
     let after = MatroskaAudio.audioTracks(in: whole)
-    check(whole.count == mkv.count && after.first == .init(language: "eng", name: "English 5.1", isDefault: true)
-          && after[1] == .init(language: "fre", name: "Français", isDefault: false), "English made first and only explicit default (got \(after))")
+    check(whole.count == mkv.count && after == [.init(language: "eng", name: "English 5.1", isDefault: true)],
+          "cast keeps only the chosen voice, as the default (got \(after))")
+    check(MatroskaAudio.subtitleTracks(in: whole).isEmpty, "no built-in subtitles left when none is showing")
     let tracksData = whole.subdata(in: Int(patch.offset) ..< Int(patch.offset) + patch.bytes.count)
     check(tracksData.prefix(2) == Data([0xBF, 0x84]) && Data(tracksData[2..<6]) == Data(withUnsafeBytes(of: MatroskaAudio.crc32(tracksData.dropFirst(6)).littleEndian, Array.init)),
           "track list CRC-32 recomputed")
@@ -284,6 +295,15 @@ if let patch = MatroskaAudio.patch(head: mkv, choosing: 1) {
         pieces.append(piece)
     }
     check(pieces == whole, "patch laid over the stream piece by piece")
+    if let withArabic = MatroskaAudio.patch(head: mkv, choosing: 0, keepingSubtitle: 0) {
+        var file = mkv
+        MatroskaAudio.apply(withArabic, to: &file, at: 0)
+        check(MatroskaAudio.audioTracks(in: file) == [.init(language: "fre", name: "Français", isDefault: true)]
+              && MatroskaAudio.subtitleTracks(in: file) == [.init(language: "ara", name: nil, isDefault: true)],
+              "the built-in subtitle showing on the phone is the TV's only one")
+    } else {
+        check(false, "no patch keeping the Arabic subtitles")
+    }
     check(OriginalAudio.matches(language: "eng", labels: [], code: "en") && OriginalAudio.matches(language: "ger", labels: [], code: "de")
           && OriginalAudio.matches(language: "und", labels: ["English 5.1"], code: "en") && !OriginalAudio.matches(language: "fre", labels: ["Français"], code: "en"),
           "audio language matching by code, bibliographic code and label")

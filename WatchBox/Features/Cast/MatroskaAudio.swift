@@ -5,12 +5,13 @@
 
 import Foundation
 
-/// TVs play the audio track a Matroska file marks as default (or simply the
-/// first one), and DLNA has no way to ask for another. So the cast server
-/// rewrites the file's track list on its way to the TV: the chosen track
-/// becomes the only default audio track and moves in front of the others.
-/// The list keeps its exact length, so every offset (and every range the TV
-/// asks for) stays where it was.
+/// TVs pick their own audio and subtitle track from a Matroska file, and DLNA
+/// has no way to ask for another. So the cast server rewrites the file's track
+/// list on its way to the TV: only the voice playing on the phone stays (and the
+/// built-in subtitle showing there, if any); every other audio and subtitle
+/// entry becomes an EBML Void of the same length. The TV can't list or pick
+/// them, the list keeps its exact length, and every offset (and every range the
+/// TV asks for) stays where it was. Their packets are skipped as unknown tracks.
 nonisolated enum MatroskaAudio {
     struct Track: Sendable, Equatable {
         let language: String        // "eng", "fre", or a BCP 47 tag like "pt-BR"
@@ -27,26 +28,37 @@ nonisolated enum MatroskaAudio {
     /// The audio tracks, in file order, from the file's first bytes. Empty
     /// when it isn't Matroska or the track list isn't in `head`.
     static func audioTracks(in head: Data) -> [Track] {
-        TrackList([UInt8](head))?.audio.map { Track(language: $0.language, name: $0.name, isDefault: $0.isDefault) } ?? []
+        TrackList([UInt8](head))?.audio.map(\.track) ?? []
     }
 
-    /// The rewritten track list that makes audio track `index` the one TVs
-    /// play. Nil when nothing needs to change or the list can't be read.
-    static func patch(head: Data, choosing index: Int) -> Patch? {
+    /// The built-in subtitle tracks, in file order.
+    static func subtitleTracks(in head: Data) -> [Track] {
+        TrackList([UInt8](head))?.subtitles.map(\.track) ?? []
+    }
+
+    /// The rewritten track list that leaves the TV audio track `index` and, if given,
+    /// built-in subtitle track `subtitle`; nothing else to list or pick. Nil when
+    /// nothing needs to change or the list can't be read.
+    static func patch(head: Data, choosing index: Int, keepingSubtitle subtitle: Int? = nil) -> Patch? {
         var bytes = [UInt8](head)
-        guard let list = TrackList(bytes), list.audio.count > 1, list.audio.indices.contains(index) else { return nil }
+        guard let list = TrackList(bytes), list.audio.indices.contains(index) else { return nil }
         let original = Array(bytes[list.data])
-        // Explicit default flags: on for the chosen track, off for the rest.
-        // A missing flag means "default", which is fine once the chosen track comes first.
-        for (i, track) in list.audio.enumerated() {
-            guard let flag = track.flag else { continue }
-            for p in flag { bytes[p] = 0 }
-            bytes[flag.upperBound - 1] = i == index ? 1 : 0
+        var keep: Set<Int> = [list.audio[index].child]
+        if let subtitle, list.subtitles.indices.contains(subtitle) { keep.insert(list.subtitles[subtitle].child) }
+        for entry in list.audio + list.subtitles {
+            let range = list.children[entry.child]
+            if keep.contains(entry.child) {
+                // The one left is the default, whatever the file said.
+                if let flag = entry.flag {
+                    for p in flag { bytes[p] = 0 }
+                    bytes[flag.upperBound - 1] = 1
+                }
+            } else {
+                guard let void = voidElement(length: range.count) else { return nil }
+                bytes.replaceSubrange(range, with: void)
+            }
         }
-        var pieces = list.children.map { Array(bytes[$0]) }
-        let first = list.audio[0].child, chosen = list.audio[index].child
-        if chosen != first { pieces.insert(pieces.remove(at: chosen), at: first) }
-        var data = pieces.flatMap { $0 }
+        var data = Array(bytes[list.data])
         if let crc = list.crc {             // a leading CRC-32 covers everything after itself
             let value = crc32(data[(crc.upperBound - list.data.lowerBound)...])
             for i in 0..<4 { data[crc.lowerBound - list.data.lowerBound + i] = UInt8(value >> (8 * UInt32(i)) & 0xFF) }
@@ -66,6 +78,21 @@ nonisolated enum MatroskaAudio {
                               with: patch.bytes[from ..< from + Int(end - start)])
     }
 
+    /// An EBML Void element exactly `length` bytes long: ID 0xEC, the shortest size
+    /// that fits, then zeros. Nil below 2 bytes (no TrackEntry is that short).
+    static func voidElement(length: Int) -> [UInt8]? {
+        for sizeLength in 1...8 {
+            let payload = length - 1 - sizeLength
+            guard payload >= 0 else { return nil }
+            let limit = (UInt64(1) << UInt64(7 * sizeLength)) - 1       // all ones means "unknown size"
+            guard UInt64(payload) < limit else { continue }
+            let size = UInt64(payload) | (UInt64(1) << UInt64(7 * sizeLength))   // the length marker bit
+            let sizeBytes = (0..<sizeLength).reversed().map { UInt8(truncatingIfNeeded: size >> UInt64(8 * $0)) }
+            return [0xEC] + sizeBytes + [UInt8](repeating: 0, count: payload)
+        }
+        return nil
+    }
+
     /// IEEE CRC-32, as EBML stores it (little-endian).
     static func crc32(_ bytes: some Sequence<UInt8>) -> UInt32 {
         var crc: UInt32 = 0xFFFF_FFFF
@@ -82,17 +109,20 @@ nonisolated enum MatroskaAudio {
 /// The Tracks element of a Matroska file: where it sits, its children back to
 /// back, and which of them are audio tracks.
 nonisolated private struct TrackList {
-    struct Audio {
+    struct Entry {
         let child: Int              // index into `children`
         let language: String
         let name: String?
         let flag: Range<Int>?       // FlagDefault's value bytes
         let isDefault: Bool
+
+        var track: MatroskaAudio.Track { .init(language: language, name: name, isDefault: isDefault) }
     }
 
     let data: Range<Int>
     let children: [Range<Int>]
-    let audio: [Audio]
+    let audio: [Entry]
+    let subtitles: [Entry]
     let crc: Range<Int>?            // a leading CRC-32's value bytes
 
     // shortcut: only a track list ahead of the first cluster (where muxers put it); one after would need the SeekHead.
@@ -108,7 +138,7 @@ nonisolated private struct TrackList {
         }
         guard let tracks, let end = tracks.end, end <= b.count else { return nil }
 
-        var children: [Range<Int>] = [], audio: [Audio] = [], crc: Range<Int>?
+        var children: [Range<Int>] = [], audio: [Entry] = [], subtitles: [Entry] = [], crc: Range<Int>?
         at = tracks.dataStart
         while at < end {
             guard let child = EBMLElement(b, at: at), let childEnd = child.end, childEnd <= end else { return nil }
@@ -116,6 +146,7 @@ nonisolated private struct TrackList {
             if child.id == 0xAE {
                 guard let entry = Self.entry(b, child.dataStart..<childEnd, child: children.count) else { return nil }
                 if entry.type == 2 { audio.append(entry.track) }
+                if entry.type == 0x11 { subtitles.append(entry.track) }
             }
             children.append(at..<childEnd)
             at = childEnd
@@ -123,11 +154,12 @@ nonisolated private struct TrackList {
         data = tracks.dataStart..<end
         self.children = children
         self.audio = audio
+        self.subtitles = subtitles
         self.crc = crc
     }
 
-    /// One TrackEntry's type (2: audio) and details; nil if it can't be read.
-    private static func entry(_ b: [UInt8], _ range: Range<Int>, child: Int) -> (type: UInt64, track: Audio)? {
+    /// One TrackEntry's type (2: audio, 0x11: subtitles) and details; nil if it can't be read.
+    private static func entry(_ b: [UInt8], _ range: Range<Int>, child: Int) -> (type: UInt64, track: Entry)? {
         var type: UInt64 = 0, language = "eng", tag: String?, name: String?, flag: Range<Int>?
         var at = range.lowerBound
         while at < range.upperBound {
@@ -146,7 +178,7 @@ nonisolated private struct TrackList {
         var isDefault = true                                    // a missing flag means default
         if let flag { isDefault = b[flag].contains { $0 != 0 } }
         if let found = tag, !found.isEmpty { language = found }
-        let track = Audio(child: child, language: language, name: name?.isEmpty == false ? name : nil,
+        let track = Entry(child: child, language: language, name: name?.isEmpty == false ? name : nil,
                           flag: flag, isDefault: isDefault)
         return (type, track)
     }

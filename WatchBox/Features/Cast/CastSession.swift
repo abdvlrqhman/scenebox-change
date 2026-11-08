@@ -205,6 +205,8 @@ final class CastSession {
         let durationSeconds: Double
         /// Languages the TV should speak, best first (ISO 639 codes).
         var audioLanguages: [String] = []
+        /// The built-in subtitle showing on the phone; nil when it's off or an external file.
+        var subtitleLanguage: String? = nil
     }
 
     private(set) var phase: Phase = .idle
@@ -219,6 +221,8 @@ final class CastSession {
     /// The video's audio tracks (Matroska files the phone serves) and the one the TV plays.
     private(set) var audioTracks: [MatroskaAudio.Track] = []
     private(set) var audioTrack = 0
+    /// The built-in subtitle track the TV keeps (nil: none; an external file goes instead).
+    @ObservationIgnored private var keptSubtitle: Int?
     /// Goes up when a computer starts playing the video from the page, so the
     /// phone's own player can pause (two players would fight over the stream).
     private(set) var computerPlays = 0
@@ -290,12 +294,14 @@ final class CastSession {
 
     // MARK: Audio
 
-    /// Reads the file's audio tracks and picks the first one in a language
-    /// the viewer wants; the server then makes it the TV's default.
+    /// Reads the file's tracks and keeps only what's playing on the phone: the
+    /// voice in the wanted language, and the built-in subtitle if one is showing.
+    /// The server strips the rest from the file on its way to the TV.
     private func chooseAudio(for media: Media) async {
         guard ["mkv", "webm"].contains(fileExtension), let head = await head(of: media.source) else {
             audioTracks = []
             audioPatch = nil
+            keptSubtitle = nil
             return
         }
         audioTracks = MatroskaAudio.audioTracks(in: head)
@@ -303,7 +309,12 @@ final class CastSession {
             self.audioTracks.firstIndex { OriginalAudio.matches(language: $0.language, labels: [$0.name ?? ""], code: code) }
         }.first
         audioTrack = wanted ?? audioTracks.firstIndex(where: \.isDefault) ?? 0
-        audioPatch = wanted.flatMap { MatroskaAudio.patch(head: head, choosing: $0) }
+        keptSubtitle = media.subtitleLanguage.flatMap { code in
+            MatroskaAudio.subtitleTracks(in: head).firstIndex {
+                OriginalAudio.matches(language: $0.language, labels: [$0.name ?? ""], code: code)
+            }
+        }
+        audioPatch = MatroskaAudio.patch(head: head, choosing: audioTrack, keepingSubtitle: keptSubtitle)
     }
 
     /// The file's first megabyte, read once per video.
@@ -337,7 +348,7 @@ final class CastSession {
         guard audioTracks.indices.contains(index), index != audioTrack,
               let source = media?.source, let head = await head(of: source) else { return }
         audioTrack = index
-        audioPatch = MatroskaAudio.patch(head: head, choosing: index)
+        audioPatch = MatroskaAudio.patch(head: head, choosing: index, keepingSubtitle: keptSubtitle)
         await server.update(content())
         await reload()
     }
@@ -488,6 +499,12 @@ final class CastSession {
         defer { isSendingSubtitles = false }
         sentSubtitleFile = file
         subtitles = file.flatMap(CastSubtitles.make)
+        // A subtitle file now goes along: the TV shouldn't also have a built-in one to show.
+        if file != nil, keptSubtitle != nil, !audioTracks.isEmpty,
+           let source = media?.source, let head = await head(of: source) {
+            keptSubtitle = nil
+            audioPatch = MatroskaAudio.patch(head: head, choosing: audioTrack, keepingSubtitle: nil)
+        }
         await server.update(content())
         await reload()
     }

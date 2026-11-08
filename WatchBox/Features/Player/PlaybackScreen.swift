@@ -633,6 +633,12 @@ struct PlaybackScreen: View {
         OriginalAudio.matches(language: track.language, labels: [track.name, track.trackDescription ?? ""], code: code)
     }
 
+    /// The built-in subtitle showing here, if that's what's on (an external one goes as a file).
+    private var castEmbeddedSubtitleLanguage: String? {
+        guard let id = subs.embeddedID else { return nil }
+        return player.subtitleTracks.first { $0.id == id }?.language
+    }
+
     /// What the TV should speak, best first: the track playing here, then the one this player would pick.
     private var castAudioLanguages: [String] {
         [player.selectedAudioTrack?.language, targetAudioLanguage].compactMap { $0 }.filter { !$0.isEmpty }
@@ -850,7 +856,8 @@ struct PlaybackScreen: View {
         showCastPicker = true
         let media = CastSession.Media(source: sourceURL, title: title,
                                       durationSeconds: knownDuration.asSeconds,
-                                      audioLanguages: castAudioLanguages)
+                                      audioLanguages: castAudioLanguages,
+                                      subtitleLanguage: castEmbeddedSubtitleLanguage)
         let subtitleFile = subs.fileOnScreen
         Task { await cast.prepare(media, subtitleFile: subtitleFile) }
     }
@@ -864,7 +871,8 @@ struct PlaybackScreen: View {
         upNextRemaining = nil
         let media = CastSession.Media(source: sourceURL, title: title,
                                       durationSeconds: knownDuration.asSeconds,
-                                      audioLanguages: castAudioLanguages)
+                                      audioLanguages: castAudioLanguages,
+                                      subtitleLanguage: castEmbeddedSubtitleLanguage)
         player.stop()
         #if os(iOS)
         // Lock screen, AirPods and Control Center would drive the stopped phone player.

@@ -78,8 +78,7 @@ final class SearchModel {
         let searching = !trimmed.isEmpty
         let types = searching ? [.movie, .series, .anime] : scope.types
         activeTypes = types
-        // A new query never shows the previous query's rows as its own.
-        if searching, trimmed != activeQuery { results = [] }
+        let isNewQuery = searching && trimmed != activeQuery
         activeQuery = trimmed
         pageOffsets = [:]
         exhausted = []
@@ -92,6 +91,9 @@ final class SearchModel {
                 try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
             }
+            // A new query never shows the previous query's rows as its own; cleared after
+            // the debounce, so typing doesn't flash the page on every key.
+            if isNewQuery { results = [] }
             isLoading = true
             isAwaitingResults = true
 
@@ -158,10 +160,10 @@ final class SearchModel {
         !isLoading && !results.isEmpty && activeTypes.contains { !exhausted.contains($0) }
     }
 
-    func loadMoreIfNeeded(after item: MediaResult) {
+    func loadMoreIfNeeded(after item: MediaResult, isLastShown: Bool = false) {
         guard canLoadMore, !isLoadingMore,
               let index = results.firstIndex(where: { $0.id == item.id }),
-              index >= results.count - 12 else { return }
+              isLastShown || index >= results.count - 12 else { return }
         isLoadingMore = true
         let searching = !activeQuery.isEmpty
         let types = activeTypes.filter { !exhausted.contains($0) }

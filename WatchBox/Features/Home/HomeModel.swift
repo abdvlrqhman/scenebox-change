@@ -133,6 +133,14 @@ final class HomeModel {
     func loadUpNext(_ item: WatchProgress?, watched: Set<String>, downloaded: Set<String>) {
         upNextTask?.cancel()
         guard let item else { upNext = nil; return }
+        // Progress saves every 30 s while watching; the show's episodes don't change, so reuse them.
+        if let detail = upNext?.detail, upNext?.progress.id == item.id {
+            let episode = detail.resumeEpisode(savedEpisodeID: item.episodeID, savedFinished: item.isFinished,
+                                               watched: watched, downloaded: downloaded,
+                                               fallback: detail.episodes.first)
+            upNext = UpNext(progress: item, detail: detail, episode: episode)
+            return
+        }
         if upNext?.progress.id != item.id { upNext = UpNext(progress: item) }
         upNextTask = Task { [search] in
             guard let detail = try? await search.detail(id: item.id, type: item.mediaType), !Task.isCancelled else { return }
@@ -210,7 +218,11 @@ final class HomeModel {
             var built: [Shelf] = []
             for (i, spec) in specs.enumerated() {
                 let shelf = spec.filled(with: rows[i])
-                if !shelf.items.isEmpty { built.append(shelf) }
+                if !shelf.items.isEmpty {
+                    built.append(shelf)
+                } else if let kept = shelves.first(where: { $0.id == shelf.id }) {
+                    built.append(kept)      // a failed refresh (offline) keeps the row on screen
+                }
             }
             shelves = built
             var places: [String: String] = [:]

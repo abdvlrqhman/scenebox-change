@@ -14,6 +14,7 @@ struct HomeView: View {
     @Environment(WatchProgressStore.self) private var progress
     @Environment(WatchlistStore.self) private var watchlist
     @Environment(DownloadStore.self) private var downloads
+    @State private var openedTitle: MediaResult?
 
     var body: some View {
         NavigationStack {
@@ -25,6 +26,10 @@ struct HomeView: View {
             .mediaNavigationDestinations()
             .navigationDestination(for: CatalogDestination.self) { dest in
                 CatalogListView(type: dest.type, feed: dest.feed, genre: dest.genre)
+            }
+            // Context menus can't push a NavigationLink; "Go to Title" sets this instead.
+            .navigationDestination(item: $openedTitle) { item in
+                MediaDetailView(mediaID: item.id, type: item.type, fallbackTitle: item.name)
             }
         }
         .task { model.loadIfNeeded() }
@@ -82,7 +87,7 @@ struct HomeView: View {
                     .background(alignment: .top) { AmbientBackdrop(url: heroImage, height: 640).padding(.top, -80) }
                     let others = Array(progress.continueItems.dropFirst(model.upNext == nil ? 0 : 1))
                     if !others.isEmpty {
-                        KeepWatchingList(items: others)
+                        KeepWatchingList(items: others) { openedTitle = $0 }
                     }
                     if !unwatchedWatchlist.isEmpty {
                         PosterShelf(title: "Your watchlist", items: unwatchedWatchlist, showsSavedBadge: false)
@@ -422,7 +427,9 @@ private struct UpNextHero: View {
     private var isResuming: Bool {
         let p = upNext.progress
         guard !p.isFinished else { return false }
-        return p.mediaType == .movie || p.episodeID == upNext.episode?.id
+        // Until the show's episodes arrive, an unfinished one is what Play resumes (no jump at launch).
+        guard let episode = upNext.episode else { return true }
+        return p.mediaType == .movie || p.episodeID == episode.id
     }
 
     private var minutesLeft: Int? {
@@ -446,7 +453,11 @@ private struct UpNextHero: View {
                 .aspectRatio(Theme.scopeAspect, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .overlay {
-                    KFImage(upNext.episode?.thumbnailURL ?? upNext.detail?.backdropURL ?? upNext.progress.posterURL)
+                    // Wide from the start (Cinemeta's backdrop), so the frame doesn't swap a poster for a still.
+                    KFImage(upNext.episode?.thumbnailURL ?? upNext.detail?.backdropURL
+                            ?? (upNext.progress.id.hasPrefix("tt")
+                                ? URL(string: "https://images.metahub.space/background/medium/\(upNext.progress.id)/img") : nil)
+                            ?? upNext.progress.posterURL)
                         .setProcessor(DownsamplingImageProcessor(size: CGSize(width: 1200, height: 600)))
                         .resizable()
                         .fade(duration: 0.25)
@@ -523,6 +534,7 @@ private struct UpNextHero: View {
 /// Everything else in progress, as a hairline list; a row plays where you left off.
 private struct KeepWatchingList: View {
     let items: [WatchProgress]
+    let onOpenTitle: (MediaResult) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -533,7 +545,7 @@ private struct KeepWatchingList: View {
                 NavigationLink(value: PlayTitle(item: item.mediaResult)) { row(item) }
                     .buttonStyle(.pressable)
                     .contextMenu {
-                        NavigationLink(value: item.mediaResult) {
+                        Button { onOpenTitle(item.mediaResult) } label: {
                             Label("Go to Title", systemImage: "info.circle")
                         }
                         Button(role: .destructive) {
@@ -567,15 +579,17 @@ private struct KeepWatchingList: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
-                Capsule()
-                    .fill(Color.white.opacity(0.18))
-                    .frame(height: 2)
-                    .overlay(alignment: .leading) {
-                        GeometryReader { geo in
-                            Capsule().fill(Theme.accent).frame(width: geo.size.width * item.fraction)
+                if !item.isFinished, item.durationSeconds > 1 {
+                    Capsule()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(height: 2)
+                        .overlay(alignment: .leading) {
+                            GeometryReader { geo in
+                                Capsule().fill(Theme.accent).frame(width: geo.size.width * item.fraction)
+                            }
                         }
-                    }
-                    .padding(.top, 4)
+                        .padding(.top, 4)
+                }
             }
         }
         .padding(.vertical, 12)
@@ -587,7 +601,9 @@ private struct KeepWatchingList: View {
     private func line(for item: WatchProgress) -> String {
         let left = max(0, item.durationSeconds - item.positionSeconds)
         let minutes = Int((left / 60).rounded())
-        let time = minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(minutes) min left"
+        // A finished episode (or one marked watched) has no time left to show; Play goes on to the next.
+        let time = item.isFinished || item.durationSeconds <= 1 ? "Watched"
+            : minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m left" : "\(max(1, minutes)) min left"
         guard let season = item.season, let episode = item.episode else { return time }
         return "Season \(season), episode \(episode)   \(time)"
     }

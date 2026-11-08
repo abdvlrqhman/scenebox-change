@@ -35,7 +35,9 @@ struct CatalogListView: View {
             } else {
                 grid
                     .overlay { statusOverlay }
-                    .navigationTitle(type.browseTitle)
+                    // "Crime TV shows", not just "TV Shows", when a genre row's See all opened it.
+                    .navigationTitle(model.genre.map { "\($0) \(type == .series ? "TV shows" : type.browseTitle.lowercased())" }
+                                     ?? type.browseTitle)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         if !model.isShowingSearchResults {
@@ -129,7 +131,7 @@ struct CatalogListView: View {
                     .onAppear { model.loadMoreIfNeeded(after: item) }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.gutter)
             .padding(.bottom, 24)
 
             if model.isPaging {

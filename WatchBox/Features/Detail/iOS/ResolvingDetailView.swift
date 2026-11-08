@@ -13,6 +13,7 @@ struct ResolvingDetailView: View {
     @Environment(AppSettings.self) private var settings
     @State private var imdbID: String?
     @State private var failed = false
+    @State private var attempt = 0
 
     var body: some View {
         Group {
@@ -20,7 +21,11 @@ struct ResolvingDetailView: View {
                 MediaDetailView(mediaID: imdbID, type: credit.type, fallbackTitle: credit.title)
             } else if failed {
                 EmptyStateView(systemImage: "film", title: credit.title,
-                               message: "Couldn’t find a matching entry to open.")
+                               message: "Couldn’t find a matching entry to open.",
+                               actionTitle: "Try again") {
+                    failed = false
+                    attempt += 1
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Theme.background)
             } else {
@@ -29,7 +34,7 @@ struct ResolvingDetailView: View {
                     .background(Theme.background)
             }
         }
-        .task {
+        .task(id: attempt) {
             guard imdbID == nil, !failed else { return }
             guard let tmdb = TMDBClient(key: settings.tmdbAPIKey) else { failed = true; return }
             if let id = await tmdb.imdbID(tmdbID: credit.id, type: credit.type) {

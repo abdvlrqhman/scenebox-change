@@ -142,7 +142,10 @@ struct PlaybackScreen: View {
             #endif
 
             if let failure {
-                FailureOverlay(message: failure, onClose: onClose)
+                FailureOverlay(message: failure,
+                               onRetry: retryAfterFailure,
+                               onChooseVersion: onChooseVersion,
+                               onClose: onClose)
             } else if chrome.isVisible, !cast.isActive {
                 #if os(tvOS)
                 TVPlaybackChrome(
@@ -413,6 +416,17 @@ struct PlaybackScreen: View {
             && lastGoodPosition < knownDuration - .seconds(20)
     }
 
+    /// "Try again" on the failure card: a fresh set of recoveries from where it stopped.
+    private func retryAfterFailure() {
+        failure = nil
+        recoveries = 0
+        if lastGoodPosition > .zero {
+            recoverStream()
+        } else {
+            beginPlayback()
+        }
+    }
+
     /// Reopens the video where it stopped: from the file itself when it's all
     /// on the phone, else from the stream once it answers again.
     private func recoverStream() {
@@ -578,14 +592,14 @@ struct PlaybackScreen: View {
 
     // MARK: - Original-language audio
 
+    /// The voice to play: one picked earlier in this sitting, else the default audio
+    /// language from Settings, else (Default audio "Original") the title's own language.
     private var targetAudioLanguage: String? {
-        // A language picked earlier in this sitting wins over the defaults.
         if let chosen = PlayerChoices.audioLanguage, !chosen.isEmpty { return chosen.lowercased() }
         let preferred = settings.preferredAudioLanguage.lowercased()
+        if !preferred.isEmpty { return preferred }
         let original = originalAudioLanguage?.lowercased()
-        if preferred.isEmpty { return original?.isEmpty == false ? original : nil }
-        guard let original, !original.isEmpty, original != preferred else { return preferred }
-        return original
+        return original?.isEmpty == false ? original : nil
     }
 
     private func syncOriginalAudio() {
@@ -598,17 +612,21 @@ struct PlaybackScreen: View {
             player.selectedAudioTrack = chosen
             return
         }
-        guard let code = targetAudioLanguage else { return }
         guard tracks.count > 1 else { return }   // more may still be discovered
-
-        if let selected = player.selectedAudioTrack,
-           speaks(selected, code) {
-            chosenAudioID = selected.id
-            return
+        // The wanted voice, else the title's own language when this version lacks it.
+        let wanted = [targetAudioLanguage, originalAudioLanguage?.lowercased()]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        for code in wanted {
+            if let selected = player.selectedAudioTrack, speaks(selected, code) {
+                chosenAudioID = selected.id
+                return
+            }
+            if let match = tracks.first(where: { speaks($0, code) }) {
+                player.selectedAudioTrack = match
+                chosenAudioID = match.id
+                return
+            }
         }
-        guard let match = tracks.first(where: { speaks($0, code) }) else { return }
-        player.selectedAudioTrack = match
-        chosenAudioID = match.id
     }
 
     private func speaks(_ track: Track, _ code: String) -> Bool {
@@ -919,23 +937,42 @@ private struct InvisibleButtonStyle: ButtonStyle {
 }
 #endif
 
+/// A stop the player can't get past by itself: never a dead end, there's always a way on.
 private struct FailureOverlay: View {
     let message: String
+    let onRetry: () -> Void
+    var onChooseVersion: (() -> Void)? = nil
     let onClose: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.yellow)
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.title)
+                .foregroundStyle(.white.opacity(0.8))
             Text(message)
                 .multilineTextAlignment(.center)
                 .font(.callout)
-            Button("Close", action: onClose)
-                .buttonStyle(.borderedProminent)
+                .fixedSize(horizontal: false, vertical: true)
+            if let onChooseVersion {
+                Button(action: onChooseVersion) {
+                    Text("Choose another version")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Theme.accent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 10) {
+                Button("Try again", action: onRetry)
+                Button("Close", action: onClose)
+            }
+            .buttonStyle(.bordered)
+            .tint(.white)
         }
         .foregroundStyle(.white)
-        .padding(28)
-        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 18))
+        .padding(24)
+        .frame(maxWidth: 380)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous))
     }
 }

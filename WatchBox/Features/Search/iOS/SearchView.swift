@@ -40,8 +40,11 @@ struct SearchScreen: View {
             .statusBarScrim()
             .onAppear {
                 focusIfAsked()
-                // The tab is for typing: the field is ready (screenshot runs keep the grid visible).
-                if !Platform.isMac, model.query.isEmpty, !UserDefaults.standard.bool(forKey: "SBScreenshots") {
+                // The first visit is for typing; coming back to browse shouldn't raise the keyboard.
+                // (Screenshot runs keep the grid visible.)
+                if !didAutoFocus, !Platform.isMac, model.query.isEmpty,
+                   !UserDefaults.standard.bool(forKey: "SBScreenshots") {
+                    didAutoFocus = true
                     macFieldFocused = true
                 }
             }
@@ -149,7 +152,8 @@ struct SearchScreen: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(on ? Theme.onAccent : .white)
                 .padding(.horizontal, 14)
-                .frame(height: 34)
+                .padding(.vertical, 7)
+                .frame(minHeight: 34)
                 .background(on ? Theme.accent : Color.white.opacity(0.10), in: Capsule())
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -177,6 +181,7 @@ struct SearchScreen: View {
     // MARK: - Mac header
 
     @FocusState private var macFieldFocused: Bool
+    @State private var didAutoFocus = false
 
     private var macSearchHeader: some View {
         HStack(spacing: 12) {
@@ -279,7 +284,16 @@ struct SearchResults: View {
     @ViewBuilder
     var body: some View {
         if model.isAwaitingResults && model.results.isEmpty {
-            placeholderGrid
+            // Search results are rows, so poster tiles would only flash; the field shows the spinner.
+            if model.isSearching { Color.clear } else { placeholderGrid }
+        } else if !model.results.isEmpty, shown.isEmpty, let filter {
+            // The chip filters out everything found so far.
+            EmptyStateView(systemImage: "magnifyingglass", title: "No \(filter == .series ? "TV shows" : filter.browseTitle.lowercased()) found",
+                           message: "Other kinds matched; this chip shows only one.",
+                           actionTitle: model.canLoadMore ? "Load more" : nil) {
+                if let last = model.results.last { model.loadMoreIfNeeded(after: last, isLastShown: true) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.results.isEmpty, let message = model.errorMessage {
             EmptyStateView(systemImage: "wifi.exclamationmark", title: "Couldn’t load", message: message,
                            actionTitle: "Try again") { model.run(immediate: true) }
@@ -335,7 +349,7 @@ struct SearchResults: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.pressable)
-                    .onAppear { model.loadMoreIfNeeded(after: item) }
+                    .onAppear { model.loadMoreIfNeeded(after: item, isLastShown: item.id == shown.last?.id) }
                 }
             }
             .padding(.horizontal, Theme.gutter)
@@ -400,7 +414,7 @@ struct SearchResults: View {
                     PosterLink(item: item) {
                         PosterCard(item: item)
                     }
-                    .onAppear { model.loadMoreIfNeeded(after: item) }
+                    .onAppear { model.loadMoreIfNeeded(after: item, isLastShown: item.id == shown.last?.id) }
                 }
             }
             .padding(.horizontal, Theme.gutter)

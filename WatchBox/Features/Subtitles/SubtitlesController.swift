@@ -111,6 +111,9 @@ final class SubtitlesController {
         } else if let language = SubtitleMemory.episodeLanguage(for: context), !language.isEmpty {
             // New source for this episode: same language, best version for this release.
             self.preferred = SubtitleLanguage.canonical(language)
+        } else if let chosen = PlayerChoices.subtitleLanguage {
+            // Picked (or turned off) earlier in this sitting: the next episode keeps it.
+            self.preferred = chosen
         } else {
             self.preferred = SubtitleLanguage.canonical(preferred)
         }
@@ -643,7 +646,10 @@ final class SubtitlesController {
             } else if preferredLookupDone {
                 wanted = .off
                 if !preferred.isEmpty {
-                    statusMessage = "No \(SubtitleLanguage.displayName(for: preferred)) subtitles found for this title. You can translate the English ones below."
+                    let name = SubtitleLanguage.displayName(for: preferred)
+                    statusMessage = SubtitleLanguage.canonical(preferred) == "eng"
+                        ? "No English subtitles found for this title."
+                        : "No \(name) subtitles found for this title. You can translate the English ones below."
                 }
                 enforceOff(in: player, settled: tracksSettled)
             }

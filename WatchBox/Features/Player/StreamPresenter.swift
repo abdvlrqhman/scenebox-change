@@ -21,7 +21,7 @@ struct StreamPlayerContainer: View {
                 PlaybackScreen(
                     url: target.url,
                     title: target.title,
-                    stats: target.showsTorrentStats ? streamer.stats : nil,
+                    stats: tvStats(showing: target.showsTorrentStats),
                     subtitleContext: target.subtitleContext,
                     episodes: streamer.episodePlaylist,
                     startAt: target.startPosition,
@@ -63,6 +63,18 @@ struct StreamPlayerContainer: View {
         .overlay(alignment: .topTrailing) {
             if !UserDefaults.standard.bool(forKey: "SBScreenshots") { DiagnosticsOverlay() }
         }
+        #endif
+    }
+}
+
+extension StreamPlayerContainer {
+    /// Peers and speed for the Apple TV buffering line. iPhone never shows them, and reading
+    /// `streamer.stats` (rewritten every second) here redrew the whole player, menus included.
+    func tvStats(showing: Bool) -> SwarmStats? {
+        #if os(tvOS)
+        showing ? streamer.stats : nil
+        #else
+        nil
         #endif
     }
 }

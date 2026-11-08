@@ -27,7 +27,6 @@ struct MediaDetailView: View {
     @State private var batchStatus: String?
     @State private var batchMessage: String?
     @State private var toast: ToastMessage?
-    @State private var resumeAt: Duration = .zero
     @Environment(DownloadStore.self) private var downloads
     @Environment(AppSettings.self) private var settings
     @Environment(WatchProgressStore.self) private var progressStore
@@ -155,6 +154,7 @@ struct MediaDetailView: View {
         resolveTask?.cancel()
         resolveTask = nil
         isAutoResolving = false
+        batchStatus = nil
     }
 
     private var resolvingOverlay: some View {
@@ -166,7 +166,7 @@ struct MediaDetailView: View {
                     .font(.callout)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
-                if isAutoResolving {
+                if isAutoResolving || batchStatus != nil {
                     Button("Cancel") { cancelAutoResolve() }
                         .buttonStyle(.bordered)
                         .tint(.white)
@@ -503,7 +503,6 @@ struct MediaDetailView: View {
     // MARK: - Watch / Download
 
     private func watch(episode: Episode?) {
-        resumeAt = startPosition(for: episode)
         if let download = downloads.completedDownload(mediaID: mediaID, episodeLabel: episode?.label) {
             playOffline(download, episode: episode)
         } else {
@@ -537,8 +536,7 @@ struct MediaDetailView: View {
             let detail = model.detail
             let name = detail?.name ?? fallbackTitle
             let label = [name, episode?.label].compactMap { $0 }.joined(separator: " · ")
-            let startAt = resumeAt
-            resumeAt = .zero
+            let startAt = startPosition(for: episode)
             let subtitleContext = SubtitleContext(
                 imdbID: mediaID, type: type,
                 season: episode?.season, episode: episode?.episode)
@@ -600,7 +598,8 @@ struct MediaDetailView: View {
         guard !toResolve.isEmpty else { return }
 
         batchStatus = "Finding sources… 0 of \(toResolve.count)"
-        Task {
+        // Kept in resolveTask so the overlay's Cancel stops a season-long search too.
+        resolveTask = Task {
             var found: [Int: TorrentStream] = [:]
             var finished = 0
             await withTaskGroup(of: (Int, TorrentStream?).self) { group in
@@ -613,12 +612,14 @@ struct MediaDetailView: View {
                 }
                 for _ in 0..<min(3, toResolve.count) { enqueue() }
                 for await (index, stream) in group {
+                    if Task.isCancelled { group.cancelAll(); break }
                     if let stream { found[index] = stream }
                     finished += 1
                     batchStatus = "Finding sources… \(finished) of \(toResolve.count)"
                     enqueue()
                 }
             }
+            guard !Task.isCancelled else { batchStatus = nil; return }
             var missing: [String] = []
             for (index, episode) in toResolve.enumerated() {
                 if let stream = found[index] {
@@ -681,8 +682,9 @@ struct MediaDetailView: View {
             streamer.stop()
         }
 
-        let startAt = resumeAt
-        resumeAt = .zero
+        // Read now, not stored at the first Play: a version picked later (Other versions,
+        // the error card, the menu) must resume at the same place, not 0:00.
+        let startAt = startPosition(for: episode)
         let progressContext = WatchProgressContext(
             mediaID: mediaID, mediaType: type, title: name,
             posterURL: detail?.posterURL,
@@ -778,7 +780,6 @@ struct MediaDetailView: View {
     }
 
     private func playEpisode(_ episode: Episode) {
-        resumeAt = startPosition(for: episode)
         if let download = downloads.completedDownload(mediaID: mediaID, episodeLabel: episode.label) {
             playOffline(download, episode: episode)
             return

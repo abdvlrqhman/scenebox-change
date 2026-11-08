@@ -288,7 +288,7 @@ struct PlaybackSettingsPanel: View {
                            tags: tags(for: track, index: index, videoFPS: videoFPS),
                            selected: subs.selectedID == track.id,
                            loading: subs.loadingID == track.id) {
-                    subs.apply(track, on: player, exact: true)
+                    subs.apply(track, on: player, exact: true); PlayerChoices.subtitleLanguage = SubtitleLanguage.canonical(track.languageCode)
                 }
             }
             if let message = subs.statusMessage {
@@ -418,14 +418,14 @@ struct PlaybackSettingsPanel: View {
     private var subtitleSection: some View {
         SettingsSection(title: "Languages") {
             OptionRow(title: "Off", selected: !hasActiveSubtitle) {
-                subs.apply(nil, on: player)
+                subs.apply(nil, on: player); PlayerChoices.subtitleLanguage = ""
                 page = home
             }
 
             ForEach(subs.embeddedTracks(of: player)) { track in
                 OptionRow(title: trackTitle(track), detail: trackDetail(track),
                           selected: subs.embeddedID == track.id) {
-                    subs.selectEmbedded(track, on: player)
+                    subs.selectEmbedded(track, on: player); PlayerChoices.subtitleLanguage = track.language.map(SubtitleLanguage.canonical)
                     page = home
                 }
             }
@@ -455,13 +455,13 @@ struct PlaybackSettingsPanel: View {
         let pinned = pinnedLanguages
         let others = subs.byLanguage.count - pinned.count
         return SettingsSection(title: "Subtitles") {
-            OptionRow(title: "Off", selected: !hasActiveSubtitle) { subs.apply(nil, on: player) }
+            OptionRow(title: "Off", selected: !hasActiveSubtitle) { subs.apply(nil, on: player); PlayerChoices.subtitleLanguage = "" }
             ForEach(pinned, id: \.language) { group in languageRow(group) }
             ForEach(subs.embeddedTracks(of: player)) { track in
                 OptionRow(title: trackTitle(track),
                           detail: [trackDetail(track), "In the video"].compactMap { $0 }.joined(separator: ", "),
                           selected: subs.embeddedID == track.id) {
-                    subs.selectEmbedded(track, on: player)
+                    subs.selectEmbedded(track, on: player); PlayerChoices.subtitleLanguage = track.language.map(SubtitleLanguage.canonical)
                 }
             }
             if subs.isLoading {
@@ -519,7 +519,7 @@ struct PlaybackSettingsPanel: View {
             OptionRow(title: count > 1 ? "\(group.language), \(count) versions" : group.language,
                       selected: active) {
                 if !active, let best = subs.versions(for: code, player: player).first {
-                    subs.apply(best, on: player)
+                    subs.apply(best, on: player); PlayerChoices.subtitleLanguage = SubtitleLanguage.canonical(code)
                 }
                 if count > 1 { showVersions(of: code, returningTo: page) }
             }
@@ -527,7 +527,7 @@ struct PlaybackSettingsPanel: View {
             HStack(spacing: 4) {
                 OptionRow(title: group.language, selected: active) {
                     if !active, let best = subs.versions(for: code, player: player).first {
-                        subs.apply(best, on: player)
+                        subs.apply(best, on: player); PlayerChoices.subtitleLanguage = SubtitleLanguage.canonical(code)
                     }
                 }
                 if count > 1 {

@@ -365,7 +365,7 @@ final class StreamCoordinator {
         var preferredID: String?
         if let key = memory?.trackKey, key.hasPrefix("ext:") { preferredID = String(key.dropFirst(4)) }
         let language = memory?.language ?? SubtitleMemory.episodeLanguage(for: context)
-            ?? settings.preferredSubtitleLanguage
+            ?? PlayerChoices.subtitleLanguage ?? settings.preferredSubtitleLanguage
         guard !language.isEmpty else { return }
         Task.detached(priority: .userInitiated) {
             await SubtitlesProvider.shared.prefetch(context: context, preferredLanguage: language,

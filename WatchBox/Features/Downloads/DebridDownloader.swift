@@ -200,7 +200,14 @@ extension DebridDownloader: URLSessionDataDelegate {
     }
 
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        try? handle?.write(contentsOf: data)
+        do {
+            try handle?.write(contentsOf: data)
+        } catch {
+            // Disk full or the file gone: counting these bytes would mark a broken file complete.
+            dataTask.cancel()
+            finish(.failure(error))
+            return
+        }
 
         lock.lock()
         downloaded += Int64(data.count)

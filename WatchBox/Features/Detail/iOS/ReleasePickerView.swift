@@ -88,7 +88,11 @@ struct ReleasePickerView: View {
                         }
                         Button("Source settings") {
                             dismiss()
-                            TabRouter.shared.showProfile = true
+                            // Settings can only open once this sheet has finished closing.
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(500))
+                                TabRouter.shared.showProfile = true
+                            }
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.textSecondary)

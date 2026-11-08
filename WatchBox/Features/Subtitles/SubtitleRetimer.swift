@@ -71,7 +71,7 @@ nonisolated enum SubtitleRetimer {
         let pieces = token.replacingOccurrences(of: ",", with: ".").split(separator: ":")
         guard pieces.count == 2 || pieces.count == 3 else { return nil }
         let secondParts = pieces.last!.split(separator: ".")
-        guard let seconds = Int(secondParts[0]) else { return nil }
+        guard let first = secondParts.first, let seconds = Int(first) else { return nil }   // "00:01:." is malformed
         let fraction = secondParts.count > 1 ? String(secondParts[1].prefix(3)) : "0"
         let millis = (Int(fraction) ?? 0) * Int(pow(10, Double(3 - fraction.count)))
         let minutes = Int(pieces[pieces.count - 2]) ?? 0
@@ -105,7 +105,7 @@ nonisolated enum SubtitleRetimer {
         let pieces = raw.trimmingCharacters(in: .whitespaces).split(separator: ":")
         guard pieces.count == 3, let h = Int(pieces[0]), let m = Int(pieces[1]) else { return nil }
         let secondParts = pieces[2].split(separator: ".")
-        guard let s = Int(secondParts[0]) else { return nil }
+        guard let first = secondParts.first, let s = Int(first) else { return nil }
         let centis = secondParts.count > 1 ? (Int(secondParts[1].prefix(2)) ?? 0) : 0
         return ((h * 60 + m) * 60 + s) * 1000 + centis * 10
     }

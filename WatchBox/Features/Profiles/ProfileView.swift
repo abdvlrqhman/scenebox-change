@@ -110,7 +110,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Playback & subtitles").sectionTitleStyle().textCase(nil)
                 } footer: {
-                    Text("Default audio is used when a title was made in that language (or its language is unknown); a foreign title keeps its original audio instead of a dub. Subtitles in your default language are fetched as soon as you press play.")
+                    Text("Default audio plays whenever a version has it; choose Original to hear each title in the language it was made in. Subtitles in your default language are fetched as soon as you press play.")
                 }
 
                 Section {
@@ -373,7 +373,11 @@ struct ProfileView: View {
 
     private var profileMenu: some View {
         Menu {
-            Button { profiles.deselect() } label: {
+            Button {
+                // Close Settings first, or it would open again over the next profile's Home.
+                TabRouter.shared.showProfile = false
+                profiles.deselect()
+            } label: {
                 Label("Switch profile", systemImage: "person.2")
             }
             if profiles.profiles.count < Profile.maxPerAccount {

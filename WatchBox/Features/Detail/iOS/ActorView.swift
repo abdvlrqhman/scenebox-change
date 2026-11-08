@@ -14,13 +14,14 @@ struct ActorView: View {
     @Environment(AppSettings.self) private var settings
     @State private var credits: [PersonCredit] = []
     @State private var isLoading = true
+    @State private var attempt = 0
 
     #if os(tvOS)
     private let columns = [GridItem(.adaptive(minimum: 200, maximum: 240), spacing: 40)]
     private let edge: CGFloat = 80
     #else
     private let columns = [GridItem(.adaptive(minimum: 108, maximum: 160), spacing: 12)]
-    private let edge: CGFloat = 16
+    private let edge: CGFloat = Theme.gutter
     #endif
 
     var body: some View {
@@ -32,8 +33,12 @@ struct ActorView: View {
                         .frame(maxWidth: .infinity).padding(.top, 60)
                 } else if credits.isEmpty {
                     EmptyStateView(systemImage: "film", title: "No titles",
-                                   message: "Couldn’t load this person’s filmography.")
-                        .frame(maxWidth: .infinity)
+                                   message: "Couldn’t load this person’s filmography.",
+                                   actionTitle: "Try again") {
+                        isLoading = true
+                        attempt += 1
+                    }
+                    .frame(maxWidth: .infinity)
                 } else {
                     LazyVGrid(columns: columns, spacing: 24) {
                         ForEach(credits) { credit in
@@ -59,7 +64,7 @@ struct ActorView: View {
         #else
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .task {
+        .task(id: attempt) {
             guard credits.isEmpty else { return }
             defer { isLoading = false }
             guard let tmdb = TMDBClient(key: settings.tmdbAPIKey) else { return }

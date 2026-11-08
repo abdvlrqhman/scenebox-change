@@ -35,7 +35,7 @@ launch() {  # launch <args...>
 launch;                                   shot 01-home 16
 launch -SBInitialTab library;             shot 02-library-downloads 12
 launch -SBInitialTab library -SBExpandAll YES; shot 03-library-expanded 12
-launch -SBInitialTab search;              shot 04-search 12
+launch -SBInitialTab search;              shot 04-search 16
 launch -SBInitialTab profile;             shot 05-profile 12
 launch -SBOpenDetail series/tt0903747;    shot 06-detail-series 16
 launch -SBOpenDetail movie/tt1375666;     shot 07-detail-movie 16

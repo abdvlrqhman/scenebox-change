@@ -37,14 +37,14 @@ struct EpisodeSection: View {
             let episodes = detail.episodes(inSeason: selectedSeason)
             if isSelecting, !episodes.isEmpty {
                 selectionBar(for: episodes)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Theme.gutter)
             }
 
             if episodes.isEmpty {
                 Text("No episodes listed for this season.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Theme.gutter)
             } else if usesCards {
                 HorizontalShelfScroller {
                     LazyHStack(alignment: .top, spacing: 16) {
@@ -72,7 +72,7 @@ struct EpisodeSection: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Theme.gutter)
                     .padding(.vertical, 6)
                 }
             } else {

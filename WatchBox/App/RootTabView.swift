@@ -90,7 +90,9 @@ struct RootTabView: View {
                 .environment(profiles)
                 .preferredColorScheme(.dark)
         }
-        .environment(\.openMediaDetail, sizeClass == .regular && !Platform.isMac ? { detailItem = $0 } : nil)
+        // Every title pushes the same way on iPad too (posters used to open a sheet while every
+        // other way in pushed); a sheet also blocked Settings from opening over it.
+        .environment(\.openMediaDetail, nil)
         .sheet(item: $detailItem) { item in
             NavigationStack {
                 MediaDetailView(mediaID: item.id, type: item.type, fallbackTitle: item.name)

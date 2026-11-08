@@ -153,7 +153,7 @@ struct DownloadsView: View {
         // Each title once, its episodes in order whatever their state, like on its page.
         let watchedDone = store.downloads.filter { $0.phase == .completed && isWatched($0) }
         return List {
-            if store.downloads.contains(where: { $0.phase != .completed }) { transferStatus }
+            if store.downloads.contains(where: { $0.phase != .completed }) { TransferStatusRow(store: store) }
             groupRows(groups)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -194,37 +194,6 @@ struct DownloadsView: View {
         .sensoryFeedback(.success, trigger: store.downloads.filter { $0.phase == .completed }.count) { old, new in
             new > old
         }
-    }
-
-    /// Where transfers stand, with Pause all / Resume all beside it.
-    private var transferStatus: some View {
-        let pending = store.downloads.filter(\.phase.isPending)
-        let stopped = store.downloads.filter { $0.phase == .paused || $0.phase == .failed }
-        let coming = pending + stopped
-        let total = coming.reduce(Int64(0)) { $0 + $1.record.totalBytes }
-        let done = coming.reduce(Int64(0)) { $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes)) }
-        let counts = [pending.isEmpty ? nil : "\(pending.count) downloading",
-                      stopped.isEmpty ? nil : "\(stopped.count) paused"].compactMap { $0 }.joined(separator: ", ")
-        return HStack(alignment: .firstTextBaseline) {
-            Text("\(counts), \(ByteFormat.size(done)) of \(ByteFormat.size(total))")
-                .font(.subheadline)
-                .monospacedDigit()
-                .foregroundStyle(Theme.textSecondary)
-            Spacer(minLength: 8)
-            Group {
-                if !pending.isEmpty {
-                    Button("Pause all") { store.pauseAll() }
-                } else if !stopped.isEmpty {
-                    Button("Resume all") { store.resumeAll() }
-                }
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(minHeight: 44)
-        }
-        .listRowBackground(Theme.background)
-        .listRowSeparator(.hidden)
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -465,6 +434,43 @@ struct DownloadsView: View {
 // MARK: - Rows (iOS)
 
 #if !os(tvOS)
+
+/// Where transfers stand, with Pause all / Resume all beside it. Its own view, so the
+/// twice-a-second progress updates redraw this line, not the whole Downloads list.
+private struct TransferStatusRow: View {
+    let store: DownloadStore
+
+    var body: some View {
+        let pending = store.downloads.filter(\.phase.isPending)
+        let stopped = store.downloads.filter { $0.phase == .paused || $0.phase == .failed }
+        let coming = pending + stopped
+        let total = coming.reduce(Int64(0)) { $0 + $1.record.totalBytes }
+        let done = coming.reduce(Int64(0)) { $0 + Int64(min(max($1.progress, 0), 1) * Double($1.record.totalBytes)) }
+        let counts = [pending.isEmpty ? nil : "\(pending.count) downloading",
+                      stopped.isEmpty ? nil : "\(stopped.count) paused"].compactMap { $0 }.joined(separator: ", ")
+        return HStack(alignment: .firstTextBaseline) {
+            Text("\(counts), \(ByteFormat.size(done)) of \(ByteFormat.size(total))")
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(Theme.textSecondary)
+            Spacer(minLength: 8)
+            Group {
+                if !pending.isEmpty {
+                    Button("Pause all") { store.pauseAll() }
+                } else if !stopped.isEmpty {
+                    Button("Resume all") { store.resumeAll() }
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(minHeight: 44)
+        }
+        .listRowBackground(Theme.background)
+        .listRowSeparator(.hidden)
+        .buttonStyle(.plain)
+    }
+}
+
 /// Total transfer state with the bulk controls.
 private struct GroupHeaderRow: View {
     let group: DownloadGroup

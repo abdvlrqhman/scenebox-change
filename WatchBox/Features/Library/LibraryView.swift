@@ -259,7 +259,7 @@ private struct HistorySection: View {
     @Environment(WatchProgressStore.self) private var progress
 
     var body: some View {
-        let items = progress.items.sorted { $0.updatedAt > $1.updatedAt }
+        let items = progress.items      // the store keeps them newest first
         if items.isEmpty {
             EmptyStateView(systemImage: "clock.arrow.circlepath", title: "Nothing watched yet",
                            message: "What you watch shows up here, newest first.")

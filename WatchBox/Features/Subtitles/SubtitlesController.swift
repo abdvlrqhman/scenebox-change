@@ -22,7 +22,12 @@ import SwiftVLC
 @MainActor
 @Observable
 final class SubtitlesController {
-    private(set) var available: [SubtitleTrack] = []
+    private(set) var available: [SubtitleTrack] = [] {
+        didSet { byLanguage = Self.grouped(available) }
+    }
+    /// Versions grouped by language, in the order the languages first appear.
+    /// Kept, not computed: the player's menus read it on every redraw.
+    private(set) var byLanguage: [(language: String, tracks: [SubtitleTrack])] = []
     private(set) var selectedID: String?
     private(set) var embeddedID: String?
     private(set) var externalTrackIDs: Set<String> = []
@@ -740,15 +745,14 @@ final class SubtitlesController {
         return matches.first
     }
 
-    var byLanguage: [(language: String, tracks: [SubtitleTrack])] {
-        let groups = Dictionary(grouping: available, by: \.languageName)
-        return groups
-            .map { (language: $0.key, tracks: $0.value) }
-            .sorted { lhs, rhs in
-                let l = available.firstIndex { $0.languageName == lhs.language } ?? 0
-                let r = available.firstIndex { $0.languageName == rhs.language } ?? 0
-                return l < r
-            }
+    private static func grouped(_ tracks: [SubtitleTrack]) -> [(language: String, tracks: [SubtitleTrack])] {
+        var order: [String] = []
+        var groups: [String: [SubtitleTrack]] = [:]
+        for track in tracks {
+            if groups[track.languageName] == nil { order.append(track.languageName) }
+            groups[track.languageName, default: []].append(track)
+        }
+        return order.map { (language: $0, tracks: groups[$0] ?? []) }
     }
 }
 

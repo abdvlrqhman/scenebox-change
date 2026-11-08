@@ -22,6 +22,7 @@ struct PlaybackControls: View {
     var onAudioSelected: (Track) -> Void = { _ in }
     var episodes: EpisodePlaylist? = nil
     var onCast: (() -> Void)? = nil
+    var onChooseVersion: (() -> Void)? = nil
     let onClose: () -> Void
 
     @State private var showEpisodes = false
@@ -51,6 +52,7 @@ struct PlaybackControls: View {
                                       onAudioSelected: onAudioSelected,
                                       opensOnSubtitles: panelOnSubtitles,
                                       includesTracks: false,
+                                      onChooseVersion: onChooseVersion,
                                       onRotate: canRotate ? onToggleOrientation : nil) { showSettings = false }
                     .transition(.opacity)
             }

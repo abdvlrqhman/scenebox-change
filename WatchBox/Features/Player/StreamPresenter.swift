@@ -29,6 +29,7 @@ struct StreamPlayerContainer: View {
                     artworkURL: streamer.backdropURL,
                     originalAudioLanguage: target.originalAudioLanguage,
                     onRecover: { await streamer.recoveryURL() },
+                    onChooseVersion: streamer.canChooseVersion ? { streamer.chooseAnotherVersion() } : nil,
                     onClose: streamer.stop
                 )
                 .id(target.url)   // rebuild the player for a new episode's stream

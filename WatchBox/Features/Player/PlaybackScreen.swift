@@ -29,6 +29,7 @@ struct PlaybackScreen: View {
     var originalAudioLanguage: String? = nil
     /// After the stream broke off mid-episode: where to reopen it.
     var onRecover: (() async -> URL?)? = nil
+    var onChooseVersion: (() -> Void)? = nil
     let onClose: () -> Void
 
     @Environment(AppSettings.self) private var settings
@@ -41,6 +42,9 @@ struct PlaybackScreen: View {
     @State private var subs = SubtitlesController()
     @State private var failure: String?
     @State private var isStalled = false
+    /// Set by the stall watcher once time moves, so `isBuffering` never reads the
+    /// clock: reading it in `body` redrew the whole screen (and any open menu) every tick.
+    @State private var hasPlayedFrames = false
     @State private var didSeekToStart = false
     @State private var openRetries = 0
     /// Replaces `url` after a recovery (e.g. the finished file on disk).
@@ -173,6 +177,7 @@ struct PlaybackScreen: View {
                     onAudioSelected: { track in chosenAudioID = track.id; PlayerChoices.audioLanguage = track.language },
                     episodes: chromeEpisodes,
                     onCast: openCastPicker,
+                    onChooseVersion: onChooseVersion,
                     onClose: onClose
                 )
                 .transition(.opacity)
@@ -438,7 +443,7 @@ struct PlaybackScreen: View {
         if isRecovering { return true }   // Play would restart from the beginning
         switch player.state {
         case .opening, .buffering: return true
-        case .playing: return player.currentTime == .zero || isStalled
+        case .playing: return !hasPlayedFrames || isStalled
         default: return false
         }
     }
@@ -464,6 +469,7 @@ struct PlaybackScreen: View {
                 frozenTicks = 0
                 lastSeen = player.currentTime
             }
+            if !hasPlayedFrames, player.currentTime > .zero { hasPlayedFrames = true }
             if recoverySeek == nil, !isRecovering, player.currentTime > .zero {
                 // A minute of good playback after a recovery clears the count.
                 if let at = recoveredAt, player.currentTime > at + .seconds(60) {

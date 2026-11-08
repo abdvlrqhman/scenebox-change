@@ -16,9 +16,3 @@ func timecode(_ duration: Duration) -> String {
         : String(format: "%d:%02d", minutes, seconds)
 }
 
-func trackLabel(for track: Track) -> String {
-    guard let language = track.language, !language.isEmpty else { return track.name }
-    return track.name.localizedCaseInsensitiveContains(language)
-        ? track.name
-        : "\(track.name) · \(language)"
-}

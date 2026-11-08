@@ -17,6 +17,9 @@ struct PlaybackSettingsPanel: View {
     /// Off when a separate CC button owns audio and subtitles, so the two buttons
     /// never open the same page (tvOS and casting have only one button).
     var includesTracks = true
+    /// Opens this episode's other versions (closing the player): the way to a
+    /// voice or language this file doesn't have.
+    var onChooseVersion: (() -> Void)? = nil
     /// Phones only: the screen turns from here rather than from a top-bar icon.
     var onRotate: (() -> Void)? = nil
     let onClose: () -> Void
@@ -31,7 +34,7 @@ struct PlaybackSettingsPanel: View {
     private let rates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        ZStack(alignment: opensOnSubtitles ? .center : .trailing) {
             Color.black.opacity(0.45)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
@@ -59,13 +62,19 @@ struct PlaybackSettingsPanel: View {
                             }
                         }
                     case .captions:
-                        // Subtitles first (what CC is for), then how they look, then audio
-                        // when there's a choice. The long tail of languages sits one tap away.
+                        // Audio and subtitles side by side, each a list with a check, like
+                        // every streaming app; stacked when there isn't room for two columns.
                         header(title: "Audio & subtitles")
-                        subtitleQuickSection
-                        sizeSection
-                        if hasActiveSubtitle { subtitleDelaySection }
-                        if uniqueTracks(player.audioTracks).count > 1 { audioSection }
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 32) {
+                                audioColumn.frame(minWidth: 240, maxWidth: .infinity, alignment: .topLeading)
+                                subtitleColumn.frame(minWidth: 300, maxWidth: .infinity, alignment: .topLeading)
+                            }
+                            VStack(alignment: .leading, spacing: 22) {
+                                audioColumn
+                                subtitleColumn
+                            }
+                        }
                     case .subtitles:
                         header(title: opensOnSubtitles ? "All languages" : "Subtitles")
                         subtitleSection
@@ -78,7 +87,7 @@ struct PlaybackSettingsPanel: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: panelWidth, maxHeight: .infinity)
+            .frame(maxWidth: opensOnSubtitles ? 860 : panelWidth, maxHeight: .infinity)
             .background(Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(panelInset)
@@ -141,13 +150,67 @@ struct PlaybackSettingsPanel: View {
     private var audioSection: some View {
         SettingsSection(title: "Audio") {
             ForEach(uniqueTracks(player.audioTracks)) { track in
-                OptionRow(title: trackLabel(for: track),
+                OptionRow(title: trackTitle(track), detail: trackDetail(track),
                           selected: player.selectedAudioTrack?.id == track.id) {
                     player.selectedAudioTrack = track
                     onAudioSelected(track)
                 }
             }
         }
+    }
+
+    /// Every voice in this file, always shown (one voice says so), and the way to
+    /// another version when the wanted language isn't here.
+    private var audioColumn: some View {
+        let tracks = uniqueTracks(player.audioTracks)
+        return SettingsSection(title: "Audio") {
+            if tracks.isEmpty {
+                Text("Loading voices…")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .frame(minHeight: 44)
+            }
+            ForEach(tracks) { track in
+                OptionRow(title: trackTitle(track), detail: trackDetail(track),
+                          selected: player.selectedAudioTrack?.id == track.id || tracks.count == 1) {
+                    player.selectedAudioTrack = track
+                    onAudioSelected(track)
+                }
+            }
+            if tracks.count == 1 {
+                Text("This version has one voice.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            if let onChooseVersion {
+                NavRow(title: "Other versions", value: "Other languages", action: onChooseVersion)
+            }
+        }
+    }
+
+    private var subtitleColumn: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            subtitleQuickSection
+            sizeSection
+            if hasActiveSubtitle { subtitleDelaySection }
+        }
+    }
+
+    /// "French": the language, not VLC's "Track 1 · fre"; its own name when it has none.
+    private func trackTitle(_ track: Track) -> String {
+        guard let code = track.language, !code.isEmpty else { return track.name }
+        let name = SubtitleLanguage.displayName(for: SubtitleLanguage.canonical(code))
+        return name.count <= 3 && name == name.uppercased() ? track.name : name   // unknown code
+    }
+
+    /// What tells two voices apart ("5.1", "Commentary"), without the language or "Track 2".
+    private func trackDetail(_ track: Track) -> String? {
+        let rest = track.name
+            .replacingOccurrences(of: #"\[[^\]]*\]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)^track\s*\d+"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " -–·"))
+        guard !rest.isEmpty, rest.caseInsensitiveCompare(trackTitle(track)) != .orderedSame else { return nil }
+        return rest
     }
 
     private var subtitleNavSection: some View {
@@ -360,7 +423,7 @@ struct PlaybackSettingsPanel: View {
             }
 
             ForEach(subs.embeddedTracks(of: player)) { track in
-                OptionRow(title: trackLabel(for: track),
+                OptionRow(title: trackTitle(track), detail: trackDetail(track),
                           selected: subs.embeddedID == track.id) {
                     subs.selectEmbedded(track, on: player)
                     page = home
@@ -395,7 +458,8 @@ struct PlaybackSettingsPanel: View {
             OptionRow(title: "Off", selected: !hasActiveSubtitle) { subs.apply(nil, on: player) }
             ForEach(pinned, id: \.language) { group in languageRow(group) }
             ForEach(subs.embeddedTracks(of: player)) { track in
-                OptionRow(title: trackLabel(for: track), detail: "In the video",
+                OptionRow(title: trackTitle(track),
+                          detail: [trackDetail(track), "In the video"].compactMap { $0 }.joined(separator: ", "),
                           selected: subs.embeddedID == track.id) {
                     subs.selectEmbedded(track, on: player)
                 }
@@ -489,7 +553,7 @@ struct PlaybackSettingsPanel: View {
     private var currentSubtitleLabel: String {
         if let id = subs.embeddedID,
            let track = subs.embeddedTracks(of: player).first(where: { $0.id == id }) {
-            return trackLabel(for: track)
+            return trackTitle(track)
         }
         if let group = subs.byLanguage.first(where: { group in
             group.tracks.contains { $0.id == subs.selectedID }

@@ -91,7 +91,10 @@ struct MediaDetailView: View {
             #endif
             .task { model.load() }
             .onChange(of: model.isReady, initial: true) { _, ready in
-                guard ready, autoplay, !didAutoplay, let detail = model.detail else { return }
+                guard ready, let detail = model.detail else { return }
+                // Open on the season Play continues in, not always season 1.
+                if let season = resumeEpisode(for: detail)?.season { model.selectedSeason = season }
+                guard autoplay, !didAutoplay else { return }
                 didAutoplay = true
                 watch(episode: resumeEpisode(for: detail))
             }

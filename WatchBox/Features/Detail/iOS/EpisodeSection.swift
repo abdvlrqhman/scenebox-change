@@ -124,6 +124,7 @@ struct EpisodeSection: View {
                 .sectionTitleStyle()
                 .lineLimit(1)
             if detail.seasons.count > 1 {
+                ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
                         ForEach(detail.seasons, id: \.self) { season in
@@ -138,8 +139,15 @@ struct EpisodeSection: View {
                             .buttonStyle(.pressable)
                             .accessibilityLabel(seasonName(season))
                             .accessibilityAddTraits(on ? .isSelected : [])
+                            .id(season)
                         }
                     }
+                }
+                // A show with many seasons keeps the chosen one in view.
+                .onAppear { proxy.scrollTo(selectedSeason, anchor: .center) }
+                .onChange(of: selectedSeason) { _, season in
+                    withAnimation(Theme.smooth) { proxy.scrollTo(season, anchor: .center) }
+                }
                 }
             } else {
                 Spacer(minLength: 0)

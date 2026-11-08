@@ -733,6 +733,10 @@ struct PlaybackScreen: View {
         let url = sourceURL
         do {
             let media = try Media(url: url)
+            // Lift subtitles clear of the scrubber and time when the controls show.
+            // shortcut: a fixed lift in video pixels (libVLC's sub-margin); render the text
+            // ourselves via SwiftVLC's text-subtitle stream to move it only while controls show.
+            media.addOption(":sub-margin=90")
             if !url.isFileURL {
                 let isTorrent = url.host == "127.0.0.1"
                 // The local torrent server already holds data ahead of the playhead,

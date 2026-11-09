@@ -925,9 +925,8 @@ struct PlaybackScreen: View {
         #endif
         chrome.viewDisappeared()
         ScreenIdle.keepAwake(false)
-        #if os(iOS)
-        ScreenOrientation.reset()
-        #endif
+        // No orientation reset here: on Next episode the new player has already turned the
+        // screen landscape, and this teardown runs after it. The container resets on close.
 
         let player = player
         Task {

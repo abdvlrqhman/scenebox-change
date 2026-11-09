@@ -58,7 +58,12 @@ struct StreamPlayerContainer: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { streamer.revive() }
         }
-        .onDisappear { PlayerChoices.reset() }   // the next title starts from the defaults
+        .onDisappear {
+            PlayerChoices.reset()                 // the next title starts from the defaults
+            #if os(iOS)
+            ScreenOrientation.reset()             // once the player closes, not between episodes
+            #endif
+        }
         #if DEBUG
         .overlay(alignment: .topTrailing) {
             if !UserDefaults.standard.bool(forKey: "SBScreenshots") { DiagnosticsOverlay() }

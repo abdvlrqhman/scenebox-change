@@ -107,10 +107,12 @@ struct ProfileView: View {
                     SubtitleSizePreview(scale: settings.subtitleScale)
                     Toggle("Fill screen (crop)", isOn: $settings.fillScreen)
                         .tint(toggleTint)
+                    Toggle("Hardware video decoding", isOn: $settings.hardwareDecoding)
+                        .tint(toggleTint)
                 } header: {
                     Text("Playback & subtitles").sectionTitleStyle().textCase(nil)
                 } footer: {
-                    Text("Default audio plays whenever a version has it; choose Original to hear each title in the language it was made in. Subtitles in your default language are fetched as soon as you press play.")
+                    Text("Default audio plays whenever a version has it; choose Original to hear each title in the language it was made in. Subtitles in your default language are fetched as soon as you press play. If the picture breaks into grey blocks after a pause or a switch, turn off hardware video decoding (it uses more battery).")
                 }
 
                 Section {

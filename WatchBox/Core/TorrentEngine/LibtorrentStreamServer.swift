@@ -446,7 +446,9 @@ actor LibtorrentStreamServer {
 
     private func readChunk(piece: Int, offsetInPiece: Int, length: Int,
                            absoluteOffset: Int64) async throws -> Data {
-        for attempt in 0..<4 {
+        // libtorrent's own read comes through its cache, so it's right even before the
+        // piece reaches the disk: give it time (it's slow after a pause or the app was away).
+        for attempt in 0..<8 {
             try Task.checkCancellation()
             if let data = await readPiece(piece), data.count >= offsetInPiece + length {
                 return data.subdata(in: offsetInPiece..<(offsetInPiece + length))
@@ -456,15 +458,39 @@ actor LibtorrentStreamServer {
         torrentLog.notice("stream: read_piece failed for piece \(piece, privacy: .public); reading disk")
         let path = filePath
         let fileRelativeOffset = absoluteOffset - fileOffset
-        for _ in 0..<40 {
+        var lastRead = Data()
+        for _ in 0..<60 {
             try Task.checkCancellation()
             let data = await Task.detached(priority: .userInitiated) {
                 Self.readFromDisk(path: path, offset: fileRelativeOffset, length: length)
             }.value
-            if !data.isEmpty { return data }
-            try? await Task.sleep(for: .milliseconds(120))
+            // A verified piece can still be in libtorrent's write cache: the file then reads
+            // back blank there, and blank bytes played as video are grey blocks and a frozen
+            // picture. Wait for the real bytes; try libtorrent again meanwhile.
+            if !data.isEmpty, !Self.hasBlankBlock(data) { return data }
+            if !data.isEmpty { lastRead = data }
+            if let fresh = await readPiece(piece), fresh.count >= offsetInPiece + length {
+                return fresh.subdata(in: offsetInPiece..<(offsetInPiece + length))
+            }
+            try? await Task.sleep(for: .milliseconds(150))
         }
-        throw NetworkIO.Failure.closed
+        // shortcut: after ~10 s a file with genuine zero padding (a reserved Void) is served as is.
+        guard !lastRead.isEmpty else { throw NetworkIO.Failure.closed }
+        torrentLog.notice("stream: serving piece \(piece, privacy: .public) from disk with blank blocks")
+        return lastRead
+    }
+
+    /// A whole 16 KiB block of zeros: a region of the file not written yet (libtorrent
+    /// writes in 16 KiB blocks; compressed video never holds that many zeros in a row).
+    nonisolated static func hasBlankBlock(_ data: Data) -> Bool {
+        let block = 16 * 1024
+        var start = data.startIndex
+        while data.endIndex - start >= block {
+            let end = start + block
+            if !data[start..<end].contains(where: { $0 != 0 }) { return true }
+            start = end
+        }
+        return false
     }
 
     private func readPiece(_ index: Int) async -> Data? {

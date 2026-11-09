@@ -158,6 +158,12 @@ final class AppSettings {
         didSet { persist(networkCacheMilliseconds, .networkCache) }
     }
 
+    /// Off: the player decodes video in software (more battery). The hardware decoder can
+    /// lose the picture after a jump (grey blocks, frozen for seconds) on some files.
+    var hardwareDecoding = true {
+        didSet { persist(hardwareDecoding, .hardwareDecoding) }
+    }
+
     var fillScreen = false {
         didSet { persist(fillScreen, .fillScreen) }
     }
@@ -292,6 +298,9 @@ final class AppSettings {
             networkCacheMilliseconds = defaults.integer(forKey: Key.networkCache.rawValue)
         }
         fillScreen = defaults.bool(forKey: Key.fillScreen.rawValue)
+        if defaults.object(forKey: Key.hardwareDecoding.rawValue) != nil {
+            hardwareDecoding = defaults.bool(forKey: Key.hardwareDecoding.rawValue)
+        }
         storageCapBytes = Int64(defaults.integer(forKey: Key.storageCap.rawValue))
         if defaults.object(forKey: Key.streamCacheLimit.rawValue) != nil {
             streamCacheLimitGB = defaults.integer(forKey: Key.streamCacheLimit.rawValue)
@@ -357,7 +366,7 @@ final class AppSettings {
     private enum Key: String {
         case excludedQualities, releaseSort, preferredResolution, accentColor
         case subtitleScale, preferredSubtitleLanguage, preferredAudioLanguage
-        case networkCache, fillScreen
+        case networkCache, fillScreen, hardwareDecoding
         case storageCap, streamCacheLimit, keepFinishedStreams
         case maxPeers, streamingPort, wifiOnly, customTrackers
         case maxSimultaneousDownloads, backgroundDownloadMode, downloadLiveActivity

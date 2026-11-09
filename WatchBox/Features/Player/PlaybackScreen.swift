@@ -185,6 +185,10 @@ struct PlaybackScreen: View {
             VideoView(player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
+                #if os(tvOS)
+                .allowsHitTesting(false)
+                .focusable(false)
+                #endif
 
             // Downloaded subtitles, drawn by the app from the picture's clock (VLC draws
             // only the tracks inside the video).
@@ -192,10 +196,6 @@ struct PlaybackScreen: View {
                 SubtitleOverlay(cues: subs.drawnCues, player: player,
                                 scale: settings.subtitleScale, raised: chrome.isVisible)
             }
-                #if os(tvOS)
-                .allowsHitTesting(false)
-                .focusable(false)
-                #endif
 
             #if os(iOS)
             Color.clear

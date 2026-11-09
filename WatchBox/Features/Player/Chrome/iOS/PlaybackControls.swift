@@ -100,16 +100,22 @@ private struct TopBar: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(parts.show)
-                    .font(.display(20, weight: .medium, relativeTo: .title3))
+                    .font(.display(18, weight: .medium, relativeTo: .headline))
                     .lineLimit(1)
                 if let episode = parts.episode {
                     Text(spoken(episode))
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.7))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
                 }
             }
             .truncationMode(.middle)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 6)
+            .frame(minHeight: 44)
+            .glassChrome(in: Capsule())
+            .frame(maxWidth: 420, alignment: .leading)
+            .accessibilityElement(children: .combine)
 
             Spacer(minLength: 0)
 
@@ -129,11 +135,7 @@ private struct TopBar: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(
-            LinearGradient(colors: [.black.opacity(0.6), .clear],
-                           startPoint: .top, endPoint: .bottom)
-                .padding(.bottom, -40)
-        )
+        // No scrim: every control is its own piece of glass, the picture stays untouched.
     }
 
     /// "S1E3" reads as "Season 1, episode 3".
@@ -158,49 +160,51 @@ private struct TransportRow: View {
     var body: some View {
         let glyph: CGFloat = Platform.isMac ? 34 : 28
         let playSize: CGFloat = Platform.isMac ? 84 : 72
-        HStack(spacing: Platform.isMac ? 64 : 48) {
+        let skipSize: CGFloat = Platform.isMac ? 64 : 56
+        HStack(spacing: Platform.isMac ? 56 : 40) {
             Button {
                 try? player.seek(by: .seconds(-10), fast: true)
             } label: {
-                Image(systemName: "gobackward.10").font(.system(size: glyph))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                Image(systemName: "gobackward.10").font(.system(size: glyph * 0.8, weight: .medium))
+                    .frame(width: skipSize, height: skipSize)
+                    .glassChrome(in: Circle())
+                    .contentShape(Circle())
             }
             .disabled(!player.isSeekable)
             .accessibilityLabel("Back 10 seconds")
 
-            ZStack {
-                if isBuffering, player.currentTime == .zero {
-                    ProgressView().controlSize(.large).tint(.white)
-                } else {
-                    Button {
-                        player.togglePlaybackReasserting()
-                    } label: {
+            // Loading shows inside the play button, which stays a button (tap to pause).
+            Button {
+                player.togglePlaybackReasserting()
+            } label: {
+                Group {
+                    if isBuffering {
+                        ProgressView().controlSize(.large).tint(.white)
+                    } else {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: glyph, weight: .semibold))
-                            .foregroundStyle(.white)
                             .contentTransition(.symbolEffect(.replace))
-                            .frame(width: playSize, height: playSize)
-                            .glassChrome(in: Circle())
-                            .contentShape(Rectangle())
                     }
-                    .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 }
+                .foregroundStyle(.white)
+                .frame(width: playSize, height: playSize)
+                .glassChrome(in: Circle())
+                .contentShape(Circle())
             }
-            .frame(width: playSize, height: playSize)
+            .accessibilityLabel(isBuffering ? "Loading" : player.isPlaying ? "Pause" : "Play")
 
             Button {
                 try? player.seek(by: .seconds(10), fast: true)
             } label: {
-                Image(systemName: "goforward.10").font(.system(size: glyph))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                Image(systemName: "goforward.10").font(.system(size: glyph * 0.8, weight: .medium))
+                    .frame(width: skipSize, height: skipSize)
+                    .glassChrome(in: Circle())
+                    .contentShape(Circle())
             }
             .disabled(!player.isSeekable)
             .accessibilityLabel("Forward 10 seconds")
         }
         .buttonStyle(.plain)
-        .shadow(radius: 8)
     }
 }
 
@@ -209,48 +213,68 @@ private struct BottomBar: View {
     let isBuffering: Bool
     var episodes: EpisodePlaylist? = nil
     var onShowEpisodes: () -> Void = {}
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
-        VStack(spacing: Platform.isMac ? 14 : 10) {
-            if episodes != nil || isBuffering {
+        let seek = SeekRow(player: player)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 48)
+            .glassChrome(in: Capsule())
+        Group {
+            if verticalSizeClass == .compact || Platform.isMac {
+                // Landscape: one low row, so the controls take as little of the picture as possible.
                 HStack(spacing: 10) {
-                    if let episodes {
-                        pill("Episodes", systemImage: "rectangle.stack", action: onShowEpisodes)
+                    if episodes != nil { episodesButton(compact: true) }
+                    seek
+                    if let next = episodes?.next { nextButton(next, compact: true) }
+                }
+            } else {
+                VStack(spacing: 10) {
+                    if episodes != nil {
+                        HStack(spacing: 10) {
+                            episodesButton(compact: false)
+                            Spacer(minLength: 0)
+                            if let next = episodes?.next { nextButton(next, compact: false) }
+                        }
                     }
-                    if isBuffering {
-                        Text("Loading…")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
-                    Spacer(minLength: 0)
-                    if let next = episodes?.next {
-                        pill("Next episode", systemImage: "forward.end.fill") { episodes?.onPlay(next) }
-                    }
+                    seek
                 }
             }
-            SeekRow(player: player)
         }
         .padding(.horizontal, Platform.isMac ? 32 : 20)
-        .padding(.top, Platform.isMac ? 28 : 16)
+        .padding(.top, Platform.isMac ? 20 : 12)
         .padding(.bottom, Platform.isMac ? 24 : 12)
-        .background(
-            // Dark enough that a subtitle running under the scrubber can't fight it.
-            LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
-                .padding(.top, -40)
-                .ignoresSafeArea()
-        )
     }
 
-    private func pill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    private func episodesButton(compact: Bool) -> some View {
+        pill("Episodes", systemImage: "rectangle.stack", iconOnly: compact, action: onShowEpisodes)
+    }
+
+    private func nextButton(_ next: Episode, compact: Bool) -> some View {
+        pill("Next episode", systemImage: "forward.end.fill", iconOnly: compact) { episodes?.onPlay(next) }
+    }
+
+    /// A glass pill, or a glass circle beside the scrubber in landscape (VoiceOver keeps the name).
+    @ViewBuilder
+    private func pill(_ title: String, systemImage: String, iconOnly: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 44)
-                .glassChrome(in: Capsule())
+            if iconOnly {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .glassChrome(in: Circle())
+            } else {
+                Label(title, systemImage: systemImage)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .glassChrome(in: Capsule())
+            }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 

@@ -111,8 +111,8 @@ final class SubtitlesController {
         } else if let language = SubtitleMemory.episodeLanguage(for: context), !language.isEmpty {
             // New source for this episode: same language, best version for this release.
             self.preferred = SubtitleLanguage.canonical(language)
-        } else if let chosen = PlayerChoices.subtitleLanguage {
-            // Picked (or turned off) earlier in this sitting: the next episode keeps it.
+        } else if let chosen = ShowLanguages.subtitles(for: context.imdbID) {
+            // Picked (or turned off) for this show before: every episode keeps it, any day.
             self.preferred = chosen
         } else {
             self.preferred = SubtitleLanguage.canonical(preferred)
@@ -214,6 +214,11 @@ final class SubtitlesController {
     }
 
     // MARK: User choices
+
+    /// Remembers a language the viewer picked ("" = Off) for this show.
+    func rememberLanguage(_ code: String?) {
+        ShowLanguages.setSubtitles(code, for: context?.imdbID)
+    }
 
     /// Shows `track`. `exact` is for a version the viewer tapped: no silent
     /// substitute if it fails, and the current subtitle stays up. Otherwise

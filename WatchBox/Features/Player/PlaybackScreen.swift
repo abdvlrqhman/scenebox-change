@@ -159,7 +159,7 @@ struct PlaybackScreen: View {
                              : chrome.releaseHold(autoHide: player.isPlaying && !isBuffering)
                     },
                     onInteraction: { chrome.interacted(autoHide: player.isPlaying && !isBuffering) },
-                    onAudioSelected: { track in chosenAudioID = track.id; PlayerChoices.audioLanguage = track.language },
+                    onAudioSelected: { track in chosenAudioID = track.id; ShowLanguages.setAudio(track.language, for: showID) },
                     episodes: chromeEpisodes,
                     onClose: onClose
                 )
@@ -177,7 +177,7 @@ struct PlaybackScreen: View {
                     },
                     isLandscape: isLandscape,
                     onToggleOrientation: toggleOrientation,
-                    onAudioSelected: { track in chosenAudioID = track.id; PlayerChoices.audioLanguage = track.language },
+                    onAudioSelected: { track in chosenAudioID = track.id; ShowLanguages.setAudio(track.language, for: showID) },
                     episodes: chromeEpisodes,
                     onCast: openCastPicker,
                     onChooseVersion: onChooseVersion,
@@ -236,7 +236,7 @@ struct PlaybackScreen: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .background(.ultraThinMaterial, in: Capsule())
+                .glassChrome(in: Capsule())
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(.trailing, upNextTrailingInset)
                 .padding(.bottom, chrome.isVisible ? upNextRaisedInset : upNextBottomInset)
@@ -595,10 +595,13 @@ struct PlaybackScreen: View {
 
     // MARK: - Original-language audio
 
-    /// The voice to play: one picked earlier in this sitting, else the default audio
+    /// The show (or movie) this is, for the voice and subtitles remembered for it.
+    private var showID: String? { progress?.mediaID ?? subtitleContext?.imdbID }
+
+    /// The voice to play: the one picked for this show before, else the default audio
     /// language from Settings, else (Default audio "Original") the title's own language.
     private var targetAudioLanguage: String? {
-        if let chosen = PlayerChoices.audioLanguage, !chosen.isEmpty { return chosen.lowercased() }
+        if let chosen = ShowLanguages.audio(for: showID), !chosen.isEmpty { return chosen.lowercased() }
         let preferred = settings.preferredAudioLanguage.lowercased()
         if !preferred.isEmpty { return preferred }
         let original = originalAudioLanguage?.lowercased()
@@ -988,6 +991,6 @@ private struct FailureOverlay: View {
         .foregroundStyle(.white)
         .padding(24)
         .frame(maxWidth: 380)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous))
+        .glassPanel(in: RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous))
     }
 }

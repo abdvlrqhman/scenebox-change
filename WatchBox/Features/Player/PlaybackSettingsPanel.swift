@@ -43,67 +43,7 @@ struct PlaybackSettingsPanel: View {
     private let rates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
     var body: some View {
-        ZStack(alignment: opensOnSubtitles ? .center : .trailing) {
-            Color.black.opacity(0.45)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onClose)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    switch page {
-                    case .root:
-                        header(title: "Playback")
-                        if includesTracks {
-                            if uniqueTracks(player.audioTracks).count > 1 { audioSection }
-                            subtitleNavSection
-                            sizeSection           // tvOS has no CC page, so size lives here too
-                            if hasActiveSubtitle { subtitleDelaySection }
-                        }
-                        speedSection
-                        aspectSection
-                        if let onRotate {
-                            SettingsSection(title: "Screen") {
-                                NavRow(title: "Rotate", value: "") {
-                                    onClose()
-                                    onRotate()
-                                }
-                            }
-                        }
-                    case .captions:
-                        // Audio and subtitles side by side, each a list with a check, like
-                        // every streaming app; stacked when there isn't room for two columns.
-                        header(title: "Audio & subtitles")
-                        // Decided by the screen, not the content: measuring the content made
-                        // the panel jump between layouts whenever a row changed.
-                        if twoColumns {
-                            HStack(alignment: .top, spacing: 32) {
-                                audioColumn.frame(maxWidth: .infinity, alignment: .topLeading)
-                                subtitleColumn.frame(maxWidth: .infinity, alignment: .topLeading)
-                            }
-                        } else {
-                            VStack(alignment: .leading, spacing: 22) {
-                                audioColumn
-                                subtitleColumn
-                            }
-                        }
-                    case .subtitles:
-                        header(title: opensOnSubtitles ? "All languages" : "Subtitles")
-                        subtitleSection
-                    case .versions:
-                        header(title: versionsTitle)
-                        versionsSection
-                        if hasActiveSubtitle { subtitleDelaySection }
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: opensOnSubtitles ? 860 : panelWidth, maxHeight: .infinity)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .padding(panelInset)
-        }
+        container
         .foregroundStyle(.white)
         .animation(.easeInOut(duration: 0.15), value: page)
         .onAppear {
@@ -117,6 +57,95 @@ struct PlaybackSettingsPanel: View {
             if page == home { onClose() } else { goBack() }
         }
         #endif
+    }
+
+    @ViewBuilder
+    private var container: some View {
+        #if os(tvOS)
+        ZStack(alignment: .trailing) {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onClose)
+
+            ScrollView { pageContent }
+                .frame(maxWidth: panelWidth, maxHeight: .infinity)
+                .background(Theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(panelInset)
+        }
+        #else
+        // The picture isn't dimmed: a tap outside closes the menu, which hangs as glass
+        // under the buttons that opened it, as tall as its content.
+        ZStack(alignment: .topTrailing) {
+            Color.clear
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onClose)
+
+            ViewThatFits(in: .vertical) {
+                pageContent
+                ScrollView { pageContent }
+                    .scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxWidth: opensOnSubtitles && twoColumns ? 600 : opensOnSubtitles ? 440 : panelWidth)
+            .glassPanel(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .padding(.top, 68)              // under the top bar's buttons
+            .padding(.horizontal, panelInset)
+            .padding(.bottom, panelInset)
+        }
+        #endif
+    }
+
+    private var pageContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            switch page {
+            case .root:
+                header(title: "Playback")
+                if includesTracks {
+                    if uniqueTracks(player.audioTracks).count > 1 { audioSection }
+                    subtitleNavSection
+                    sizeSection           // tvOS has no CC page, so size lives here too
+                    if hasActiveSubtitle { subtitleDelaySection }
+                }
+                speedSection
+                aspectSection
+                if let onRotate {
+                    SettingsSection(title: "Screen") {
+                        NavRow(title: "Rotate", value: "") {
+                            onClose()
+                            onRotate()
+                        }
+                    }
+                }
+            case .captions:
+                // Audio and subtitles side by side, each a list with a check, like
+                // every streaming app; stacked when there isn't room for two columns.
+                header(title: "Audio & subtitles")
+                // Decided by the screen, not the content: measuring the content made
+                // the panel jump between layouts whenever a row changed.
+                if twoColumns {
+                    HStack(alignment: .top, spacing: 32) {
+                        audioColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                        subtitleColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 22) {
+                        audioColumn
+                        subtitleColumn
+                    }
+                }
+            case .subtitles:
+                header(title: opensOnSubtitles ? "All languages" : "Subtitles")
+                subtitleSection
+            case .versions:
+                header(title: versionsTitle)
+                versionsSection
+                if hasActiveSubtitle { subtitleDelaySection }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func header(title: String) -> some View {
@@ -354,7 +383,7 @@ struct PlaybackSettingsPanel: View {
                            tags: tags(for: track, index: index, videoFPS: videoFPS),
                            selected: subs.selectedID == track.id,
                            loading: subs.loadingID == track.id) {
-                    subs.apply(track, on: player, exact: true); PlayerChoices.subtitleLanguage = SubtitleLanguage.canonical(track.languageCode)
+                    subs.apply(track, on: player, exact: true); subs.rememberLanguage(SubtitleLanguage.canonical(track.languageCode))
                 }
             }
             if let message = subs.statusMessage {
@@ -484,14 +513,14 @@ struct PlaybackSettingsPanel: View {
     private var subtitleSection: some View {
         SettingsSection(title: "Languages") {
             OptionRow(title: "Off", selected: !hasActiveSubtitle) {
-                subs.apply(nil, on: player); PlayerChoices.subtitleLanguage = ""
+                subs.apply(nil, on: player); subs.rememberLanguage("")
                 page = home
             }
 
             ForEach(subs.embeddedTracks(of: player)) { track in
                 OptionRow(title: trackTitle(track), detail: trackDetail(track),
                           selected: subs.embeddedID == track.id) {
-                    subs.selectEmbedded(track, on: player); PlayerChoices.subtitleLanguage = track.language.map(SubtitleLanguage.canonical)
+                    subs.selectEmbedded(track, on: player); subs.rememberLanguage(track.language.map(SubtitleLanguage.canonical))
                     page = home
                 }
             }
@@ -521,13 +550,13 @@ struct PlaybackSettingsPanel: View {
         let pinned = pinnedLanguages
         let others = subs.byLanguage.count - pinned.count
         return SettingsSection(title: "Subtitles") {
-            OptionRow(title: "Off", selected: !hasActiveSubtitle) { subs.apply(nil, on: player); PlayerChoices.subtitleLanguage = "" }
+            OptionRow(title: "Off", selected: !hasActiveSubtitle) { subs.apply(nil, on: player); subs.rememberLanguage("") }
             ForEach(pinned, id: \.language) { group in languageRow(group) }
             ForEach(subs.embeddedTracks(of: player)) { track in
                 OptionRow(title: trackTitle(track),
                           detail: [trackDetail(track), "In the video"].compactMap { $0 }.joined(separator: ", "),
                           selected: subs.embeddedID == track.id) {
-                    subs.selectEmbedded(track, on: player); PlayerChoices.subtitleLanguage = track.language.map(SubtitleLanguage.canonical)
+                    subs.selectEmbedded(track, on: player); subs.rememberLanguage(track.language.map(SubtitleLanguage.canonical))
                 }
             }
             if subs.isLoading {
@@ -585,7 +614,7 @@ struct PlaybackSettingsPanel: View {
             OptionRow(title: count > 1 ? "\(group.language), \(count) versions" : group.language,
                       selected: active) {
                 if !active, let best = subs.versions(for: code, player: player).first {
-                    subs.apply(best, on: player); PlayerChoices.subtitleLanguage = SubtitleLanguage.canonical(code)
+                    subs.apply(best, on: player); subs.rememberLanguage(SubtitleLanguage.canonical(code))
                 }
                 if count > 1 { showVersions(of: code, returningTo: page) }
             }
@@ -593,7 +622,7 @@ struct PlaybackSettingsPanel: View {
             HStack(spacing: 4) {
                 OptionRow(title: group.language, selected: active) {
                     if !active, let best = subs.versions(for: code, player: player).first {
-                        subs.apply(best, on: player); PlayerChoices.subtitleLanguage = SubtitleLanguage.canonical(code)
+                        subs.apply(best, on: player); subs.rememberLanguage(SubtitleLanguage.canonical(code))
                     }
                 }
                 if count > 1 {

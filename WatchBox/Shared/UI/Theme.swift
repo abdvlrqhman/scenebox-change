@@ -112,4 +112,22 @@ extension View {
         background(.ultraThinMaterial, in: shape)
         #endif
     }
+
+    /// Glass for menus floating over the video: tinted a little darker than the
+    /// buttons so rows stay readable over a bright frame, and the picture shows through.
+    @ViewBuilder
+    func glassPanel<S: Shape>(in shape: S) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            glassEffect(.regular.tint(Color.black.opacity(0.35)), in: shape)
+        } else {
+            background(.ultraThinMaterial, in: shape)
+                .background(Color.black.opacity(0.35), in: shape)
+                .overlay(shape.stroke(Color.white.opacity(0.14), lineWidth: 0.5))
+                .environment(\.colorScheme, .dark)
+        }
+        #else
+        background(Theme.surface, in: shape)
+        #endif
+    }
 }

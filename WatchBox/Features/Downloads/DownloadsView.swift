@@ -64,6 +64,9 @@ struct DownloadsView: View {
     @State private var confirmRemoveWatched = false
     #if !os(tvOS)
     @State private var openedTitle: MediaResult?
+    /// A download played from here opens its title page, which plays it: the same player,
+    /// episode list, Next and versions as streaming.
+    @State private var playingTitle: PlayTitle?
     @Environment(\.openMediaDetail) private var openMediaDetail
     #endif
 
@@ -115,6 +118,10 @@ struct DownloadsView: View {
         #if !os(tvOS)
         .navigationDestination(item: $openedTitle) { item in
             MediaDetailView(mediaID: item.id, type: item.type, fallbackTitle: item.name)
+        }
+        .navigationDestination(item: $playingTitle) { play in
+            MediaDetailView(mediaID: play.item.id, type: play.item.type, fallbackTitle: play.item.name,
+                            autoplay: true, autoplayEpisodeID: play.episodeID)
         }
         #endif
         .onAppear {
@@ -205,7 +212,7 @@ struct DownloadsView: View {
                                 timeLeft: timeLeft(download),
                                 onPrimary: { primaryAction(for: download) })
                     .contentShape(Rectangle())
-                    .onTapGesture { if download.phase == .completed { play(download) } }
+                    .onTapGesture { if download.phase == .completed { watch(download) } }
                     .listRowBackground(Theme.background)
                     .listRowSeparatorTint(Theme.hairline)
                     .swipeActions { deleteButton { pendingDelete = .one(download) } }
@@ -384,7 +391,7 @@ struct DownloadsView: View {
     private func primaryAction(for download: Download) {
         switch download.phase {
         case .completed:
-            play(download)
+            watch(download)
         case .downloading, .resolving, .queued:
             store.pause(download)
         case .paused, .failed:
@@ -392,6 +399,20 @@ struct DownloadsView: View {
         }
     }
 
+    /// Plays a download the way streaming plays (iPhone, iPad): through its title page.
+    private func watch(_ download: Download) {
+        #if os(tvOS)
+        play(download)
+        #else
+        let record = download.record
+        guard let type = MediaType(rawValue: record.mediaType) else { play(download); return }
+        let item = MediaResult(id: record.mediaID, type: type, name: record.title,
+                               year: nil, posterURL: record.posterURL, description: nil)
+        playingTitle = PlayTitle(item: item, episodeID: record.episode?.id)
+        #endif
+    }
+
+    /// Straight into the player with the file (Apple TV, screenshots).
     private func play(_ download: Download) {
         Task {
             guard let url = await store.localFileURL(for: download) else {

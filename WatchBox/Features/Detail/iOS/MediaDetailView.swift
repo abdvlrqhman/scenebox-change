@@ -14,6 +14,7 @@ struct MediaDetailView: View {
     let fallbackTitle: String
     /// Opened from a Play on Home: start playing as soon as the page has loaded.
     var autoplay = false
+    var autoplayEpisodeID: String? = nil
 
     @State private var model: MediaDetailModel
     @State private var didAutoplay = false
@@ -35,11 +36,13 @@ struct MediaDetailView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dismiss) private var dismiss
 
-    init(mediaID: String, type: MediaType, fallbackTitle: String, autoplay: Bool = false) {
+    init(mediaID: String, type: MediaType, fallbackTitle: String, autoplay: Bool = false,
+         autoplayEpisodeID: String? = nil) {
         self.mediaID = mediaID
         self.type = type
         self.fallbackTitle = fallbackTitle
         self.autoplay = autoplay
+        self.autoplayEpisodeID = autoplayEpisodeID
         _model = State(initialValue: MediaDetailModel(mediaID: mediaID, type: type))
     }
 
@@ -91,11 +94,18 @@ struct MediaDetailView: View {
             .task { model.load() }
             .onChange(of: model.isReady, initial: true) { _, ready in
                 guard ready, let detail = model.detail else { return }
-                // Open on the season Play continues in, not always season 1.
-                if let season = resumeEpisode(for: detail)?.season { model.selectedSeason = season }
+                let asked = autoplayEpisodeID.flatMap { id in detail.episodes.first { $0.id == id } }
+                // Open on the season Play continues in (or the episode asked for), not always season 1.
+                if let season = (asked ?? resumeEpisode(for: detail))?.season { model.selectedSeason = season }
                 guard autoplay, !didAutoplay else { return }
                 didAutoplay = true
-                watch(episode: resumeEpisode(for: detail))
+                watch(episode: asked ?? resumeEpisode(for: detail))
+            }
+            // Offline with no saved copy of the show: a download asked for still plays, on its own.
+            .onChange(of: model.errorMessage) { _, error in
+                guard error != nil, autoplay, !didAutoplay, let download = offlineAutoplayDownload else { return }
+                didAutoplay = true
+                playOffline(download, episode: download.record.episode)
             }
             .onDisappear {
                 cancelAutoResolve()
@@ -546,11 +556,26 @@ struct MediaDetailView: View {
             let progressContext = WatchProgressContext(
                 mediaID: mediaID, mediaType: type, title: name, posterURL: detail?.posterURL,
                 season: episode?.season, episode: episode?.episode, episodeID: episode?.id)
+            // Same player as a stream: Other versions opens this episode's list too.
+            streamer.onChooseVersion = {
+                pendingPlay = { model.requestReleases(intent: .watch, episode: episode) }
+                streamer.stop()
+            }
             streamer.playLocalFile(at: url, title: label, subtitleContext: subtitleContext,
                                    episodes: makeEpisodePlaylist(current: episode, detail: detail),
                                    startAt: startAt, progress: progressContext,
                                    originalAudioLanguage: model.originalLanguage)
         }
+    }
+
+    private var offlineAutoplayDownload: Download? {
+        if let id = autoplayEpisodeID {
+            return downloads.downloads.first {
+                $0.record.mediaID == mediaID && $0.record.episode?.id == id
+                    && ($0.phase == .completed || $0.record.isComplete)
+            }
+        }
+        return downloads.completedDownload(mediaID: mediaID, episodeLabel: nil)
     }
 
     private func isWatchTargetDownloaded(for detail: MediaDetail) -> Bool {

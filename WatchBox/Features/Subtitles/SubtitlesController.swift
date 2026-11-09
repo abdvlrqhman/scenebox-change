@@ -545,6 +545,19 @@ final class SubtitlesController {
         enforcedGeneration = generation
         player.selectedSubtitleTrack = track
         trackBecameActive("emb:\(track.id)", language: track.language, player: player)
+        realign(player)
+    }
+
+    /// A subtitle switched on mid-play (a file attached, or another track) can run off the
+    /// video's clock until the video restarts. A precise seek to the current spot lines it
+    /// up, as reopening the episode did. Not in the first seconds: the start is in step.
+    private func realign(_ player: Player) {
+        guard let since = playingSince, Date().timeIntervalSince(since) > 2 else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard player.isSeekable, player.currentTime > .zero else { return }
+            try? player.seek(to: player.currentTime)
+        }
     }
 
     /// Subtitle sync is remembered per episode, source and version, and put
@@ -717,6 +730,7 @@ final class SubtitlesController {
                     if case .external(let chosen, _) = wanted {
                         trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
                     }
+                    realign(player)
                 }
                 return                                   // a newer file attaches on the next pass
             }

@@ -10,6 +10,8 @@ import SwiftUI
 /// Push a title page that starts playing straight away (Home's Play buttons).
 struct PlayTitle: Hashable {
     let item: MediaResult
+    /// A particular episode (a download played from My Stuff); nil: where Play continues.
+    var episodeID: String? = nil
 }
 
 struct CatalogDestination: Hashable {
@@ -27,7 +29,7 @@ extension View {
             }
             .navigationDestination(for: PlayTitle.self) { play in
                 MediaDetailView(mediaID: play.item.id, type: play.item.type, fallbackTitle: play.item.name,
-                                autoplay: true)
+                                autoplay: true, autoplayEpisodeID: play.episodeID)
                     .id(play.item.id)
             }
             .navigationDestination(for: CastMember.self) { member in

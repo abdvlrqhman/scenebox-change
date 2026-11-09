@@ -80,12 +80,92 @@ struct PlaybackScreen: View {
     #endif
 
     var body: some View {
-        screen
+        withPlayerEvents(screen)
             // Subtitles picked while casting go to the TV by themselves.
             .onChange(of: subs.fileOnScreen) { _, file in
                 guard cast.isActive, file != cast.sentSubtitleFile, !cast.isSendingSubtitles else { return }
                 Task { await cast.sendSubtitles(file) }
             }
+    }
+
+    /// What the player reports (state, tracks, the end, the app going away), split from
+    /// `screen` so the type checker can take each chain.
+    private func withPlayerEvents<Content: View>(_ content: Content) -> some View {
+        content
+        .onChange(of: player.isSeekable) { _, seekable in
+            guard seekable else { return }
+            if let target = recoverySeek {
+                recoverySeek = nil
+                try? player.seek(to: target)
+                return
+            }
+            guard !didSeekToStart, startAt > .zero else { return }
+            didSeekToStart = true
+            try? player.seek(to: startAt)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Save the spot before iOS may suspend the app.
+            if phase == .background { recordProgress() }
+        }
+        .onAppear(perform: start)
+        .onChange(of: player.isPlaying) { _, playing in
+            ScreenIdle.keepAwake(playing)
+            #if os(iOS)
+            nowPlaying?.refresh()
+            #endif
+            guard failure == nil, !isBuffering else { return }
+            if playing {
+                if chrome.isVisible { chrome.playbackStarted() }
+            } else {
+                chrome.reveal(autoHide: false)
+            }
+        }
+        .onChange(of: player.subtitleTracks.count) { _, _ in
+            subs.syncEmbedded(on: player)
+        }
+        .onChange(of: player.selectedSubtitleTrack?.id) { _, _ in
+            subs.syncEmbedded(on: player)
+        }
+        .onChange(of: player.audioTracks.count) { _, _ in
+            syncOriginalAudio()
+        }
+        .onChange(of: player.duration) { _, new in
+            if let new, new > .zero { knownDuration = new }
+        }
+        .onChange(of: player.didReachEnd) { _, ended in
+            guard ended, !cast.isActive else { return }
+            // VLC reports "ended" whenever the stream closes. Mid-episode that
+            // means the stream broke (e.g. after the phone was locked): pick
+            // up where it stopped, never mark it watched or skip ahead.
+            if endedEarly { recoverStream() } else { playbackEnded() }
+        }
+        .onChange(of: isBuffering) { wasBuffering, buffering in
+            if wasBuffering, !buffering { chrome.playbackStarted() }
+        }
+        .onChange(of: player.state) { _, state in
+            subs.playerStateChanged(state)
+            if state == .playing { syncOriginalAudio() }   // a reopen may list the same number of tracks
+            if state == .playing, PlayerChoices.audioDelayMs != 0 {
+                try? player.setAudioDelay(.milliseconds(PlayerChoices.audioDelayMs))
+            }
+            #if DEBUG
+            if state == .playing { applyScreenshotFlags() }
+            #endif
+            if state == .playing, let target = recoverySeek, player.isSeekable {
+                recoverySeek = nil
+                try? player.seek(to: target)
+            }
+            guard state == .error, failure == nil, !cast.isActive else { return }
+            if lastGoodPosition > .zero {
+                recoverStream()
+            } else if sourceURL.host == "127.0.0.1", player.currentTime == .zero, openRetries < 5 {
+                player.stop()
+                openRetries += 1
+            } else {
+                failure = "Playback failed. The release may be corrupt or use an unsupported container."
+            }
+        }
+        .onDisappear(perform: teardown)
     }
 
     /// Split from `body` so the type checker can take the long modifier chain.
@@ -339,80 +419,6 @@ struct PlaybackScreen: View {
         .task { await monitorPlayback() }
         .task { await runAutoSeekScript() }
         #endif
-        .onChange(of: player.isSeekable) { _, seekable in
-            guard seekable else { return }
-            if let target = recoverySeek {
-                recoverySeek = nil
-                try? player.seek(to: target)
-                return
-            }
-            guard !didSeekToStart, startAt > .zero else { return }
-            didSeekToStart = true
-            try? player.seek(to: startAt)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // Save the spot before iOS may suspend the app.
-            if phase == .background { recordProgress() }
-        }
-        .onAppear(perform: start)
-        .onChange(of: player.isPlaying) { _, playing in
-            ScreenIdle.keepAwake(playing)
-            #if os(iOS)
-            nowPlaying?.refresh()
-            #endif
-            guard failure == nil, !isBuffering else { return }
-            if playing {
-                if chrome.isVisible { chrome.playbackStarted() }
-            } else {
-                chrome.reveal(autoHide: false)
-            }
-        }
-        .onChange(of: player.subtitleTracks.count) { _, _ in
-            subs.syncEmbedded(on: player)
-        }
-        .onChange(of: player.selectedSubtitleTrack?.id) { _, _ in
-            subs.syncEmbedded(on: player)
-        }
-        .onChange(of: player.audioTracks.count) { _, _ in
-            syncOriginalAudio()
-        }
-        .onChange(of: player.duration) { _, new in
-            if let new, new > .zero { knownDuration = new }
-        }
-        .onChange(of: player.didReachEnd) { _, ended in
-            guard ended, !cast.isActive else { return }
-            // VLC reports "ended" whenever the stream closes. Mid-episode that
-            // means the stream broke (e.g. after the phone was locked): pick
-            // up where it stopped, never mark it watched or skip ahead.
-            if endedEarly { recoverStream() } else { playbackEnded() }
-        }
-        .onChange(of: isBuffering) { wasBuffering, buffering in
-            if wasBuffering, !buffering { chrome.playbackStarted() }
-        }
-        .onChange(of: player.state) { _, state in
-            subs.playerStateChanged(state)
-            if state == .playing { syncOriginalAudio() }   // a reopen may list the same number of tracks
-            if state == .playing, PlayerChoices.audioDelayMs != 0 {
-                try? player.setAudioDelay(.milliseconds(PlayerChoices.audioDelayMs))
-            }
-            #if DEBUG
-            if state == .playing { applyScreenshotFlags() }
-            #endif
-            if state == .playing, let target = recoverySeek, player.isSeekable {
-                recoverySeek = nil
-                try? player.seek(to: target)
-            }
-            guard state == .error, failure == nil, !cast.isActive else { return }
-            if lastGoodPosition > .zero {
-                recoverStream()
-            } else if sourceURL.host == "127.0.0.1", player.currentTime == .zero, openRetries < 5 {
-                player.stop()
-                openRetries += 1
-            } else {
-                failure = "Playback failed. The release may be corrupt or use an unsupported container."
-            }
-        }
-        .onDisappear(perform: teardown)
         #if canImport(Translation) && os(iOS)
         // Only for the first-time language download prompt; translating runs
         // app-wide (TranslationCenter) so it survives closing the player.

@@ -211,3 +211,41 @@ nonisolated enum SubtitleCues {
         }.joined(separator: "\n")
     }
 }
+
+/// One line of a downloaded subtitle file, in milliseconds, drawn by the app.
+nonisolated struct DrawnCue: Sendable, Equatable {
+    let start: Int
+    let end: Int
+    let text: String
+
+    /// SRT and WebVTT files the app draws itself (the others go to VLC).
+    static func canDraw(_ url: URL) -> Bool {
+        ["srt", "vtt"].contains(url.pathExtension.lowercased())
+    }
+
+    /// The file's lines, in time order, formatting tags dropped.
+    static func load(_ url: URL) -> [DrawnCue] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let text = String(decoding: data, as: UTF8.self)     // stored as UTF-8 at download
+        return SubtitleCues.parse(text)
+            .map { DrawnCue(start: $0.startMilliseconds, end: $0.endMilliseconds, text: $0.plainText) }
+            .filter { $0.end > $0.start && !$0.text.isEmpty }
+            .sorted { $0.start < $1.start }
+    }
+
+    /// The lines showing at `ms` (usually one; overlapping cues stack in order).
+    static func showing(at ms: Int, in cues: [DrawnCue]) -> [DrawnCue] {
+        var low = 0, high = cues.count            // first cue starting after `ms`
+        while low < high {
+            let mid = (low + high) / 2
+            if cues[mid].start <= ms { low = mid + 1 } else { high = mid }
+        }
+        var lines: [DrawnCue] = []
+        var index = low - 1
+        while index >= 0, low - index <= 8 {       // a few back is enough for overlaps
+            if cues[index].end > ms { lines.insert(cues[index], at: 0) }
+            index -= 1
+        }
+        return lines
+    }
+}

@@ -392,6 +392,19 @@ if let url = await fileServer.videoURL {
 }
 await fileServer.stop()
 
+// Subtitles the app draws: which lines show at a moment.
+let drawn = [DrawnCue(start: 1000, end: 3000, text: "one"), DrawnCue(start: 2500, end: 4000, text: "two"),
+             DrawnCue(start: 6000, end: 7000, text: "three")]
+check(DrawnCue.showing(at: 500, in: drawn).isEmpty && DrawnCue.showing(at: 1000, in: drawn).map(\.text) == ["one"]
+      && DrawnCue.showing(at: 2700, in: drawn).map(\.text) == ["one", "two"] && DrawnCue.showing(at: 3000, in: drawn).map(\.text) == ["two"]
+      && DrawnCue.showing(at: 5000, in: drawn).isEmpty && DrawnCue.showing(at: 6999, in: drawn).map(\.text) == ["three"]
+      && DrawnCue.showing(at: 9000, in: drawn).isEmpty && DrawnCue.showing(at: 0, in: []).isEmpty,
+      "drawn subtitles: the lines showing at a moment, overlaps stacked")
+let drawnFile = work.appendingPathComponent("drawn.srt")
+try "2\n00:00:05,000 --> 00:00:06,000\n<i>Later</i>\n\n1\n00:00:01,000 --> 00:00:02,500\n{\\an8}First\n".write(to: drawnFile, atomically: true, encoding: .utf8)
+check(DrawnCue.load(drawnFile) == [DrawnCue(start: 1000, end: 2500, text: "First"), DrawnCue(start: 5000, end: 6000, text: "Later")],
+      "drawn subtitles: a file read in time order, tags dropped (got \(DrawnCue.load(drawnFile)))")
+
 check(OriginalAudio.language(forCountries: "France, Belgium") == "fr" && OriginalAudio.language(forCountries: "United States") == "en"
       && OriginalAudio.language(forCountries: "Switzerland") == nil && OriginalAudio.language(forCountries: nil) == nil,
       "original language from the country of origin")

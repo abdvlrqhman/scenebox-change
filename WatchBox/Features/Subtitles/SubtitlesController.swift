@@ -56,8 +56,19 @@ final class SubtitlesController {
             var file: URL?
             if case .external(_, let url) = wanted { file = url }
             if file != fileOnScreen { fileOnScreen = file }
+            // SRT/VTT are drawn by the app; a version being re-timed keeps its lines up meanwhile.
+            if let file, DrawnCue.canDraw(file) {
+                if file != drawnFile { drawnFile = file; drawnCues = DrawnCue.load(file) }
+            } else if case .preparing = wanted {
+            } else if drawnFile != nil {
+                drawnFile = nil
+                drawnCues = []
+            }
         }
     }
+    /// Lines the app draws over the video (empty: none, or VLC draws them).
+    private(set) var drawnCues: [DrawnCue] = []
+    @ObservationIgnored private var drawnFile: URL?
     /// The subtitle file showing now, sync written in: what a TV gets.
     private(set) var fileOnScreen: URL?
     @ObservationIgnored private var preferredFile: (track: SubtitleTrack, file: URL)?
@@ -545,19 +556,6 @@ final class SubtitlesController {
         enforcedGeneration = generation
         player.selectedSubtitleTrack = track
         trackBecameActive("emb:\(track.id)", language: track.language, player: player)
-        realign(player)
-    }
-
-    /// A subtitle switched on mid-play (a file attached, or another track) can run off the
-    /// video's clock until the video restarts. A precise seek to the current spot lines it
-    /// up, as reopening the episode did. Not in the first seconds: the start is in step.
-    private func realign(_ player: Player) {
-        guard let since = playingSince, Date().timeIntervalSince(since) > 2 else { return }
-        Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            guard player.isSeekable, player.currentTime > .zero else { return }
-            try? player.seek(to: player.currentTime)
-        }
     }
 
     /// Subtitle sync is remembered per episode, source and version, and put
@@ -682,8 +680,14 @@ final class SubtitlesController {
                 player.selectedSubtitleTrack = track
             }
 
-        case .external(_, let url):
-            ensureAttached(url, in: player, settled: tracksSettled)
+        case .external(let chosen, let url):
+            if DrawnCue.canDraw(url) {
+                // The app draws this one: VLC shows nothing of its own meanwhile.
+                if player.selectedSubtitleTrack != nil { player.selectedSubtitleTrack = nil }
+                trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
+            } else {
+                ensureAttached(url, in: player, settled: tracksSettled)
+            }
 
         case .preparing:
             break                       // the bake calls back when the copy is ready
@@ -730,7 +734,6 @@ final class SubtitlesController {
                     if case .external(let chosen, _) = wanted {
                         trackBecameActive("ext:\(chosen.id)", language: chosen.languageCode, player: player)
                     }
-                    realign(player)
                 }
                 return                                   // a newer file attaches on the next pass
             }

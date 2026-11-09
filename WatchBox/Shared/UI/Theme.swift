@@ -113,21 +113,29 @@ extension View {
         #endif
     }
 
-    /// Glass for menus floating over the video: tinted a little darker than the
-    /// buttons so rows stay readable over a bright frame, and the picture shows through.
-    @ViewBuilder
+    /// Menus over the video: dark and see-through, without blurring what's behind. A large
+    /// glass or material panel re-samples the playing video every frame: heavy graphics work
+    /// while the video decodes, suspected in the picture breaking up while a menu was open.
     func glassPanel<S: Shape>(in shape: S) -> some View {
+        background(Color.black.opacity(0.78), in: shape)
+            .overlay(shape.stroke(Color.white.opacity(0.14), lineWidth: 0.5))
+    }
+}
+
+/// Groups glass controls so the system draws them in one pass (iOS 26's GlassEffectContainer):
+/// each separate glass piece over moving video would otherwise sample it on its own every frame.
+struct GlassGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            glassEffect(.regular.tint(Color.black.opacity(0.35)), in: shape)
+            GlassEffectContainer(spacing: 0) { content }
         } else {
-            background(.ultraThinMaterial, in: shape)
-                .background(Color.black.opacity(0.35), in: shape)
-                .overlay(shape.stroke(Color.white.opacity(0.14), lineWidth: 0.5))
-                .environment(\.colorScheme, .dark)
+            content
         }
         #else
-        background(Theme.surface, in: shape)
+        content
         #endif
     }
 }

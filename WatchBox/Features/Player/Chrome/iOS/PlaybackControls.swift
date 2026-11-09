@@ -33,6 +33,7 @@ struct PlaybackControls: View {
 
     var body: some View {
         ZStack {
+            GlassGroup {
             VStack(spacing: 0) {
                 TopBar(title: title,
                        onSubtitles: { panelOnSubtitles = true; showSettings = true },
@@ -46,6 +47,7 @@ struct PlaybackControls: View {
                           episodes: episodes, onShowEpisodes: { showEpisodes = true })
             }
             .foregroundStyle(.white)
+            }
 
             if showSettings {
                 PlaybackSettingsPanel(player: player, subs: subs,

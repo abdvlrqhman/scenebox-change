@@ -159,7 +159,11 @@ struct PlaybackScreen: View {
                              : chrome.releaseHold(autoHide: player.isPlaying && !isBuffering)
                     },
                     onInteraction: { chrome.interacted(autoHide: player.isPlaying && !isBuffering) },
-                    onAudioSelected: { track in chosenAudioID = track.id; ShowLanguages.setAudio(track.language, for: showID) },
+                    onAudioSelected: { track in
+                        chosenAudioID = track.id
+                        ShowLanguages.setAudio(track.language, for: showID)
+                        resyncAfterVoiceSwitch()
+                    },
                     episodes: chromeEpisodes,
                     onClose: onClose
                 )
@@ -177,7 +181,11 @@ struct PlaybackScreen: View {
                     },
                     isLandscape: isLandscape,
                     onToggleOrientation: toggleOrientation,
-                    onAudioSelected: { track in chosenAudioID = track.id; ShowLanguages.setAudio(track.language, for: showID) },
+                    onAudioSelected: { track in
+                        chosenAudioID = track.id
+                        ShowLanguages.setAudio(track.language, for: showID)
+                        resyncAfterVoiceSwitch()
+                    },
                     episodes: chromeEpisodes,
                     onCast: openCastPicker,
                     onChooseVersion: onChooseVersion,
@@ -616,6 +624,7 @@ struct PlaybackScreen: View {
             guard player.selectedAudioTrack?.id != id,
                   let chosen = tracks.first(where: { $0.id == id }) else { return }
             player.selectedAudioTrack = chosen
+            resyncAfterVoiceSwitch()
             return
         }
         guard tracks.count > 1 else { return }   // more may still be discovered
@@ -629,9 +638,22 @@ struct PlaybackScreen: View {
             }
             if let match = tracks.first(where: { speaks($0, code) }) {
                 player.selectedAudioTrack = match
+                resyncAfterVoiceSwitch()
                 chosenAudioID = match.id
                 return
             }
+        }
+    }
+
+    /// A voice switched mid-play can stay a beat off the picture until the video is
+    /// reopened (VLC doesn't realign the new track). A precise seek to where it is
+    /// restarts sound and picture together, like reopening, without leaving.
+    private func resyncAfterVoiceSwitch() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))     // let the new track start
+            guard player.isPlaying || player.state == .paused, player.isSeekable,
+                  player.currentTime > .zero else { return }
+            try? player.seek(to: player.currentTime)
         }
     }
 

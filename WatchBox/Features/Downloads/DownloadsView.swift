@@ -405,7 +405,8 @@ struct DownloadsView: View {
                                    subtitleContext: download.record.subtitleContext,
                                    episodes: playlist(for: download),
                                    startAt: resumePosition(for: context),
-                                   progress: context)
+                                   progress: context,
+                                   originalAudioLanguage: download.record.originalLanguage)
         }
     }
 

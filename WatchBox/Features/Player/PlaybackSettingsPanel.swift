@@ -26,6 +26,15 @@ struct PlaybackSettingsPanel: View {
 
     private enum Page { case root, captions, subtitles, versions }
     @Environment(AppSettings.self) private var settings
+    @State private var audioDelayMs = PlayerChoices.audioDelayMs
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// Phone landscape or iPad: Audio and Subtitles side by side.
+    private var twoColumns: Bool { verticalSizeClass == .compact || horizontalSizeClass == .regular }
+    #else
+    private var twoColumns: Bool { true }
+    #endif
     @State private var page: Page = .root
     /// Language whose versions are listed, and where Back returns to.
     @State private var versionsLanguage: String?
@@ -65,11 +74,14 @@ struct PlaybackSettingsPanel: View {
                         // Audio and subtitles side by side, each a list with a check, like
                         // every streaming app; stacked when there isn't room for two columns.
                         header(title: "Audio & subtitles")
-                        ViewThatFits(in: .horizontal) {
+                        // Decided by the screen, not the content: measuring the content made
+                        // the panel jump between layouts whenever a row changed.
+                        if twoColumns {
                             HStack(alignment: .top, spacing: 32) {
-                                audioColumn.frame(minWidth: 240, maxWidth: .infinity, alignment: .topLeading)
-                                subtitleColumn.frame(minWidth: 300, maxWidth: .infinity, alignment: .topLeading)
+                                audioColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                                subtitleColumn.frame(maxWidth: .infinity, alignment: .topLeading)
                             }
+                        } else {
                             VStack(alignment: .leading, spacing: 22) {
                                 audioColumn
                                 subtitleColumn
@@ -185,7 +197,61 @@ struct PlaybackSettingsPanel: View {
             if let onChooseVersion {
                 NavRow(title: "Other versions", value: "Other languages", action: onChooseVersion)
             }
+            if !tracks.isEmpty { voiceSync }
         }
+    }
+
+    /// For a voice that doesn't match the lips: shifts it, for this and the next episodes.
+    private var voiceSync: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Voice sync")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.top, 10)
+            HStack(spacing: 12) {
+                voiceStep(-1000, label: "−1s")
+                voiceStep(-100, label: "−0.1")
+                VStack(spacing: 2) {
+                    Text(String(format: "%+.1f s", Double(audioDelayMs) / 1000))
+                        .font(.headline.monospacedDigit())
+                    if audioDelayMs != 0 {
+                        Button("Reset") { setVoiceDelay(0) }
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .buttonStyle(.plain)
+                    } else {
+                        Text("in sync").font(.caption2).foregroundStyle(.white.opacity(0.5))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                voiceStep(100, label: "+0.1")
+                voiceStep(1000, label: "+1s")
+            }
+            Text("Plus plays the voice later, minus earlier.")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.45))
+        }
+    }
+
+    private func voiceStep(_ milliseconds: Int, label: String) -> some View {
+        Button { setVoiceDelay(audioDelayMs + milliseconds) } label: {
+            Text(label)
+                .font(.caption.weight(.bold).monospacedDigit())
+                .padding(.horizontal, 8)
+                .frame(minHeight: 36)
+                .background(.white.opacity(0.12), in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(milliseconds < 0 ? "Voice earlier by \(abs(milliseconds)) milliseconds"
+                                             : "Voice later by \(milliseconds) milliseconds")
+    }
+
+    private func setVoiceDelay(_ milliseconds: Int) {
+        audioDelayMs = max(-5000, min(5000, milliseconds))
+        PlayerChoices.audioDelayMs = audioDelayMs
+        try? player.setAudioDelay(.milliseconds(audioDelayMs))
     }
 
     private var subtitleColumn: some View {

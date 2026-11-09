@@ -769,7 +769,8 @@ struct MediaDetailView: View {
             mediaID: mediaID,
             mediaType: type,
             posterURL: detail?.posterURL,
-            episode: episode)
+            episode: episode,
+            originalLanguage: model.originalLanguage)
     }
 
     private func makeEpisodePlaylist(current: Episode?, detail: MediaDetail?) -> EpisodePlaylist? {

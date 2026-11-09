@@ -139,7 +139,7 @@ final class DownloadStore {
 
     @discardableResult
     func add(stream: TorrentStream, title: String, mediaID: String, mediaType: MediaType,
-             posterURL: URL?, episode: Episode? = nil) -> Download {
+             posterURL: URL?, episode: Episode? = nil, originalLanguage: String? = nil) -> Download {
         let id = DownloadRecord.makeID(infoHash: stream.id, episodeLabel: episode?.label)
         if let existing = downloads.first(where: { $0.id == id }) {
             if existing.phase == .paused || existing.phase == .failed { resume(existing) }
@@ -164,7 +164,8 @@ final class DownloadStore {
             infoHash: stream.id.lowercased(),
             episodeID: episode?.id,
             episodeName: episode?.name,
-            stillURLString: episode?.thumbnailURL?.absoluteString
+            stillURLString: episode?.thumbnailURL?.absoluteString,
+            originalLanguage: originalLanguage
         )
         let download = Download(record: record, phase: .paused)
         downloads.insert(download, at: 0)

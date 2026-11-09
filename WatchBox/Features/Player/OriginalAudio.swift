@@ -8,6 +8,29 @@
 import Foundation
 
 nonisolated enum OriginalAudio {
+    /// The language a title was most likely made in, from its first country
+    /// ("France, Belgium" → "fr"). A fallback for when TMDB can't say; nil for
+    /// countries with no single language.
+    static func language(forCountries countries: String?) -> String? {
+        guard let first = countries?.split(separator: ",").first?.trimmingCharacters(in: .whitespaces),
+              !first.isEmpty else { return nil }
+        return countryLanguages[first.lowercased()]
+    }
+
+    private static let countryLanguages: [String: String] = [
+        "united states": "en", "usa": "en", "united kingdom": "en", "uk": "en", "ireland": "en",
+        "australia": "en", "new zealand": "en", "canada": "en",
+        "france": "fr", "italy": "it", "spain": "es", "mexico": "es", "argentina": "es", "colombia": "es",
+        "chile": "es", "germany": "de", "west germany": "de", "austria": "de", "japan": "ja",
+        "south korea": "ko", "korea": "ko", "china": "zh", "hong kong": "zh", "taiwan": "zh",
+        "india": "hi", "turkey": "tr", "türkiye": "tr", "brazil": "pt", "portugal": "pt", "russia": "ru",
+        "soviet union": "ru", "sweden": "sv", "norway": "no", "denmark": "da", "finland": "fi",
+        "netherlands": "nl", "poland": "pl", "egypt": "ar", "saudi arabia": "ar", "lebanon": "ar",
+        "iran": "fa", "israel": "he", "thailand": "th", "greece": "el", "czech republic": "cs",
+        "czechia": "cs", "hungary": "hu", "romania": "ro", "ukraine": "uk", "indonesia": "id",
+        "philippines": "tl", "vietnam": "vi",
+    ]
+
     private static let bibliographic: [String: String] = [
         "deu": "ger", "fra": "fre", "zho": "chi", "nld": "dut", "ell": "gre",
         "ces": "cze", "fas": "per", "ron": "rum", "msa": "may", "sqi": "alb",

@@ -392,6 +392,10 @@ if let url = await fileServer.videoURL {
 }
 await fileServer.stop()
 
+check(OriginalAudio.language(forCountries: "France, Belgium") == "fr" && OriginalAudio.language(forCountries: "United States") == "en"
+      && OriginalAudio.language(forCountries: "Switzerland") == nil && OriginalAudio.language(forCountries: nil) == nil,
+      "original language from the country of origin")
+
 // Which episode Play starts: part-watched first, else the next; a new show starts at its first download.
 let show = MediaDetail(id: "tt1", type: .series, name: "Show", year: nil, posterURL: nil, backdropURL: nil,
                        logoURL: nil, description: nil, cast: [], directors: [], writers: [], genres: [],

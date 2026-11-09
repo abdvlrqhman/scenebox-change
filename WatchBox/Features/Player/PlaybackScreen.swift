@@ -379,6 +379,9 @@ struct PlaybackScreen: View {
         .onChange(of: player.state) { _, state in
             subs.playerStateChanged(state)
             if state == .playing { syncOriginalAudio() }   // a reopen may list the same number of tracks
+            if state == .playing, PlayerChoices.audioDelayMs != 0 {
+                try? player.setAudioDelay(.milliseconds(PlayerChoices.audioDelayMs))
+            }
             #if DEBUG
             if state == .playing { applyScreenshotFlags() }
             #endif
@@ -763,6 +766,11 @@ struct PlaybackScreen: View {
         let url = sourceURL
         do {
             let media = try Media(url: url)
+            // Open on the right voice and with no subtitle chosen by VLC: otherwise VLC starts on
+            // the file's defaults and the app switches a moment later (a voice hiccup, a subtitle
+            // that flashes and vanishes). The app picks subtitles itself once tracks are listed.
+            media.addOption(":sub-language=none")
+            if let code = targetAudioLanguage { media.addOption(":audio-language=\(code)") }
             if !url.isFileURL {
                 let isTorrent = url.host == "127.0.0.1"
                 // The local torrent server already holds data ahead of the playhead,

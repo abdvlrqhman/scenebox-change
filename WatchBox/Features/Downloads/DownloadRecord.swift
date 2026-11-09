@@ -29,6 +29,7 @@ struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
     var lastProgress: Double?   // fraction done when last saved, so a paused row keeps its percentage
     var episodeName: String?    // "Pilot"; kept so My Stuff shows the episode like its show page, offline too
     var stillURLString: String? // the episode's still; nil on older records
+    var originalLanguage: String? // the title's own language, for Default audio "Original" offline
 
     var posterURL: URL? { posterURLString.flatMap(URL.init(string:)) }
     /// Older records didn't keep a still; Cinemeta's follow one pattern for IMDb shows.

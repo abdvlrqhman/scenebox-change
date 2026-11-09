@@ -82,6 +82,9 @@ final class MediaDetailModel {
                 let fetched = try await search.detail(id: mediaID, type: type)
                 guard !Task.isCancelled else { return }
                 detail = fetched
+                // Until TMDB answers (or with no TMDB key): the country it was made in says
+                // which voice "Original" means, so a French show doesn't open on its Italian dub.
+                if originalLanguage == nil { originalLanguage = OriginalAudio.language(forCountries: fetched.country) }
                 DownloadStore.shared.fillEpisodeDetails(mediaID: mediaID, episodes: fetched.episodes)
                 selectedSeason = fetched.seasons.first ?? 1
 
@@ -108,7 +111,7 @@ final class MediaDetailModel {
         let (cast, code) = await (members, language)
         guard !Task.isCancelled else { return }
         castMembers = cast
-        originalLanguage = code
+        if let code, !code.isEmpty { originalLanguage = code }
     }
 
     private func loadSimilar(for detail: MediaDetail) async {

@@ -14,11 +14,15 @@ enum PlayerChoices {
     static var audioLanguage: String?
     /// Subtitle language picked in the panel ("" = Off); nil until the viewer picks one.
     static var subtitleLanguage: String?
+    /// Voice sync in milliseconds (positive: the voice plays later). Releases of one show
+    /// usually share the offset, so it carries to the next episode.
+    static var audioDelayMs = 0
 
     static func reset() {
         rate = 1
         aspect = nil
         audioLanguage = nil
         subtitleLanguage = nil
+        audioDelayMs = 0
     }
 }

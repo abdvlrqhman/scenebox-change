@@ -162,7 +162,7 @@ struct PlaybackScreen: View {
                     onAudioSelected: { track in
                         chosenAudioID = track.id
                         ShowLanguages.setAudio(track.language, for: showID)
-                        resyncAfterVoiceSwitch()
+                        realignSoundAndPicture()
                     },
                     episodes: chromeEpisodes,
                     onClose: onClose
@@ -184,7 +184,7 @@ struct PlaybackScreen: View {
                     onAudioSelected: { track in
                         chosenAudioID = track.id
                         ShowLanguages.setAudio(track.language, for: showID)
-                        resyncAfterVoiceSwitch()
+                        realignSoundAndPicture()
                     },
                     episodes: chromeEpisodes,
                     onCast: openCastPicker,
@@ -384,8 +384,11 @@ struct PlaybackScreen: View {
         .onChange(of: isBuffering) { wasBuffering, buffering in
             if wasBuffering, !buffering { chrome.playbackStarted() }
         }
-        .onChange(of: player.state) { _, state in
+        .onChange(of: player.state) { old, state in
             subs.playerStateChanged(state)
+            // Resuming from a pause (the button, the lock screen, headphones, a call) restarts
+            // the sound: line it up with the picture again.
+            if old == .paused, state == .playing, recoverySeek == nil { realignSoundAndPicture() }
             if state == .playing { syncOriginalAudio() }   // a reopen may list the same number of tracks
             if state == .playing, PlayerChoices.audioDelayMs != 0 {
                 try? player.setAudioDelay(.milliseconds(PlayerChoices.audioDelayMs))
@@ -624,7 +627,7 @@ struct PlaybackScreen: View {
             guard player.selectedAudioTrack?.id != id,
                   let chosen = tracks.first(where: { $0.id == id }) else { return }
             player.selectedAudioTrack = chosen
-            resyncAfterVoiceSwitch()
+            realignSoundAndPicture()
             return
         }
         guard tracks.count > 1 else { return }   // more may still be discovered
@@ -638,17 +641,17 @@ struct PlaybackScreen: View {
             }
             if let match = tracks.first(where: { speaks($0, code) }) {
                 player.selectedAudioTrack = match
-                resyncAfterVoiceSwitch()
+                realignSoundAndPicture()
                 chosenAudioID = match.id
                 return
             }
         }
     }
 
-    /// A voice switched mid-play can stay a beat off the picture until the video is
-    /// reopened (VLC doesn't realign the new track). A precise seek to where it is
-    /// restarts sound and picture together, like reopening, without leaving.
-    private func resyncAfterVoiceSwitch() {
+    /// After a voice switch or a pause, VLC can leave the sound (and so the subtitles'
+    /// timing against it) a beat off the picture until the video is reopened. A precise
+    /// seek to where it is restarts sound and picture together, like reopening, in place.
+    private func realignSoundAndPicture() {
         Task {
             try? await Task.sleep(for: .milliseconds(300))     // let the new track start
             guard player.isPlaying || player.state == .paused, player.isSeekable,
